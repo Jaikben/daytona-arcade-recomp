@@ -33,6 +33,12 @@ Lockstep::Lockstep(Cpu &core, const std::string &path) : core_(core) {
 
 // The next count at which boundary() must act: an event to apply, or a
 // pending-table take MAME made that ours must have made by then.
+Lockstep::Lockstep(Cpu &core) : core_(core), free_run_(true) {
+    core_.on_take = on_take;
+    core_.on_take_ctx = this;
+    refresh_next();
+}
+
 void Lockstep::refresh_next() {
     next_count = next_ < log_.size() ? log_[next_].count : UINT64_MAX;
     if (next_ < log_.size() && log_[next_].kind == Event::Pend) next_count += 1; // checked after it should happen
@@ -44,8 +50,9 @@ bool Lockstep::apply() {
     while (next_ < log_.size() && log_[next_].count == count && log_[next_].kind != Event::Pend) {
         const Event &e = log_[next_];
         if (e.kind == Event::Call) {
+            const size_t fn = e.fn; // the callback may add events (e moves)
             ++next_;
-            calls_[e.fn]();
+            calls_[fn]();
         } else if (e.kind == Event::Line) {
             ++next_;
             core_.execute_set_input(e.a, e.b);
@@ -58,6 +65,16 @@ bool Lockstep::apply() {
         } else {
             ++next_; // End
         }
+    }
+    if (free_run_) {
+        poked_ = false;
+        if (core_.m_immediate_irq) core_.check_immediate_irqs();
+        if (next_ > 4096) { // drop consumed events
+            log_.erase(log_.begin(), log_.begin() + long(next_));
+            next_ = 0;
+        }
+        refresh_next();
+        return core_.m_IP != ip_before;
     }
     if (next_ < log_.size() && log_[next_].kind == Event::Pend && log_[next_].count < count)
         throw Divergence("MAME took a pending interrupt (vector " + std::to_string(log_[next_].a) + ") at instruction " +
@@ -81,6 +98,10 @@ void Lockstep::add_callback(uint64_t at, std::function<void()> fn) {
 
 void Lockstep::on_take(void *ctx, int vector, uint32_t ip, bool pending) {
     auto &t = *static_cast<Lockstep *>(ctx);
+    if (t.free_run_) {
+        ++t.taken_;
+        return;
+    }
     const auto &log = t.log_;
     const size_t n = t.next_;
     if (n >= log.size() || log[n].count != t.count || log[n].a != vector || log[n].ip != ip ||

@@ -1,0 +1,133 @@
+// The Model 2 board as the recompiled game runs on it outside lockstep: the
+// whole i960 memory map with every device answered natively (no trace, no
+// MAME, no emulated CPUs). Frame pacing is the only clock: the game's native
+// code runs until it waits for vblank (its idle loop), then the board starts
+// vblank: the geometrizer parses the display list, the vblank interrupt is
+// raised, and at vblank end the screen is composed.
+//
+// Devices, each native: RAM/ROM and texture RAM (as the replay bus), the TGP
+// and geometry ports (TgpBoard, recompiled TGP), the geometrizer (Geo), the
+// screen (Video: tilemaps, palette, 3D layer), the interrupt controller and
+// timers, video/render mode registers, the I/O board (IoBoard: its dual-port
+// RAM mailbox protocol, inputs, settings EEPROM), the sound UART (bytes to
+// the sound runtime), the comm board's shared RAM and backup RAM.
+#pragma once
+
+#include "runtime/cpu.h"
+#include "runtime/geo.h"
+#include "runtime/lockstep.h"
+#include "runtime/m2_tgp_board.h"
+#include "runtime/video.h"
+
+#include <array>
+#include <cstdint>
+#include <deque>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace rt {
+
+struct Inputs {
+    uint8_t steer = 0x80, accel = 0x20, brake = 0x20; // ADC values, 0x20-0xe0
+    uint8_t in0 = 0xff, in1 = 0x8f, in2 = 0xff;       // switches, active low (MAME IN0/IN1/IN2 layout)
+};
+
+// The I/O board's side of the MB8421 dual-port RAM (2 KB): the game writes a
+// command to byte 0x20 and the board answers. 1: latch the inputs into bytes
+// 0-10. 3: copy the 128-byte settings EEPROM to bytes 0x100-0x17f. 2: store
+// bytes 0x100-0x17f to the EEPROM. The byte returns to 0 when done.
+class IoBoard {
+public:
+    uint8_t read(uint32_t index) const { return ram_[index & 0x7ff]; }
+    void write(uint32_t index, uint8_t v);
+    Inputs inputs;
+    std::array<uint8_t, 128> eeprom;
+    bool eeprom_dirty = false;
+    IoBoard() { ram_.fill(0); eeprom.fill(0xff); }
+
+private:
+    std::array<uint8_t, 0x800> ram_;
+};
+
+class M2Board : public Bus {
+public:
+    struct Images {
+        std::vector<uint8_t> program, main_data, copro_tables, copro_data, polygons, textures;
+    };
+    explicit M2Board(Images images);
+
+    // The CPU and scheduler (free-run Lockstep) the board raises interrupts on.
+    void attach(Cpu &cpu, Lockstep &ls);
+
+    // Bus
+    uint32_t fetch(uint32_t addr) override;
+    uint8_t read_byte(uint32_t addr) override;
+    uint16_t read_word(uint32_t addr) override;
+    uint32_t read_dword(uint32_t addr) override;
+    void write_byte(uint32_t addr, uint8_t data) override;
+    void write_word(uint32_t addr, uint16_t data) override;
+    void write_dword(uint32_t addr, uint32_t data) override;
+    uint16_t flags(uint32_t addr) override { return page(addr).burst ? Cpu::BURST : 0; }
+
+    // Frame control, called by the runner.
+    void vblank_start();       // MAME screen_vblank: geometrizer, vblank IRQ
+    void vblank_end();         // screen_update
+    bool in_idle_loop() const; // the game is waiting for vblank
+    uint64_t frame() const { return frame_; }
+
+    Video &video() { return *video_; }
+    IoBoard &io() { return io_; }
+    TgpBoard &tgp() { return tgp_; }
+    const std::vector<uint8_t> &sound_bytes() const { return uart_out_; } // everything sent to the sound board
+    std::vector<uint8_t> &backup_ram() { return backup_; }
+
+private:
+    enum Kind : uint8_t { Unmapped, Rom, Ram, Tex, Dev };
+    struct Page {
+        Kind kind = Unmapped;
+        bool burst = false;
+        uint8_t *base = nullptr;
+    };
+    static constexpr unsigned kPageBits = 12;
+    Page &page(uint32_t addr) { return pages_[addr >> kPageBits]; }
+    void map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror = 0, bool burst = true);
+
+    // Device dword access: data in its byte lanes, mask = lanes accessed.
+    uint32_t dev_read(uint32_t addr, uint32_t mask);
+    void dev_write(uint32_t addr, uint32_t data, uint32_t mask);
+    void ram_written(uint32_t addr, uint32_t data, uint32_t mask); // video registers kept in RAM pages
+    void tex_write(const Page &p, uint32_t addr, uint32_t lane_data);
+
+    void irq_update();
+    void uart_write_data(uint8_t v);
+    void uart_txrdy(bool state);
+
+    Images img_;
+    std::vector<uint8_t> ram_, work_, cpuctl_, backup_, tile_, chr_, palette_, xlat_, tex0_, tex1_, luma_, fb_a_, fb_b_,
+        comm_;
+    std::vector<Page> pages_;
+
+    TgpBoard tgp_;
+    std::unique_ptr<Geo> geo_;
+    std::unique_ptr<Video> video_;
+    IoBoard io_;
+    Cpu *cpu_ = nullptr;
+    Lockstep *ls_ = nullptr;
+
+    uint32_t intreq_ = 0, intena_ = 0;
+    int8_t lines_[4] = {-1, -1, -1, -1};
+    uint32_t timervals_[4] = {0, 0, 0, 0};
+    uint32_t videocontrol_ = 0, zclip_ = 0;
+    bool render_mode_ = false, render_test_ = false, render_unk_ = false;
+    uint8_t comm_cn_ = 0, comm_fg_ = 0;
+    uint64_t frame_ = 0;
+
+    // i8251 UART to the sound board (transmit side)
+    bool uart_txrdy_ = true, uart_shift_busy_ = false, uart_have_hold_ = false;
+    uint8_t uart_hold_ = 0;
+    std::vector<uint8_t> uart_out_;
+    void uart_shift_done();
+};
+
+} // namespace rt

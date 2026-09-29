@@ -7,6 +7,7 @@
 #include "runtime/cpu.h"
 #include "runtime/m2_replay_bus.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -18,6 +19,10 @@ class Lockstep {
 public:
     // Loads MAME's IRQ log (M2TRACE_IRQLOG) and hooks the core's take callback.
     Lockstep(Cpu &core, const std::string &irq_log_path);
+    // Free run (the game on its own, no MAME): no log; the board schedules
+    // its events with add_callback, and interrupts the board raises are taken
+    // at the next instruction boundary (poke()).
+    explicit Lockstep(Cpu &core);
 
     uint64_t count = 0;            // completed instructions so far
     uint64_t end_count = UINT64_MAX; // MAME's run ends here
@@ -32,8 +37,11 @@ public:
     bool finished() const { return count >= end_count; }
     // Run fn when `at` instructions have completed, before any interrupt
     // event at the same count (MAME's vblank handler parses the display list
-    // before it raises the vblank line). Call before the run starts.
+    // before it raises the vblank line). Lockstep: call before the run
+    // starts. Free run: callbacks may add further callbacks.
     void add_callback(uint64_t at, std::function<void()> fn);
+    // Free run: an interrupt line changed; take it at the next boundary.
+    void poke() { next_count = std::min(next_count, count + 1); poked_ = true; }
     int interrupts() const { return taken_; }
 
 private:
@@ -52,6 +60,7 @@ private:
     Cpu &core_;
     std::vector<Event> log_;
     size_t next_ = 0;
+    bool free_run_ = false, poked_ = false;
     int taken_ = 0;
 };
 

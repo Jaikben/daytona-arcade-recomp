@@ -2,6 +2,31 @@
 
 ## Current state
 
+**The game runs on its own.** `m2run` runs the recompiled game on the
+native board runtime (`src/runtime/m2_board.cpp`) with no trace and no
+MAME: boot, the settings screen, then the attract demo in full 3D.
+Headless for now (frames dumped every N; `scripts/rgb2png.py`); 600 frames
+in 5.7 s including the CPU rasterizer (106 frames/s), 23 M i960 and 12 M TGP
+instructions, all native.
+
+How it runs, with no clock:
+- Frame pacing is the game's: vblank starts when the game waits in its
+  wait-for-vblank loops (0x12b0-0x12bb, 0x12f0-0x12ff: spinning on the
+  frame counter at 0x00500000); a CPU-bound frame (the boot texture upload
+  at 0x1388) gets vblank after one frame's worth of work (110k
+  instructions, as MAME measures 25 MHz / 57.52 Hz). Vblank ends when the
+  handler has returned to the wait loop. A windowed build waits for vsync
+  there; frame rate is the only limit.
+- The TGP runs before the i960 reads buffer RAM: the game sends the TGP a
+  command, writes -1 to the mailbox at 0x0091fff0 and spins until the TGP
+  writes 0 (0x1166c). Without this the game waits forever.
+- I/O board: the dual-port RAM mailbox protocol, native (command 1: latch
+  inputs into bytes 0-10; 3: load the 128-byte settings EEPROM into
+  0x100-0x17f; 2: store it). Inputs take the scripts/inputs format
+  (`m2run ... --inputs FILE`).
+- Sound UART: bytes collected for the sound runtime (next); TxRDY is
+  immediate, so the IRQ3 handler drains its queue at once.
+
 **The whole screen now renders natively, identical to MAME.** `src/runtime/video.cpp`
 adds the segaic24 tilemap chip (four 64x64-tile layers, per-line scroll,
 special window modes, 8-pixel window masks), the tilemap palette pens (as
@@ -178,17 +203,14 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. The game loop outside lockstep: the recompiled i960 driven by the native
-   board with no trace (vblank and timer interrupts, the sound UART and the
-   I/O board's dual-port RAM answered natively, inputs from the host), and
-   frames out to a window (SDL3). Then compare a free-running attract with
-   MAME's frames.
-2. Sound: statically recompile the 68000 sound program (same approach as the
-   i960, lockstep against MAME's sound CPU); YM3438 and MultiPCM as native
-   C++.
-3. GPU backend (SDL3 GPU) with the CPU reference as ground truth.
-4. Pin the geometrizer's libm calls (`hypot`, `sqrt`) for cross-host
-   agreement; harvest the 21 unhit indirect sites (a user recording).
+1. A window: SDL3, the composed screen presented each frame at vsync,
+   keyboard/gamepad/wheel mapped to the I/O board inputs; settings EEPROM
+   and backup RAM saved to files.
+2. Sound: the sound board's program statically recompiled (68000), YM3438
+   and MultiPCM as native C++, fed from the UART bytes.
+3. Check a free-running coin-up and race against the scripted inputs
+   (compare with MAME's frames by eye and by game state).
+4. GPU renderer (SDL3 GPU) with the CPU reference as ground truth.
 
 ## Open decisions
 

@@ -37,6 +37,9 @@ public:
     uint32_t geo_read_start() const { return geo_read_start_; }
     uint64_t tgp_instructions() const { return tgp_.count; }
     bool booted() const { return booted_; }
+    // Run the TGP until it waits on an empty input FIFO. The game polls the
+    // TGP's mailbox in buffer RAM for results; the TGP must have caught up.
+    void sync() { run_tgp(); }
 
     // TgpBus (the TGP's side)
     bool fifo_pop(uint32_t &v) override;
