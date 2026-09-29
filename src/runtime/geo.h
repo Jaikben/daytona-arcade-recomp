@@ -42,14 +42,17 @@ struct GeoPoly {
     GeoVertex v[8];
 };
 
-// A bounds-checked cursor standing in for MAME's raw u32 pointers.
+// Cursors standing in for MAME's raw u32/u16 pointers. Reads run on from a
+// masked start, so a start near the end runs off it (time attack does, in
+// polygon RAM and in texture memory). MAME reads past its array there; we
+// wrap, as the hardware's address counter would. Sizes are powers of 2.
 struct GeoPtr {
     uint32_t *base = nullptr;
     uint32_t size = 0, i = 0;
     bool null() const { return base == nullptr; }
     uint32_t &at() const {
-        if (!base || i >= size) throw GeoFatal("geometrizer read past the end of its memory");
-        return base[i];
+        if (!base) throw GeoFatal("geometrizer read from missing memory");
+        return base[i & (size - 1)];
     }
     uint32_t &operator*() const { return at(); }
     GeoPtr operator++(int) { GeoPtr t = *this; ++i; return t; }
@@ -59,8 +62,8 @@ struct GeoPtr16 {
     const uint16_t *base = nullptr;
     uint32_t size = 0, i = 0;
     uint16_t operator*() const {
-        if (i >= size) throw GeoFatal("rasterizer read past the end of texture memory");
-        return base[i];
+        if (!base) throw GeoFatal("rasterizer read from missing texture memory");
+        return base[i & (size - 1)];
     }
     GeoPtr16 operator++(int) { GeoPtr16 t = *this; ++i; return t; }
 };

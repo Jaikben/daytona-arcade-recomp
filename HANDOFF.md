@@ -2,6 +2,35 @@
 
 ## Current state
 
+**macOS (Apple clang, arm64, Metal) builds and plays.** First run on a Mac
+with a real `daytona93` set turned up:
+
+- `scripts/recompile.py` built only the check tools after generating code,
+  never `daytona` or `m2run`, so a fresh `./setup.sh` left no game. It now
+  builds everything.
+- The launcher saved the ROM path as typed (`roms/daytona93.7z`), so the
+  check failed and Start stayed disabled when run from another directory.
+  It now stores the absolute path. A saved GPU choice the host lacks
+  (Vulkan on a Mac without MoltenVK) exited at `SDL_CreateGPUDevice`; it now
+  falls back to automatic.
+- The seeds were short. The windowed game stopped at `0x1d8c`, then longer
+  runs at `0x2266f8`, `0x5788`, `0x225028`, `0x223078`, `0x2265c4`: code the
+  game reaches only through pointers in states the harvest never visited.
+  `scripts/seed_scan.py` finds them statically (see Findings) and added 248
+  seeds (334 -> 582): 24,504 -> 34,497 reachable instructions, recompile
+  still all native.
+- Time attack stopped in the geometrizer: texture-point/header reads and a
+  polygon-RAM walk run one past the end of their memory. `GeoPtr`/`GeoPtr16`
+  now wrap (see Findings).
+
+Measured after, `m2run`: attract 40,000 frames (11.6 min of game time),
+all 11 scripted scenarios in `scripts/inputs/` (races, courses, time attack,
+test menus) run to the end, all native; race_basic screen hash unchanged
+(`ad67233983ea8808`) by the wrap. `daytona` on Metal: 60 s, 3,396 frames,
+no stop. **Not verified against MAME**: the newly seeded code has not been
+lockstepped (it only runs in states the scenarios reach, and the harvest
+did not), and the wrap has no MAME counterpart to compare with.
+
 **Sound.** The Model 1 sound board runs natively: its 68000 program
 (`epr-16489`/`16490`) is statically recompiled (`src/m68k` decoder,
 `tools/m2sndrecomp`, runtime context `src/runtime/snd_cpu.h`), with the
@@ -265,8 +294,10 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Run `daytona` on Windows (Direct3D 12 and Vulkan) and macOS (Metal) and
-   fix whatever MSVC or Apple clang reject.
+1. Run `daytona` on Windows (Direct3D 12 and Vulkan) and fix whatever MSVC
+   rejects. macOS (Metal) is done (Current state).
+   Harvest the states `seed_scan.py` found in MAME (which state the windowed
+   game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep them.
 2. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
    SPIR-V, DXIL and MSL), measured against the CPU reference.
 3. Wheel support and control remapping; widescreen and resolution options.
@@ -519,6 +550,31 @@ Also found:
   MSVC keeps `thread_local`. Checked: macOS `./setup.sh` builds with 5/5 tests
   passing; Ubuntu 24.04 arm64 GCC 13 and Clang 18 build `test_fp` with 0
   mismatches. Windows is untested, but MSVC's definition did not change.
+- The harvest's seeds covered only the states the scripted MAME runs
+  visited. The game reaches code four other ways, all now scanned by
+  `scripts/seed_scan.py` to a fixed point (recompiling each round):
+  - game-mode table at `0x18cc`, 31 entries, `ld 0x18cc[g0*4]; callx`
+    at `0x18bc`, index the mode byte at `0x5010a0` (harvest reached 9);
+  - task state chains: each state stores the next state's address with
+    `lda` (`0x1dd4`: `lda 0x2266f8,r5; st r5,0xc(r3)`; `0x2266f8` itself
+    stores `0x226764` at `0xc(g13)`);
+  - jump tables read as `ld T[r*4]` then `bx` (`0x5808`, masked to 4) or
+    `lda T[r*4]` then `ld`, `callx` (`0x225010`);
+  - handler addresses in ROM data: 24-byte object records in the program
+    ROM (`0x2375bc`: `0x223078` then floats) and tables in the main data
+    ROM (`0x28660cc` -> `0x2265c4`, a bare `ret`).
+  A candidate counts only if `i960dis` decodes it to a `ret` or branch with
+  no `?`, `!noexec` or `!quirk` first. That rejected float constants that
+  `lda` loads (`0x50d0` = 1.0f, `0xcdd8`). From the committed seeds the scan
+  finds 275 entry points in one round and nothing in the next; 248 of them
+  are the added seeds, the other 27 fall inside code those reach.
+- Geometrizer reads past the end of memory (time attack, frame < 6,000):
+  texture point/header data (`GeoPtr16`, 4-8 words from a masked start) and
+  a polygon RAM walk (`GeoPtr`, index 32,768 of 32,768). MAME's raw
+  pointers read whatever follows the array there. The display list is not
+  ours at fault: time attack matched MAME to the word, buffer RAM included.
+  Now wrapped to the memory size, as a hardware address counter would;
+  unconfirmed on the PCB.
 
 ## What not to re-propose
 
@@ -532,6 +588,13 @@ Also found:
   only; semantics come from the executor.
 - `THREAD_LOCAL=thread_local` for C++ users of SoftFloat (breaks the macOS
   link; see Findings).
+- Seeding one "no recompiled code at X" at a time. Each state stores the
+  next, so the game stops again one state on; run `scripts/seed_scan.py`.
+- A function-start test (previous word is `ret` or `b`) on its own for code
+  pointers: it rejected `0x2266f8`, whose previous word is the second word
+  of an 8-byte instruction. `seed_scan.py` uses it only for the data ROM.
+- Every aligned word of the 32 MB data ROM as a candidate without that test:
+  5,497 candidates, mostly chance matches in graphics data.
 - A TGP microcode ROM dump. The program is uploaded at boot from the game's
   data ROM; dump TGP program RAM only after the upload, or it is zeros.
 

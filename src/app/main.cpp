@@ -140,8 +140,15 @@ int main(int argc, char **argv) {
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
                                           SDL_WINDOW_RESIZABLE | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (!window) return fail("SDL_CreateWindow");
-    SDL_GPUDevice *dev =
-        SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    constexpr SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL;
+    SDL_GPUDevice *dev = SDL_CreateGPUDevice(formats, false, nullptr);
+    if (!dev && !cfg.gpu.empty()) {
+        // The chosen API is not available here (Vulkan on a Mac without MoltenVK): use the automatic choice.
+        std::fprintf(stderr, "daytona: %s; falling back to automatic\n", SDL_GetError());
+        SDL_ResetHint(SDL_HINT_GPU_DRIVER);
+        cfg.gpu.clear();
+        dev = SDL_CreateGPUDevice(formats, false, nullptr);
+    }
     if (!dev) return fail("SDL_CreateGPUDevice");
     if (!SDL_ClaimWindowForGPUDevice(dev, window)) return fail("SDL_ClaimWindowForGPUDevice");
     std::printf("daytona: GPU driver %s\n", SDL_GetGPUDeviceDriver(dev));

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 
 namespace app {
 
@@ -19,6 +20,14 @@ void Launcher::check_rom() {
     if (cfg_.rom_path.empty()) {
         rom_message_ = "Choose your daytona93 ROM set (.zip or .7z).";
         return;
+    }
+    // Keep the path absolute, so the saved setting works from any directory.
+    std::error_code ec;
+    const auto abs = std::filesystem::absolute(cfg_.rom_path, ec);
+    if (!ec && abs.string() != cfg_.rom_path && std::filesystem::exists(abs, ec)) {
+        cfg_.rom_path = abs.lexically_normal().string();
+        std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
+        cfg_.save();
     }
     try {
         checks_ = rt::check_rom_set(cfg_.rom_path);

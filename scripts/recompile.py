@@ -69,7 +69,7 @@ def main():
          os.path.join(snd, "snd_gen.cpp")])
 
     run(["cmake", "-S", ".", "-B", build])  # picks up the generated sources
-    run(build_cmd + ["--target", "m2native", "m2replay", "m2tgpcheck", "m2sndcheck"])
+    run(build_cmd + ["--parallel"])  # the game (daytona, m2run) and the check tools
 
 
 if __name__ == "__main__":
