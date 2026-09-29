@@ -275,6 +275,19 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
 
     // render_polygons
     rendered_now_ = false;
+    if (gpu_) { // the GPU draws the 3D layer and composes the screen
+        if (!render_done_ && !polys.empty()) {
+            prepare_gpu_frame(polys, windows, mem, crtc_x_, crtc_y_, render_x_, render_y_, 0, W - 1, 0, H - 1, gpu_scale_, gpu_frame_);
+            if (gpu_ref_) raster_.render(polys, windows, mem, crtc_x_, crtc_y_, render_x_, render_y_, 0, W - 1, 0, H - 1);
+            render_done_ = true;
+            rendered_now_ = true;
+        }
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 0; layer--) draw(sys24_, (layer << 1) | 1, 0);
+        front_.resize(size_t(W) * H);
+        for (int y = 0; y < H; y++) std::copy_n(&sys24_[size_t(y) * W], W, &front_[size_t(y) * W]);
+        return;
+    }
     if (render_done_) {
         copy_trans(raster_.pixels(), 512);
     } else if (!polys.empty()) {

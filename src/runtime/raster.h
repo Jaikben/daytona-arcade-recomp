@@ -30,6 +30,28 @@ struct VideoMem {
     const uint32_t *tex1 = nullptr;     // texture RAM 1
 };
 
+// One vertex of the GPU renderer's 3D layer (src/app/gpu_renderer.cpp,
+// shaders/poly.*.hlsl): the polygon projected and set up exactly as the CPU
+// rasterizer sets it up, with the polygon's shading state packed alongside.
+struct GpuVertex {
+    float x, y, depth, scale; // 3D-layer pixels; draw-order depth (first drawn wins); render scale
+    float ooz, uoz, voz;      // 1/z, u/z, v/z (textured polygons)
+    uint32_t a[4], b[4], c[4]; // shading state and clip rectangle (see shaders/poly.frag.hlsl)
+};
+static_assert(sizeof(GpuVertex) == 76);
+
+// A frame of the 3D layer for the GPU: triangles in draw order plus the
+// colour-table, luma and gamma bytes the pixel shader reads.
+struct GpuFrame {
+    std::vector<GpuVertex> verts;
+    std::vector<uint32_t> vmem; // colorxlat (0xc000 bytes), luma lane 0 (0x8000), gamma (0x100)
+};
+
+// Build the GPU frame for the same display list Raster::render draws.
+void prepare_gpu_frame(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
+                       int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy, float scale,
+                       GpuFrame &out);
+
 class Raster {
 public:
     Raster();
@@ -51,6 +73,10 @@ public:
     uint64_t hash(int minx, int maxx, int miny, int maxy) const; // as the MAME log computes it
 
     struct Extra; // per-polygon shading state (MAME m2_poly_extra_data)
+    // model2_3d_project and the set-up half of model2_3d_render, shared with
+    // the GPU path. Returns the renderer (0-3); fills extra and clip.
+    static int prepare(GeoPoly &poly, const VideoMem &mem, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx,
+                       int clip_maxx, int clip_miny, int clip_maxy, Extra &extra, int *clip);
 
 private:
     std::vector<uint32_t> dest_;

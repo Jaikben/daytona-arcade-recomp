@@ -46,6 +46,19 @@ public:
 
     static constexpr int W = 496, H = 384;
 
+    // GPU mode (the windowed game): screen_update leaves the 3D layer to the
+    // GPU renderer. screen() then holds the back 2D layers, front() the front
+    // layers (0 where transparent), and gpu_frame() the 3D layer's triangles
+    // when the update prepared a new one (gpu_frame_new()); layer3d_on() says
+    // whether the 3D layer shows. `reference` also draws it on the CPU
+    // (raster()) so the two can be compared.
+    void set_gpu(bool on, float scale = 1.0f, bool reference = false) { gpu_ = on, gpu_scale_ = scale, gpu_ref_ = reference; }
+    bool gpu() const { return gpu_; }
+    const std::vector<uint32_t> &front() const { return front_; }
+    const GpuFrame &gpu_frame() const { return gpu_frame_; }
+    bool gpu_frame_new() const { return rendered_now_; }
+    bool layer3d_on() const { return render_done_; }
+
 private:
     uint16_t tile(uint32_t i) const { return uint16_t(tile_ram_[i * 2] | tile_ram_[i * 2 + 1] << 8); }
     void build_layer(int layer); // pixmap_/flags_ for one tilemap
@@ -63,6 +76,10 @@ private:
     std::vector<uint8_t> flags_[4];
     std::vector<uint32_t> screen_, sys24_;
     Raster raster_;
+    bool gpu_ = false, gpu_ref_ = false;
+    float gpu_scale_ = 1.0f;
+    std::vector<uint32_t> front_;
+    GpuFrame gpu_frame_;
     bool rendered_now_ = false, render_done_ = false;
 };
 

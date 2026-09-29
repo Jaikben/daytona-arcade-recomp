@@ -86,6 +86,7 @@ struct Raster::Extra {
     u8 checker = 0;
     u32 lumabase = 0, colorbase = 0;
     const u32 *texsheet[2] = {nullptr, nullptr};
+    u8 sheet0 = 0; // texsheet[0] is texture RAM 1 (GPU path: sheet index)
     u32 texwidth = 0, texheight = 0, texx = 0, texy = 0;
     u8 texwrapx = 0, texwrapy = 0, texmirrorx = 0, texmirrory = 0, utex = 0, utexminlod = 0;
     u32 utexx = 0, utexy = 0;
@@ -114,13 +115,10 @@ uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
     return h;
 }
 
-void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
-                    int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
-    mem_ = &mem;
-    std::fill(dest_.begin(), dest_.end(), 0u);
-    std::fill(fill_.begin(), fill_.end(), u8(0));
-    // MAME: for window = cur_window..0, for z = min_z..max_z, each bucket
-    // newest first.
+namespace {
+// MAME render_polygons order: for window = cur_window..0, for z =
+// min_z..max_z, each bucket newest first.
+std::vector<size_t> draw_order(const std::vector<GeoPoly> &polys) {
     std::vector<size_t> order(polys.size());
     std::iota(order.begin(), order.end(), size_t(0));
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
@@ -128,12 +126,87 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         if (polys[a].z != polys[b].z) return polys[a].z < polys[b].z;
         return a > b;
     });
-    for (size_t i : order)
+    return order;
+}
+} // namespace
+
+void prepare_gpu_frame(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
+                       int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy, float scale,
+                       GpuFrame &out) {
+    out.verts.clear();
+    // The pixel shader's byte tables: colour table, luma (lane 0), gamma.
+    out.vmem.assign(0x14100 / 4, 0);
+    auto *bytes = reinterpret_cast<uint8_t *>(out.vmem.data());
+    std::memcpy(bytes, mem.colorxlat, 0xc000);
+    for (u32 i = 0; i < 0x8000; i++) bytes[0xc000 + i] = mem.lumaram[i * 4];
+    for (int i = 0; i < 256; i++) bytes[0x14000 + i] = u8(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
+
+    uint32_t drawn = 0;
+    for (size_t idx : draw_order(polys)) {
+        if (polys[idx].window > windows) continue;
+        GeoPoly poly = polys[idx];
+        Raster::Extra e;
+        int clip[4];
+        const int renderer = Raster::prepare(poly, mem, crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny,
+                                             clip_maxy, e, clip);
+        if (renderer == 1 || poly.num_vertices < 3 || poly.num_vertices > 8) continue; // translucent solid draws nothing
+        if (clip[0] > clip[1] || clip[2] > clip[3]) continue;
+        bool finite = true;
+        for (int i = 0; i < poly.num_vertices; i++) finite = finite && std::isfinite(poly.v[i].x) && std::isfinite(poly.v[i].y);
+        if (!finite) continue;
+
+        GpuVertex t{};
+        t.depth = float(std::min<uint32_t>(++drawn, 65534)) / 65535.0f; // earlier polygons win the depth test
+        t.scale = scale;
+        t.a[0] = u32(renderer) | u32(e.checker) << 2 | u32(e.texmirrorx) << 3 | u32(e.texmirrory) << 4 |
+                 u32(e.texwrapx) << 5 | u32(e.texwrapy) << 6 | u32(e.utex) << 7 | u32(e.utexminlod) << 8 | u32(e.luma) << 16;
+        t.a[1] = e.lumabase;
+        if (renderer == 0) { // solid: the colour draw_scanline_solid computes
+            const u8 luma = e.luma >> 2;
+            const u32 color = le16(mem.palram, e.colorbase + 0x1000);
+            const u8 *gamma = bytes + 0x14000;
+            const u32 tr = gamma[le16(mem.colorxlat, 0x0000 / 2 + (((color >> 0) & 0x1f) << 8) + luma) & 0xff];
+            const u32 tg = gamma[le16(mem.colorxlat, 0x4000 / 2 + (((color >> 5) & 0x1f) << 8) + luma) & 0xff];
+            const u32 tb = gamma[le16(mem.colorxlat, 0x8000 / 2 + (((color >> 10) & 0x1f) << 8) + luma) & 0xff];
+            t.a[2] = tr << 16 | tg << 8 | tb;
+        } else {
+            t.a[2] = le16(mem.palram, e.colorbase + 0x1000) & 0x7fff;
+        }
+        t.a[3] = u32(e.texlod);
+        t.b[0] = e.texwidth | e.texheight << 16;
+        t.b[1] = e.texx | e.texy << 16;
+        t.b[2] = e.utexx | e.utexy << 16;
+        const s32 max_level = (renderer & 2) ? 30 - std::countl_zero(std::min(e.texwidth, e.texheight)) : 0;
+        t.b[3] = u32(max_level) | u32(e.sheet0) << 8;
+        for (int k = 0; k < 4; k++) t.c[k] = u32(clip[k]);
+        auto vert = [&](const GeoVertex &v) {
+            GpuVertex g = t;
+            g.x = v.x;
+            g.y = v.y;
+            g.ooz = v.p[0];
+            g.uoz = v.p[1];
+            g.voz = v.p[2];
+            out.verts.push_back(g);
+        };
+        for (int i = 1; i + 1 < poly.num_vertices; i++) { // convex: a fan
+            vert(poly.v[0]);
+            vert(poly.v[i]);
+            vert(poly.v[i + 1]);
+        }
+    }
+}
+
+void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
+                    int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+    mem_ = &mem;
+    std::fill(dest_.begin(), dest_.end(), 0u);
+    std::fill(fill_.begin(), fill_.end(), u8(0));
+    for (size_t i : draw_order(polys))
         if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
 
-void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
-                        int clip_miny, int clip_maxy) {
+int Raster::prepare(GeoPoly &poly, const VideoMem &mem, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx,
+                    int clip_maxx, int clip_miny, int clip_maxy, Extra &extra, int *clip) {
     // model2_3d_project
     for (int i = 0; i < poly.num_vertices; i++) {
         GeoVertex &v = poly.v[i];
@@ -142,12 +215,12 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
     }
 
     // model2_3d_render
-    Extra extra;
     const int renderer = (poly.texheader[0] >> 13) & 3;
     // rectangle(minx, maxx, miny, maxy) &= cliprect, in the renderer's offsets
-    int clip[4] = {std::max(poly.viewport[0] + render_x, clip_minx), std::min(poly.viewport[2] + render_x, clip_maxx),
-                   std::max((384 - poly.viewport[3]) + render_y, clip_miny),
-                   std::min((384 - poly.viewport[1]) + render_y, clip_maxy)};
+    clip[0] = std::max(poly.viewport[0] + render_x, clip_minx);
+    clip[1] = std::min(poly.viewport[2] + render_x, clip_maxx);
+    clip[2] = std::max((384 - poly.viewport[3]) + render_y, clip_miny);
+    clip[3] = std::min((384 - poly.viewport[1]) + render_y, clip_maxy);
 
     extra.checker = (poly.texheader[0] >> 15) & 1;
     extra.lumabase = u32(poly.texheader[1] & 0xff) << 7;
@@ -160,8 +233,9 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         extra.texmirrory = (poly.texheader[0] >> 9) & 1;
         extra.texwrapx = (poly.texheader[0] >> 6) & 1 & ~extra.texmirrorx;
         extra.texwrapy = (poly.texheader[0] >> 7) & 1 & ~extra.texmirrory;
-        extra.texsheet[0] = (poly.texheader[2] & 0x1000) ? mem_->tex1 : mem_->tex0;
-        extra.texsheet[1] = (poly.texheader[2] & 0x1000) ? mem_->tex0 : mem_->tex1;
+        extra.sheet0 = (poly.texheader[2] & 0x1000) ? 1 : 0;
+        extra.texsheet[0] = extra.sheet0 ? mem.tex1 : mem.tex0;
+        extra.texsheet[1] = extra.sheet0 ? mem.tex0 : mem.tex1;
         extra.texwidth = 32u << ((poly.texheader[0] >> 0) & 0x7);
         extra.texheight = 32u << ((poly.texheader[0] >> 3) & 0x7);
         extra.texx = 32u * ((poly.texheader[2] >> 0) & 0x3f);
@@ -177,6 +251,14 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
             v.p[2] = v.p[2] * v.p[0] * (1.0f / 8.0f);
         }
     }
+    return renderer;
+}
+
+void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
+                        int clip_miny, int clip_maxy) {
+    Extra extra;
+    int clip[4];
+    const int renderer = prepare(poly, *mem_, crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy, extra, clip);
 
     switch (poly.num_vertices) {
     case 3: render_triangle(clip, renderer, extra, poly.v[0], poly.v[1], poly.v[2]); break;
