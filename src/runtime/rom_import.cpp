@@ -9,13 +9,14 @@ namespace rt {
 
 namespace {
 
-enum Region { Program, MainData, CoproData, Polygons, Textures, CoproTables };
+enum Region { Program, MainData, CoproData, Polygons, Textures, CoproTables, SoundProgram, Pcm1, Pcm2 };
 
 struct Load {
     const char *file;
     uint32_t crc;
     Region region;
-    uint32_t offset, size; // ROM_LOAD32_WORD: 16-bit words into bytes 0-1 (offset 0) or 2-3 (offset 2) of each dword
+    uint32_t offset, size; // ROM_LOAD32_WORD: 16-bit words into bytes 0-1 (offset 0) or 2-3 (offset 2) of each dword;
+                           // the sound regions load whole files (see import_rom_set)
 };
 
 // MAME model2.cpp ROM_START(daytona93) and MODEL2_CPU_BOARD at dddd7368.
@@ -44,6 +45,14 @@ const Load kLoads[] = {
     {"mpr-16516.26", 0xA260D45D, Textures, 0x800002, 0x200000},
     {"opr-14742a.45", 0x90C6B117, CoproTables, 0x000000, 0x020000},
     {"opr-14743a.46", 0xAE7F446B, CoproTables, 0x000002, 0x020000},
+    // Model 1 sound board (segam1audio): 68000 program (ROM_LOAD16_WORD_SWAP)
+    // and the two MultiPCMs' sample ROMs.
+    {"epr-16489.7", 0xC20E543E, SoundProgram, 0x000000, 0x020000},
+    {"epr-16490.8", 0xC24EDAAB, SoundProgram, 0x020000, 0x020000},
+    {"mpr-16491.32", 0x89920903, Pcm1, 0x000000, 0x200000},
+    {"mpr-16492.33", 0x459E701B, Pcm1, 0x200000, 0x200000},
+    {"mpr-16493.4", 0x9990DB15, Pcm2, 0x000000, 0x200000},
+    {"mpr-16494.5", 0x600E1D6C, Pcm2, 0x200000, 0x200000},
 };
 
 std::string hex8(uint32_t v) {
@@ -80,6 +89,9 @@ M2Board::Images import_rom_set(const std::string &zip_path) {
     img.polygons.assign(0x1000000, 0);
     img.textures.assign(0x1000000, 0);
     img.copro_tables.assign(0x40000, 0);
+    img.sound_program.assign(0x40000, 0);
+    img.pcm1.assign(0x400000, 0);
+    img.pcm2.assign(0x400000, 0);
     for (const Load &l : kLoads) {
         const std::vector<uint8_t> data = z->read(l.file); // CRC against the archive's own
         if (data.size() != l.size || crc32(data.data(), data.size()) != l.crc)
@@ -92,6 +104,14 @@ M2Board::Images import_rom_set(const std::string &zip_path) {
         case Polygons: r = &img.polygons; break;
         case Textures: r = &img.textures; break;
         case CoproTables: r = &img.copro_tables; break;
+        case SoundProgram: // 68000, big-endian: the files hold byte-swapped words
+            for (uint32_t i = 0; i < l.size; i += 2) {
+                img.sound_program[l.offset + i] = data[i + 1];
+                img.sound_program[l.offset + i + 1] = data[i];
+            }
+            continue;
+        case Pcm1: std::copy(data.begin(), data.end(), img.pcm1.begin() + l.offset); continue;
+        case Pcm2: std::copy(data.begin(), data.end(), img.pcm2.begin() + l.offset); continue;
         }
         for (uint32_t w = 0; w < l.size / 2; w++) {
             (*r)[l.offset + w * 4] = data[w * 2];

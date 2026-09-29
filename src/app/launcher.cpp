@@ -159,6 +159,18 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
 
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::TextUnformatted("Audio");
+            ImGui::SetNextItemWidth(200);
+            int vol = int(cfg_.volume * 100.0f + 0.5f);
+            if (ImGui::SliderInt("Volume", &vol, 0, 100, "%d%%")) {
+                cfg_.volume = float(vol) / 100.0f;
+                cfg_.save();
+            }
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
+
+            ImGui::Spacing();
+            ImGui::Separator();
             if (!error_.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.4f, 0.4f, 1));
                 ImGui::TextWrapped("%s", error_.c_str());

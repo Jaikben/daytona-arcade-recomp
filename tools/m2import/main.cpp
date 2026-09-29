@@ -1,5 +1,6 @@
 // m2import: write the memory images from the user's ROM set (zip or 7z) for
-// the build: the recompilers read program.bin and tgp_program.bin; the
+// the build: the recompilers read program.bin, tgp_program.bin and
+// sound_program.bin; the
 // checking tools read the rest. The same importer the game uses
 // (src/runtime/rom_import.cpp); scripts/m2import.py is the zip-only
 // reference it was checked against (identical images).
@@ -37,11 +38,14 @@ int main(int argc, char **argv) {
         write(out + "/copro_tables.bin", img.copro_tables.data(), img.copro_tables.size());
         write(out + "/polygons.bin", img.polygons.data(), img.polygons.size());
         write(out + "/textures.bin", img.textures.data(), img.textures.size());
+        write(out + "/sound_program.bin", img.sound_program.data(), img.sound_program.size());
+        write(out + "/pcm1.bin", img.pcm1.data(), img.pcm1.size());
+        write(out + "/pcm2.bin", img.pcm2.data(), img.pcm2.size());
         // The TGP program the i960 uploads at boot, cut from main_data.
         constexpr size_t kOff = 0x860020, kLen = 2024 * 4;
         if (rt::crc32(img.main_data.data() + kOff, kLen) != 0xD6D611DDu) throw std::runtime_error("TGP program not where expected");
         write(out + "/tgp_program.bin", img.main_data.data() + kOff, kLen);
-        std::printf("m2import: wrote program, main_data, copro_data, copro_tables, polygons, textures, tgp_program to %s\n",
+        std::printf("m2import: wrote program, main_data, copro_data, copro_tables, polygons, textures, sound_program, pcm1, pcm2, tgp_program to %s\n",
                     out.c_str());
         return 0;
     } catch (const std::exception &e) {

@@ -53,9 +53,19 @@ LOADS = [
     ("opr-14742a.45", 0x90C6B117, "copro_tables", 0x000000, 0x020000),
     ("opr-14743a.46", 0xAE7F446B, "copro_tables", 0x000002, 0x020000),
 ]
+# Model 1 sound board: the 68000 program (ROM_LOAD16_WORD_SWAP: stored
+# big-endian here) and the MultiPCM sample ROMs (whole files).
+SOUND_LOADS = [
+    ("epr-16489.7", 0xC20E543E, "sound_program", 0x000000, 0x020000, True),
+    ("epr-16490.8", 0xC24EDAAB, "sound_program", 0x020000, 0x020000, True),
+    ("mpr-16491.32", 0x89920903, "pcm1", 0x000000, 0x200000, False),
+    ("mpr-16492.33", 0x459E701B, "pcm1", 0x200000, 0x200000, False),
+    ("mpr-16493.4", 0x9990DB15, "pcm2", 0x000000, 0x200000, False),
+    ("mpr-16494.5", 0x600E1D6C, "pcm2", 0x200000, 0x200000, False),
+]
 COPIES = [("main_data", 0x900000, dst, 0x100000) for dst in (0xA00000, 0xB00000, 0xC00000, 0xD00000, 0xE00000, 0xF00000)]
 SIZES = {"program": 0x200000, "main_data": 0x2000000, "copro_data": 0x800000, "copro_tables": 0x40000,
-         "polygons": 0x1000000, "textures": 0x1000000}
+         "polygons": 0x1000000, "textures": 0x1000000, "sound_program": 0x40000, "pcm1": 0x400000, "pcm2": 0x400000}
 # The TGP program: the i960 copies these words from main_data into the TGP's
 # program RAM at boot (found by matching MAME's upload; checked by CRC here).
 TGP_PROGRAM = ("main_data", 0x860020, 2024 * 4, 0xD6D611DD)
@@ -74,6 +84,14 @@ def main():
         for w in range(size // 2):
             r[off + w * 4] = data[w * 2]
             r[off + w * 4 + 1] = data[w * 2 + 1]
+    for fname, crc, region, off, size, swap in SOUND_LOADS:
+        data = z.read(fname)
+        got = zlib.crc32(data) & 0xFFFFFFFF
+        if len(data) != size or got != crc:
+            sys.exit(f"m2import: {fname}: size {len(data):#x} crc {got:08x}, expected {size:#x} {crc:08x}; refusing")
+        if swap:
+            data = bytes(b for i in range(0, size, 2) for b in (data[i + 1], data[i]))
+        regions[region][off:off + size] = data
     for region, src, dst, size in COPIES:
         r = regions[region]
         r[dst:dst + size] = r[src:src + size]

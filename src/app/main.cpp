@@ -3,7 +3,8 @@
 // on Linux, Metal on macOS); Dear ImGui for the launcher. The game runs on
 // the native board runtime (rt::GameLoop), loaded straight from the user's
 // ROM zip (rt::import_rom_set); each composed frame is uploaded to a GPU
-// texture and scaled onto the swapchain.
+// texture and scaled onto the swapchain, and the sound board's output is
+// played through SDL audio.
 //
 //   daytona [--rom FILE.zip] [--autostart] [--gpu vulkan|direct3d12|metal]
 //           [--fullscreen] [--frames N]
@@ -29,10 +30,65 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
-constexpr double kArcadeHz = 57.52; // 16 MHz / (656 x 424), the board's frame rate
+constexpr double kArcadeHz = rt::GameLoop::kFrameHz; // 16 MHz / (656 x 424), the board's frame rate
+
+// The sound board's two outputs (the YM3438, and the two MultiPCMs mixed) go
+// to their own SDL audio streams at the chips' own rates; SDL resamples and
+// mixes them on the device. The game advances on the display's clock and the
+// device plays on its own, so a small speed trim on both streams holds the
+// queue near kLatency instead of letting it drift into a gap or a backlog.
+class Audio {
+public:
+    static constexpr double kLatency = 0.06; // seconds queued
+
+    bool open(double fm_rate, double pcm_rate) {
+        dev_ = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
+        if (!dev_) return false;
+        fm_rate_ = int(fm_rate + 0.5);
+        const SDL_AudioSpec fm{SDL_AUDIO_F32, 2, fm_rate_}, pcm{SDL_AUDIO_F32, 2, int(pcm_rate + 0.5)};
+        fm_ = SDL_CreateAudioStream(&fm, nullptr);
+        pcm_ = SDL_CreateAudioStream(&pcm, nullptr);
+        if (!fm_ || !pcm_ || !SDL_BindAudioStream(dev_, fm_) || !SDL_BindAudioStream(dev_, pcm_)) return false;
+        return true;
+    }
+    void push(snd::SoundBoard &sb, float gain) {
+        if (!fm_) return;
+        const std::vector<float> fm = sb.take_fm(), pcm = sb.take_pcm();
+        SDL_PutAudioStreamData(fm_, fm.data(), int(fm.size() * sizeof(float)));
+        SDL_PutAudioStreamData(pcm_, pcm.data(), int(pcm.size() * sizeof(float)));
+        const double queued = double(SDL_GetAudioStreamQueued(fm_)) / (8.0 * fm_rate_);
+        if (queued > kLatency * 4) { // a stall (window drag, debugger): drop the backlog
+            SDL_ClearAudioStream(fm_);
+            SDL_ClearAudioStream(pcm_);
+        }
+        const double err = std::clamp((queued - kLatency) / kLatency, -1.0, 1.0);
+        const float ratio = float(1.0 + 0.005 * err); // at most 0.5%: inaudible
+        SDL_SetAudioStreamFrequencyRatio(fm_, ratio);
+        SDL_SetAudioStreamFrequencyRatio(pcm_, ratio);
+        SDL_SetAudioStreamGain(fm_, gain);
+        SDL_SetAudioStreamGain(pcm_, gain);
+    }
+    void clear() {
+        if (fm_) SDL_ClearAudioStream(fm_);
+        if (pcm_) SDL_ClearAudioStream(pcm_);
+    }
+    void close() {
+        if (fm_) SDL_DestroyAudioStream(fm_);
+        if (pcm_) SDL_DestroyAudioStream(pcm_);
+        if (dev_) SDL_CloseAudioDevice(dev_);
+        fm_ = pcm_ = nullptr;
+        dev_ = 0;
+    }
+
+private:
+    SDL_AudioDeviceID dev_ = 0;
+    SDL_AudioStream *fm_ = nullptr, *pcm_ = nullptr;
+    int fm_rate_ = 1;
+};
 
 std::string pref_file(const char *name) {
     char *base = SDL_GetPrefPath("daytona-recomp", "daytona93");
@@ -73,6 +129,12 @@ int main(int argc, char **argv) {
 
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
+    Audio audio;
+    bool have_audio = false;
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO))
+        have_audio = audio.open(snd::SoundBoard::kYmClock / 144.0, snd::SoundBoard::kPcmClock / 224.0);
+    if (have_audio) std::printf("daytona: audio driver %s\n", SDL_GetCurrentAudioDriver());
+    else std::fprintf(stderr, "daytona: no audio output (%s); the game runs silent\n", SDL_GetError());
 
     constexpr int W = rt::GameLoop::kWidth, H = rt::GameLoop::kHeight;
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
@@ -124,6 +186,7 @@ int main(int argc, char **argv) {
         game.reset();
         try {
             game = std::make_unique<rt::GameLoop>(rt::import_rom_set(cfg.rom_path));
+            audio.clear();
             load_file(eeprom_path, game->board().io().eeprom);
             load_file(backup_path, game->board().backup_ram());
             launcher.set_error("");
@@ -171,6 +234,10 @@ int main(int argc, char **argv) {
                 pending -= frame_ns;
                 new_frame = have_frame = true;
                 if (max_frames && game->frames() >= max_frames) running = false;
+            }
+            if (game->sound()) {
+                if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
+                else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it
             }
         } else {
             pending = 0;
@@ -252,6 +319,7 @@ int main(int argc, char **argv) {
     save_nv();
     cfg.save();
     if (game) std::printf("daytona: %llu frames\n", (unsigned long long)game->frames());
+    audio.close();
     SDL_WaitForGPUIdle(dev);
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();

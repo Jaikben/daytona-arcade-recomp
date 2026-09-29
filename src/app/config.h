@@ -1,6 +1,6 @@
 // Launcher settings, saved to launcher.ini in the user's data folder (SDL's
-// pref path): the ROM set, the GPU backend, fullscreen, and the control
-// bindings. Plain key=value lines, so it can be edited by hand.
+// pref path): the ROM set, the GPU backend, fullscreen, audio volume, and
+// the control bindings. Plain key=value lines, so it can be edited by hand.
 #pragma once
 
 #include "app/controls.h"
@@ -13,6 +13,8 @@ struct Config {
     std::string rom_path;
     std::string gpu;          // "" (automatic), vulkan, direct3d12, metal
     bool fullscreen = false;
+    float volume = 0.8f;      // 0..1
+    bool mute = false;
     Controls controls;
 
     Config() { controls.set_defaults(); }

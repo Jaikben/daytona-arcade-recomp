@@ -78,7 +78,7 @@ flowchart TD
 
 The recompiler runs at build time on the user's machine, so no generated Sega code is ever distributed.
 
-**Frame loop.** One host frame = one Model 2 video frame. The runtime runs generated code until the game waits on vblank, fires the vblank interrupt handler, drains the TGP FIFO into a display list, then renders and presents. The sound CPU runs on its own thread in fixed time slices, synced by audio buffer position.
+**Frame loop.** One host frame = one Model 2 video frame. The runtime runs generated code until the game waits on vblank, fires the vblank interrupt handler, drains the TGP FIFO into a display list, then renders and presents. The sound board then advances one frame of board time on the same thread (see Audio).
 
 **Memory bus.** Main RAM, work RAM and shared RAM are flat host arrays accessed inline. MMIO ranges (TGP FIFO, geometrizer, tilemap RAM, palette, I/O dual-port RAM, sound UART, comm RAM) go through a page-table of handlers, resolved at compile time where the address is constant.
 
@@ -196,10 +196,12 @@ Nothing here is interpreted either. A board whose CPU runs a program gets that p
 
 **Audio**
 
-- Daytona uses the Model 1 sound board, not the SCSP board later Model 2 revisions carry (see Target hardware summary). Its 68000 program (`epr-16489`/`16490`, loaded by the importer) is statically recompiled to native C++ by the same approach as the i960: decode from MAME's 68000 executor as the behavioural oracle, per-instruction inline semantics, a dispatch switch for computed jumps, and a lockstep check against MAME's sound CPU. No 68000 interpreter.
-- The YM3438 and the two MultiPCMs use proven cores (MAME's `ymopn`/`multipcm`, or others). Licence check before choosing.
-- Main CPU ↔ sound CPU traffic is a serial byte stream through an i8251 UART at 31.25 kbit/s. The runtime queues bytes with a timestamp so ordering matches the arcade even across threads. The i960's IRQ3 handler (request bit 10) is the transmit loop: Daytona never polls the UART status (MiSTer core, R87), so the UART interrupt must be modelled or no sound data is sent.
-- Output via SDL3 audio at 44.1 kHz with a resampler; the chips' native rates are kept internally.
+- Daytona uses the Model 1 sound board, not the SCSP board later Model 2 revisions carry (see Target hardware summary). Its 68000 program (`epr-16489`/`16490`, loaded by the importer) is statically recompiled to native C++ by the same approach as the i960 (**done**): `src/m68k` decodes (checked word for word against MAME's 68000 disassembler on all 1,916 reachable instructions), `tools/m2sndrecomp` emits each instruction inline with operands resolved, direct branches as gotos and returns/interrupts through a dispatch switch; flag arithmetic is in `src/runtime/snd_cpu.h`. The program has no indirect jumps, so reachability from the vector table finds all of it. No 68000 interpreter.
+- Lockstep (`tools/m2sndcheck`, MAME patch 0003): MAME logs every device access, interrupt and a register snapshot every 4,096 instructions; the recompiled code replays it. Attract (15.7M instructions, 48 interrupts) and race (77.9M instructions, 3,648 interrupts, 5.16M device accesses) match exactly.
+- The driver is polled: the UART's RxRDY raises IPL 2 and the handler queues each byte; the main loop polls YM3438 timer B (reload 0xfc: 868 Hz) for its tick. So the board needs no clock: time is counted in completed 68000 instructions at the rate MAME's 68000 runs this program (752,000 per second), and events land on that count: a command byte arriving one line-time (10 bits at 31.25 kbit/s) after the previous, a YM timer expiring (kept in exact YM clocks so the tick does not drift). The chips are rendered up to the current count before each register write.
+- The YM3438 is ymfm (BSD-3, the same core MAME uses; identical in the OPN2 path at the pinned commit). The MultiPCMs are MAME's `multipcm`/`gew` (BSD-3) transplanted into `src/runtime/multipcm.cpp`. Mix gains are MAME's (YM 0.30, each MultiPCM 0.50).
+- Main CPU ↔ sound CPU traffic is a serial byte stream through an i8251 UART at 31.25 kbit/s. The i960's IRQ3 handler (request bit 10) is the transmit loop: Daytona never polls the UART status (MiSTer core, R87), so the UART interrupt must be modelled or no sound data is sent. The i960 side hands its bytes over each frame; the sound board receives them at the line rate.
+- Output via SDL3 audio: the YM (55.6 kHz) and MultiPCM (44.6 kHz) outputs go to two SDL audio streams at their own rates, which SDL resamples and mixes. The game runs on the display clock and the device on its own, so a speed trim of at most 0.5% holds the queue near 60 ms.
 
 **Inputs**
 

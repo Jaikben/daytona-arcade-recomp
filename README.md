@@ -67,4 +67,7 @@ Default controls:
 | Test / service | F2 / F3 | |
 | Fullscreen / launcher | F11 / Esc | |
 
-No sound yet: the sound board is next.
+Sound: the sound board's 68000 program is statically recompiled like the
+i960 code and runs on the native board with the YM3438 (ymfm) and both
+MultiPCMs; output goes through SDL audio. Volume and mute are in the
+launcher.

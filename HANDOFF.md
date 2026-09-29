@@ -2,6 +2,31 @@
 
 ## Current state
 
+**Sound.** The Model 1 sound board runs natively: its 68000 program
+(`epr-16489`/`16490`) is statically recompiled (`src/m68k` decoder,
+`tools/m2sndrecomp`, runtime context `src/runtime/snd_cpu.h`), with the
+YM3438 (ymfm, BSD-3) and both MultiPCMs (MAME's, transplanted into
+`src/runtime/multipcm.cpp`) as native code on `snd::SoundBoard`
+(`src/runtime/sound_board.cpp`). All 1,916 reachable instructions decode
+exactly as MAME's 68000 disassembler prints them; the driver has no
+indirect jumps. Lockstep against MAME's 68000 (`tools/m2sndcheck`, MAME
+patch 0003, `M2TRACE_SNDLOG`): attract 15.7M instructions and race 77.9M
+instructions, 3,648 interrupts, 5.16M device accesses, all identical.
+No clock: the driver polls YM timer B (868 Hz tick) in its main loop and
+takes the UART's RxRDY on IPL 2, so time is counted in 68000 instructions
+(752,000 per second, MAME's rate on this program) and events land on it:
+command bytes one line-time apart (31.25 kbit/s), YM timer expiries in
+exact YM clocks. `GameLoop` advances the board one frame per video frame
+and hands it that frame's UART bytes. `daytona` plays it through two SDL
+audio streams (YM at 55.6 kHz, MultiPCMs at 44.6 kHz) with a small speed
+trim holding 60 ms of queue; volume and mute in the launcher. `m2run --wav
+FILE` writes it headless. Against MAME's own audio (`-wavwrite`) for 26 s
+of attract: the same 48 command bytes, per-second loudness within a few
+percent, a constant ~125 ms offset (when the i960 sends the first
+commands), no tempo drift. Race: 3,636 bytes natively vs MAME's 3,648.
+Checked here with SDL's disk audio driver (no sound card in the
+container): continuous output from the windowed game.
+
 **Launcher.** `daytona` opens a Dear ImGui launcher in its window
 (`src/app/launcher.cpp`): ROM browse (SDL3's native file dialog: Windows,
 macOS; xdg-desktop-portal or zenity on Linux; typed path as fallback) with
@@ -56,8 +81,8 @@ How it runs, with no clock:
   inputs into bytes 0-10; 3: load the 128-byte settings EEPROM into
   0x100-0x17f; 2: store it). Inputs take the scripts/inputs format
   (`m2run ... --inputs FILE`).
-- Sound UART: bytes collected for the sound runtime (next); TxRDY is
-  immediate, so the IRQ3 handler drains its queue at once.
+- Sound UART: TxRDY is immediate, so the IRQ3 handler drains its queue at
+  once; the sound board receives the bytes at the line rate (Sound, above).
 
 With scripted inputs (`--inputs scripts/inputs/race_basic.txt`) the whole
 game flow runs standalone: coin-up, Circuit Select, car select, the race's
@@ -240,13 +265,11 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Sound: the sound board's 68000 program statically recompiled, YM3438
-   and MultiPCM as native C++, fed from the UART bytes; SDL audio out.
-2. Run `daytona` on Windows (Direct3D 12 and Vulkan) and macOS (Metal) and
+1. Run `daytona` on Windows (Direct3D 12 and Vulkan) and macOS (Metal) and
    fix whatever MSVC or Apple clang reject.
-3. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
+2. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
    SPIR-V, DXIL and MSL), measured against the CPU reference.
-4. Wheel support and control remapping; widescreen and resolution options.
+3. Wheel support and control remapping; widescreen and resolution options.
 
 ## Open decisions
 

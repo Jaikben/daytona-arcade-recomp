@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Recompile the game's i960 code and its TGP program to native C++ and build
-them. Same steps on Linux, macOS and Windows.
+"""Recompile the game's i960 code, its TGP program and the sound board's 68000
+program to native C++ and build them. Same steps on Linux, macOS and Windows.
 
   recompile.py [--build-dir build] [--config Release]
 
@@ -44,12 +44,12 @@ def main():
     roms = [r for r in roms if os.path.exists(r)]
 
     build_cmd = ["cmake", "--build", build, "--config", args.config]
-    if not os.path.exists(os.path.join(cache, "tgp_program.bin")):
+    if not all(os.path.exists(os.path.join(cache, f)) for f in ("tgp_program.bin", "sound_program.bin", "pcm1.bin")):
         if not roms:
             sys.exit("recompile: put your ROM set at roms/daytona93.zip (or .7z) first")
         run(build_cmd + ["--target", "m2import"])
         run([tool(build, args.config, "m2import"), roms[0], cache])
-    run(build_cmd + ["--target", "m2recomp", "m2tgprecomp"])
+    run(build_cmd + ["--target", "m2recomp", "m2tgprecomp", "m2sndrecomp"])
 
     gen = os.path.join(build, "gen", "daytona93")
     if os.path.isdir(gen):
@@ -63,8 +63,13 @@ def main():
     run([tool(build, args.config, "m2tgprecomp"), os.path.join(cache, "tgp_program.bin"),
          os.path.join(tgp, "tgp_gen.cpp")])
 
+    snd = os.path.join(build, "gen", "daytona93_snd")
+    os.makedirs(snd, exist_ok=True)
+    run([tool(build, args.config, "m2sndrecomp"), os.path.join(cache, "sound_program.bin"),
+         os.path.join(snd, "snd_gen.cpp")])
+
     run(["cmake", "-S", ".", "-B", build])  # picks up the generated sources
-    run(build_cmd + ["--target", "m2native", "m2replay", "m2tgpcheck"])
+    run(build_cmd + ["--target", "m2native", "m2replay", "m2tgpcheck", "m2sndcheck"])
 
 
 if __name__ == "__main__":

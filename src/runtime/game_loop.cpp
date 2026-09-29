@@ -27,10 +27,14 @@ GameLoop::GameLoop(const std::string &dir) : GameLoop([&] {
     img.copro_data = load(dir + "/copro_data.bin");
     img.polygons = load(dir + "/polygons.bin");
     img.textures = load(dir + "/textures.bin");
+    img.sound_program = load(dir + "/sound_program.bin");
+    img.pcm1 = load(dir + "/pcm1.bin");
+    img.pcm2 = load(dir + "/pcm2.bin");
     return img;
 }()) {}
 
 GameLoop::GameLoop(M2Board::Images img) {
+    if (!img.sound_program.empty()) sound_ = std::make_unique<snd::SoundBoard>(img.sound_program, img.pcm1, img.pcm2);
     board_ = std::make_unique<M2Board>(std::move(img));
     cpu_ = std::make_unique<Cpu>(board_.get());
     ls_ = std::make_unique<Lockstep>(*cpu_);
@@ -74,6 +78,13 @@ void GameLoop::run_frame(const Inputs &inputs) {
             throw Fatal(b);
         }
         gen::run(*env_);
+    }
+    // The sound board runs alongside: this frame's command bytes go down the
+    // serial line, and it advances one frame of board time.
+    if (sound_) {
+        const std::vector<uint8_t> bytes = board_->take_sound_bytes();
+        sound_->send(bytes.data(), bytes.size());
+        sound_->advance(1.0 / kFrameHz);
     }
 }
 

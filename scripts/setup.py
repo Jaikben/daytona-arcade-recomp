@@ -9,8 +9,9 @@ you already have one.
 Always:
   - checks the toolchain: git, CMake >= 3.20, a C++20 compiler (Ninja used
     when present; Visual Studio's generator on Windows);
-  - fetches Berkeley SoftFloat 3e and SDL 3 at their pinned commits into
-    extern/ (SDL is built from source with the project, statically);
+  - fetches Berkeley SoftFloat 3e, SDL 3, ymfm, the LZMA SDK and Dear ImGui
+    at their pinned commits into extern/ (all built from source with the
+    project, statically);
   - configures and builds the tools and tests, runs the tests;
   - if your ROM set is at roms/daytona93.zip (or .7z): imports it, recompiles the
     game's code to native C++ and builds it (all under build/, git-ignored).
@@ -44,6 +45,7 @@ WINDOWS = os.name == "nt"
 SOFTFLOAT = ("https://github.com/ucb-bar/berkeley-softfloat-3.git", "a0c6494cdc11865811dec815d5c0049fba9d82a8")
 SDL3 = ("https://github.com/libsdl-org/SDL.git", "fa2c02bb6e21974a89ea9824bc53c9932abe5f9c")  # release-3.4.16
 IMGUI = ("https://github.com/ocornut/imgui.git", "f1cc2ae15e53a861a874c3034aae6798fde194ab")  # v1.92.9b
+YMFM = ("https://github.com/aaronsgiles/ymfm.git", "81aec25ccbb98f4873a255f7551ac4dadac59b4a")  # YM3438 (sound board FM)
 LZMA_SDK = ("https://github.com/ip7z/7zip.git", "0766b733fe3e06dd2a7f9a3cfbf2108ac73abd17")  # 7-Zip 26.03 (C/: LZMA SDK)
 GHIDRA_I960 = ("https://github.com/mumbel/ghidra_i960.git", "727ef7872c5b1cd6ceb5a81f5e474d1ced92945c")
 MAME_COMMIT = "dddd73680656e355bb2b5beecab1167c9f07bf81"
@@ -97,6 +99,7 @@ def fetch_mame(full):
     else:
         run(["git", "-C", dest, "sparse-checkout", "set", "--no-cone",
              "/src/devices/cpu/i960/", "/src/devices/cpu/mb86233/",
+             "/src/devices/cpu/m68000/m68000.cpp", "/src/devices/cpu/m68000/m68000.h",
              "/src/mame/sega/model2.cpp", "/src/mame/sega/model2.h",
              "/src/mame/sega/model2_v.cpp", "/src/mame/sega/model2_m.cpp",
              "/src/mame/shared/segam1audio.cpp", "/src/mame/shared/segam1audio.h"])
@@ -142,6 +145,9 @@ def main():
 
     say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
     fetch(*SDL3, "sdl3")
+
+    say("Fetching ymfm (the sound board's YM3438)")
+    fetch(*YMFM, "ymfm")
 
     say("Fetching the 7-Zip LZMA SDK 26.03 (7z ROM sets)")
     fetch(*LZMA_SDK, "lzma")

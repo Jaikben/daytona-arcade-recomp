@@ -24,6 +24,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace rt {
@@ -54,6 +55,7 @@ class M2Board : public Bus {
 public:
     struct Images {
         std::vector<uint8_t> program, main_data, copro_tables, copro_data, polygons, textures;
+        std::vector<uint8_t> sound_program, pcm1, pcm2; // sound board (68000 program, MultiPCM samples)
     };
     explicit M2Board(Images images);
 
@@ -79,7 +81,9 @@ public:
     Video &video() { return *video_; }
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
-    const std::vector<uint8_t> &sound_bytes() const { return uart_out_; } // everything sent to the sound board
+    // Bytes sent to the sound board since the last take.
+    std::vector<uint8_t> take_sound_bytes() { sound_total_ += uart_out_.size(); return std::exchange(uart_out_, {}); }
+    uint64_t sound_bytes_total() const { return sound_total_ + uart_out_.size(); }
     std::vector<uint8_t> &backup_ram() { return backup_; }
 
 private:
@@ -127,6 +131,7 @@ private:
     bool uart_txrdy_ = true, uart_shift_busy_ = false, uart_have_hold_ = false;
     uint8_t uart_hold_ = 0;
     std::vector<uint8_t> uart_out_;
+    uint64_t sound_total_ = 0;
     void uart_shift_done();
 };
 

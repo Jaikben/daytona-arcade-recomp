@@ -9,6 +9,7 @@
 #include "runtime/gen_support.h"
 #include "runtime/lockstep.h"
 #include "runtime/m2_board.h"
+#include "runtime/sound_board.h"
 
 #include <cstdint>
 #include <memory>
@@ -31,6 +32,8 @@ public:
     const std::vector<uint32_t> &screen() const { return board_->video().screen(); } // 496x384, 0xAARRGGBB
     static constexpr int kWidth = Video::W, kHeight = Video::H;
     M2Board &board() { return *board_; }
+    snd::SoundBoard *sound() { return sound_.get(); } // null without the sound ROMs
+    static constexpr double kFrameHz = 16000000.0 / (656.0 * 424.0); // the board's video timing
     uint64_t frames() const { return frames_; }
     uint64_t instructions() const { return ls_->count; }
     int interrupts() const { return ls_->interrupts(); }
@@ -41,6 +44,7 @@ private:
     std::unique_ptr<Cpu> cpu_;
     std::unique_ptr<Lockstep> ls_;
     std::unique_ptr<gen::Env> env_;
+    std::unique_ptr<snd::SoundBoard> sound_;
     Inputs inputs_;
     bool in_vblank_ = false, frame_done_ = false;
     uint64_t frame_start_ = 0, vblank_start_ = 0, frames_ = 0;

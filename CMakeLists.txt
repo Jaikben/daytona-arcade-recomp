@@ -66,6 +66,9 @@ add_library(runtime STATIC
     src/runtime/archive.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
+    src/runtime/snd_cpu.cpp
+    src/runtime/multipcm.cpp
+    src/runtime/sound_board.cpp
 )
 target_include_directories(runtime PUBLIC src)
 # 7z ROM sets: the 7-Zip LZMA SDK's decoder (public-domain files only),
@@ -89,6 +92,19 @@ else()
 endif()
 target_link_libraries(runtime PUBLIC trace i960)
 
+# YM3438 (the sound board's FM chip): ymfm, BSD-3, fetched by
+# scripts/setup.py into extern/ymfm.
+set(YMFM_DIR ${CMAKE_SOURCE_DIR}/extern/ymfm/src)
+if(NOT EXISTS ${YMFM_DIR}/ymfm_opn.cpp)
+    message(FATAL_ERROR "extern/ymfm not found: run scripts/setup.py")
+endif()
+add_library(ymfm STATIC ${YMFM_DIR}/ymfm_opn.cpp ${YMFM_DIR}/ymfm_adpcm.cpp ${YMFM_DIR}/ymfm_ssg.cpp)
+target_include_directories(ymfm SYSTEM PUBLIC ${YMFM_DIR})
+if(NOT MSVC)
+    target_compile_options(ymfm PRIVATE -w)
+endif()
+target_link_libraries(runtime PUBLIC ymfm)
+
 # Reference interpreter (MAME's i960 executor, transplanted, BSD-3). Test
 # oracle only: m2replay links it; the game never does.
 add_library(refcore STATIC src/refcore/i960_ref.cpp)
@@ -105,16 +121,23 @@ target_link_libraries(m2replay PRIVATE refcore)
 add_executable(m2recomp tools/m2recomp/main.cpp)
 target_link_libraries(m2recomp PRIVATE i960)
 
+# The sound CPU (68000) decoder and static recompiler.
+add_library(m68k STATIC src/m68k/decode.cpp src/m68k/reach.cpp)
+target_include_directories(m68k PUBLIC src)
+add_executable(m2sndrecomp tools/m2sndrecomp/main.cpp)
+target_link_libraries(m2sndrecomp PRIVATE m68k)
+
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
 # committed). scripts/recompile.sh generates it and re-runs CMake.
 set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/daytona93)
 set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_tgp/tgp_gen.cpp)
-if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN})
+set(SND_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_snd/snd_gen.cpp)
+if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     file(GLOB GEN_SOURCES ${GEN_DIR}/*.cpp)
-    add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN})
+    add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2native PRIVATE runtime)
     # The game on its own: native board runtime, no trace.
-    add_executable(m2run tools/m2run/main.cpp ${GEN_SOURCES} ${TGP_GEN})
+    add_executable(m2run tools/m2run/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2run PRIVATE runtime)
 
     # The game in a window: SDL3 (window, input, SDL_GPU: Vulkan, Direct3D 12,
@@ -139,13 +162,13 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN})
             target_compile_options(imgui PRIVATE -w)
         endif()
         add_executable(daytona WIN32 src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp
-                       ${GEN_SOURCES} ${TGP_GEN})
+                       ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
         target_link_libraries(daytona PRIVATE runtime imgui SDL3::SDL3-static)
     else()
         message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
     endif()
     if(NOT MSVC)
-        set_source_files_properties(${GEN_SOURCES} ${TGP_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+        set_source_files_properties(${GEN_SOURCES} ${TGP_GEN} ${SND_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()
 endif()
 
@@ -167,6 +190,16 @@ if(EXISTS ${TGP_GEN})
     endif()
 endif()
 
+# The lockstep check of the recompiled sound 68000 against MAME's log
+# (M2TRACE_SNDLOG, patches/mame/0003).
+if(EXISTS ${SND_GEN})
+    add_executable(m2sndcheck tools/m2sndcheck/main.cpp ${SND_GEN})
+    target_link_libraries(m2sndcheck PRIVATE runtime)
+    if(NOT MSVC)
+        set_source_files_properties(${SND_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+    endif()
+endif()
+
 add_executable(i960dis tools/i960dis/main.cpp)
 target_link_libraries(i960dis PRIVATE i960)
 
@@ -184,6 +217,10 @@ enable_testing()
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
+
+add_executable(test_m68k tests/test_m68k.cpp)
+target_link_libraries(test_m68k PRIVATE m68k runtime)
+add_test(NAME m68k COMMAND test_m68k)
 
 add_executable(test_fp tests/test_fp.cpp)
 target_link_libraries(test_fp PRIVATE i960)
