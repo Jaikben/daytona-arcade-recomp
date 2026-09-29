@@ -2,6 +2,21 @@
 
 ## Current state
 
+**Launcher.** `daytona` opens a Dear ImGui launcher in its window
+(`src/app/launcher.cpp`): ROM browse (SDL3's native file dialog: Windows,
+macOS; xdg-desktop-portal or zenity on Linux; typed path as fallback) with
+per-file verification, graphics API and fullscreen; a Controls tab binding
+every arcade control to a key and a gamepad button or axis half (press to
+bind), analogue triggers for the pedals and a stick for steering, live
+meters, dead zone, invert. Settings save to `launcher.ini` in the SDL pref
+path as they change. The ROM set is loaded natively from the zip
+(`src/runtime/zip.cpp`, own inflate; `rom_import.cpp`, the importer's table):
+images byte-identical to `scripts/m2import.py`'s, in 0.8 s. Esc in game
+returns to the launcher (Resume, Reset, Quit). Verified here under Xvfb on
+Vulkan: verification, the Controls tab, a key rebind saved to the ini, Start
+from the zip, pause, and the zenity file dialog. Resolution and upscaling
+options are to come.
+
 **The game is playable in a window.** `daytona` (`src/app/main.cpp`): SDL
 3.4.16 (built from source, static) with SDL_GPU: Vulkan or Direct3D 12 on
 Windows, Vulkan on Linux, Metal on macOS (`--gpu` to choose). Each composed

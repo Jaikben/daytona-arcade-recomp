@@ -43,6 +43,7 @@ WINDOWS = os.name == "nt"
 # Pinned third-party sources (THIRD_PARTY.md).
 SOFTFLOAT = ("https://github.com/ucb-bar/berkeley-softfloat-3.git", "a0c6494cdc11865811dec815d5c0049fba9d82a8")
 SDL3 = ("https://github.com/libsdl-org/SDL.git", "fa2c02bb6e21974a89ea9824bc53c9932abe5f9c")  # release-3.4.16
+IMGUI = ("https://github.com/ocornut/imgui.git", "f1cc2ae15e53a861a874c3034aae6798fde194ab")  # v1.92.9b
 GHIDRA_I960 = ("https://github.com/mumbel/ghidra_i960.git", "727ef7872c5b1cd6ceb5a81f5e474d1ced92945c")
 MAME_COMMIT = "dddd73680656e355bb2b5beecab1167c9f07bf81"
 
@@ -140,6 +141,9 @@ def main():
 
     say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
     fetch(*SDL3, "sdl3")
+
+    say("Fetching Dear ImGui 1.92.9b (launcher interface)")
+    fetch(*IMGUI, "imgui")
 
     if args.test_extras:
         say("Optional test extras")

@@ -24,7 +24,7 @@ Linux)
         # SDL 3 (window, input, audio, SDL_GPU) and the Vulkan loader
         $SUDO apt-get install -y libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
             libxfixes-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libdrm-dev libgbm-dev libegl-dev \
-            libwayland-dev libdecor-0-dev libudev-dev libdbus-1-dev libvulkan1 mesa-vulkan-drivers
+            libwayland-dev libdecor-0-dev libudev-dev libdbus-1-dev libvulkan1 mesa-vulkan-drivers zenity
         # MAME's build (validation only) needs SDL2 and friends
         [ "$BUILD_MAME" = 1 ] && $SUDO apt-get install -y libsdl2-dev libsdl2-ttf-dev libfontconfig-dev \
             libpulse-dev libasound2-dev libxinerama-dev libxi-dev qtbase5-dev
@@ -33,20 +33,20 @@ Linux)
         $SUDO dnf install -y alsa-lib-devel pulseaudio-libs-devel libX11-devel libXext-devel libXrandr-devel \
             libXcursor-devel libXfixes-devel libXi-devel libXScrnSaver-devel libXtst-devel libxkbcommon-devel \
             libdrm-devel mesa-libgbm-devel mesa-libEGL-devel wayland-devel libdecor-devel systemd-devel dbus-devel \
-            vulkan-loader mesa-vulkan-drivers
+            vulkan-loader mesa-vulkan-drivers zenity
         [ "$BUILD_MAME" = 1 ] && $SUDO dnf install -y SDL2-devel SDL2_ttf-devel fontconfig-devel \
             pulseaudio-libs-devel alsa-lib-devel libXinerama-devel libXi-devel
     elif command -v pacman >/dev/null 2>&1; then
         $SUDO pacman -S --needed --noconfirm base-devel cmake ninja python python-pip git clang pkgconf \
             alsa-lib libpulse libx11 libxext libxrandr libxcursor libxfixes libxi libxss libxtst libxkbcommon \
-            libdrm mesa wayland libdecor systemd-libs dbus vulkan-icd-loader
+            libdrm mesa wayland libdecor systemd-libs dbus vulkan-icd-loader zenity
         [ "$BUILD_MAME" = 1 ] && $SUDO pacman -S --needed --noconfirm sdl2 sdl2_ttf fontconfig libpulse alsa-lib \
             libxinerama libxi
     elif command -v zypper >/dev/null 2>&1; then
         $SUDO zypper install -y gcc-c++ make cmake ninja python3 python3-pip git clang pkg-config \
             alsa-devel libpulse-devel libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXfixes-devel \
             libXi-devel libXss-devel libXtst-devel libxkbcommon-devel libdrm-devel libgbm-devel Mesa-libEGL-devel \
-            wayland-devel libdecor-devel systemd-devel dbus-1-devel libvulkan1
+            wayland-devel libdecor-devel systemd-devel dbus-1-devel libvulkan1 zenity
         [ "$BUILD_MAME" = 1 ] && $SUDO zypper install -y libSDL2-devel libSDL2_ttf-devel fontconfig-devel \
             libpulse-devel alsa-devel libXinerama-devel libXi-devel
     else

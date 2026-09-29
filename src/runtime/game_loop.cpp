@@ -19,7 +19,7 @@ constexpr uint64_t kVblankCap = 40000;  // a vblank handler that never returns t
 constexpr uint64_t kMinFrame = kProbe * 2;
 } // namespace
 
-GameLoop::GameLoop(const std::string &dir) {
+GameLoop::GameLoop(const std::string &dir) : GameLoop([&] {
     M2Board::Images img;
     img.program = load(dir + "/program.bin");
     img.main_data = load(dir + "/main_data.bin");
@@ -27,6 +27,10 @@ GameLoop::GameLoop(const std::string &dir) {
     img.copro_data = load(dir + "/copro_data.bin");
     img.polygons = load(dir + "/polygons.bin");
     img.textures = load(dir + "/textures.bin");
+    return img;
+}()) {}
+
+GameLoop::GameLoop(M2Board::Images img) {
     board_ = std::make_unique<M2Board>(std::move(img));
     cpu_ = std::make_unique<Cpu>(board_.get());
     ls_ = std::make_unique<Lockstep>(*cpu_);

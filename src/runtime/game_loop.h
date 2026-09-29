@@ -21,6 +21,8 @@ class GameLoop {
 public:
     // images_dir: the importer's output (build/rom_cache/daytona93).
     explicit GameLoop(const std::string &images_dir);
+    // Images already loaded (rt::import_rom_set: straight from the ROM zip).
+    explicit GameLoop(M2Board::Images images);
 
     // Run until the next screen is composed. `inputs` are latched by the I/O
     // board at the start of this frame's vblank.

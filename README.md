@@ -34,20 +34,36 @@ After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
 
 ## Playing
 
-    build/daytona [--gpu vulkan|direct3d12|metal] [--fullscreen]
+    build/daytona
 
-(`build/Release/daytona.exe` with the Visual Studio generator.) SDL picks the
-GPU backend unless `--gpu` is given. Settings and backup RAM are saved to your
-user data folder on exit.
+(`build/Release/daytona.exe` with the Visual Studio generator.) The launcher
+opens first:
+
+- **Game**: choose your `daytona93.zip` (Browse, or type the path); every file
+  is checked against the ROM set this build was recompiled from. Graphics API
+  (automatic, Vulkan, Direct3D 12, Metal) and fullscreen. Start.
+- **Controls**: bind every arcade control to a key and a gamepad button or
+  axis (click, then press). Triggers and sticks are analogue: the accelerator
+  and brake follow trigger travel, steering follows the stick. Live meters,
+  dead zone, invert steering.
+
+In the game, Esc brings the launcher back (Resume, Reset, Quit). Settings
+are saved as they change, with the settings EEPROM and backup RAM, in your
+user data folder (`launcher.ini`). Options: `--rom FILE.zip --autostart
+--gpu vulkan|direct3d12|metal --fullscreen`. Resolution and upscaling
+options are to come.
+
+Default controls:
 
 | Control | Keyboard | Gamepad |
 | --- | --- | --- |
-| Steer | Left / Right | Left stick |
-| Accelerate / brake | Up or Z / Down or X | Right / left trigger |
-| Gears 1-4 | 1 2 3 4 | Shoulders (down / up) |
+| Steer | Left / Right | Left stick (analogue) |
+| Accelerate / brake | Up / Down | Right / left trigger (analogue) |
+| Gears 1-4 | 1 2 3 4 | |
 | View buttons VR1-VR4 | A S D F | Face buttons |
+| Shift up / down | W / Q | Right / left shoulder |
 | Coin / start | 5 / Enter | Back / Start |
 | Test / service | F2 / F3 | |
-| Fullscreen / quit | F11 / Esc | |
+| Fullscreen / launcher | F11 / Esc | |
 
 No sound yet: the sound board is next.

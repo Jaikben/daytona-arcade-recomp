@@ -1,0 +1,53 @@
+#include "app/config.h"
+
+#include <SDL3/SDL.h>
+
+#include <cstdlib>
+#include <fstream>
+
+namespace app {
+
+std::string Config::path() {
+    char *base = SDL_GetPrefPath("daytona-recomp", "daytona93");
+    std::string p = base ? std::string(base) + "launcher.ini" : std::string("launcher.ini");
+    SDL_free(base);
+    return p;
+}
+
+void Config::load() {
+    std::ifstream f(path());
+    std::string line;
+    while (std::getline(f, line)) {
+        const auto eq = line.find('=');
+        if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+        const std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+        if (k == "rom") rom_path = v;
+        else if (k == "gpu") gpu = v;
+        else if (k == "fullscreen") fullscreen = v == "1";
+        else if (k == "deadzone") controls.deadzone = std::strtof(v.c_str(), nullptr);
+        else if (k == "steer_invert") controls.steer_invert = v == "1";
+        else
+            for (int a = 0; a < kNumActions; a++) {
+                const std::string base = action_key(Action(a));
+                if (k == base + ".key") controls.bind[a].key = v.empty() ? SDL_SCANCODE_UNKNOWN : SDL_GetScancodeFromName(v.c_str());
+                else if (k == base + ".pad") controls.bind[a].pad = PadInput::parse(v);
+            }
+    }
+}
+
+void Config::save() const {
+    std::ofstream f(path());
+    f << "# Daytona USA launcher settings\n";
+    f << "rom=" << rom_path << "\n";
+    f << "gpu=" << gpu << "\n";
+    f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
+    f << "deadzone=" << controls.deadzone << "\n";
+    f << "steer_invert=" << (controls.steer_invert ? 1 : 0) << "\n";
+    for (int a = 0; a < kNumActions; a++) {
+        const Binding &b = controls.bind[a];
+        f << action_key(Action(a)) << ".key=" << (b.key == SDL_SCANCODE_UNKNOWN ? "" : SDL_GetScancodeName(b.key)) << "\n";
+        f << action_key(Action(a)) << ".pad=" << b.pad.save() << "\n";
+    }
+}
+
+} // namespace app

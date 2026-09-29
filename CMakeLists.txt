@@ -61,6 +61,8 @@ add_library(runtime STATIC
     src/runtime/video.cpp
     src/runtime/m2_board.cpp
     src/runtime/game_loop.cpp
+    src/runtime/zip.cpp
+    src/runtime/rom_import.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
@@ -105,8 +107,20 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN})
             set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
             add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
         endif()
-        add_executable(daytona WIN32 src/app/main.cpp ${GEN_SOURCES} ${TGP_GEN})
-        target_link_libraries(daytona PRIVATE runtime SDL3::SDL3-static)
+        # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
+        set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
+        add_library(imgui STATIC
+            ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
+            ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/imgui_demo.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp)
+        target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR})
+        target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
+        if(NOT MSVC)
+            target_compile_options(imgui PRIVATE -w)
+        endif()
+        add_executable(daytona WIN32 src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp
+                       ${GEN_SOURCES} ${TGP_GEN})
+        target_link_libraries(daytona PRIVATE runtime imgui SDL3::SDL3-static)
     else()
         message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
     endif()
