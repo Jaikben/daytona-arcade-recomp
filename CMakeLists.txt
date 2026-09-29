@@ -29,9 +29,11 @@ target_compile_definitions(softfloat PRIVATE
 # extFloat80_t in the public headers, so users must see both (a mismatch silently
 # swaps signExp and signif across the call boundary). Little-endian hosts only.
 # Rounding mode and flags are globals in SoftFloat: make them per thread.
+# C++ users get __thread, not thread_local: on macOS an extern thread_local is
+# reached through a C++ wrapper function the C definitions never emit.
 target_compile_definitions(softfloat PUBLIC SOFTFLOAT_FAST_INT64 LITTLEENDIAN=1
     $<$<COMPILE_LANGUAGE:C>:THREAD_LOCAL=_Thread_local>
-    $<$<COMPILE_LANGUAGE:CXX>:THREAD_LOCAL=thread_local>)
+    $<$<COMPILE_LANGUAGE:CXX>:THREAD_LOCAL=$<IF:$<CXX_COMPILER_ID:MSVC>,thread_local,__thread>>)
 set_target_properties(softfloat PROPERTIES C_STANDARD 11)
 if(NOT MSVC)
     target_compile_options(softfloat PRIVATE -w) # upstream code, not ours

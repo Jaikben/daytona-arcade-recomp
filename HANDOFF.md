@@ -512,6 +512,13 @@ Also found:
   (operands still `uint32_t` before widening, `i960.cpp` ~line 1359).
 - The design doc's "15 kHz capture" was wrong for this timing; changed to
   24 kHz medium resolution, pending PCB confirmation.
+- macOS (Apple clang, arm64) failed to link `test_fp`/`fp_vs_mame`: C++ sees
+  SoftFloat's globals as `extern thread_local` and calls a TLS wrapper
+  function that the C (`_Thread_local`) definitions never emit. Linux accepts
+  it, which is why it went unnoticed. C++ now gets `__thread` (GCC/Clang) and
+  MSVC keeps `thread_local`. Checked: macOS `./setup.sh` builds with 5/5 tests
+  passing; Ubuntu 24.04 arm64 GCC 13 and Clang 18 build `test_fp` with 0
+  mismatches. Windows is untested, but MSVC's definition did not change.
 
 ## What not to re-propose
 
@@ -523,6 +530,8 @@ Also found:
 - A mutation test whose mutant is not shown to fire.
 - Using MAME's disassembler as the decode authority. It is the text oracle
   only; semantics come from the executor.
+- `THREAD_LOCAL=thread_local` for C++ users of SoftFloat (breaks the macOS
+  link; see Findings).
 - A TGP microcode ROM dump. The program is uploaded at boot from the game's
   data ROM; dump TGP program RAM only after the upload, or it is zeros.
 
