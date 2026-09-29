@@ -36,10 +36,16 @@ public:
 
     // MAME render_polygons: clear, then draw windows from the last down to
     // 0, each in z-bucket order (low to high z; newest first within a
-    // bucket). crtc_x/crtc_y: MAME's m_crtc_xoffset/m_crtc_yoffset (also the
-    // renderer's x/y offsets). clip: the visible area, inclusive.
+    // bucket). crtc_x/crtc_y: MAME's m_crtc_xoffset/m_crtc_yoffset (the
+    // projection); render_x/render_y: the renderer's offsets (the viewport;
+    // equal to the CRTC's once the game has set them). clip: the visible
+    // area, inclusive.
     void render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
-                int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
+                int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+        render(polys, windows, mem, crtc_x, crtc_y, crtc_x, crtc_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
+    }
+    void render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y, int render_x,
+                int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
 
     const uint32_t *pixels() const { return dest_.data(); } // 512x512, 0x00RRGGBB
     uint64_t hash(int minx, int maxx, int miny, int maxy) const; // as the MAME log computes it
@@ -52,7 +58,8 @@ private:
     uint8_t gamma_[256];
     const VideoMem *mem_ = nullptr;
 
-    void render_one(GeoPoly poly, int crtc_x, int crtc_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
+    void render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
+                    int clip_miny, int clip_maxy);
     template <bool Translucent> void draw_scanline_solid(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
     template <bool Translucent> void draw_scanline_tex(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
     void scanline(int renderer, int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);

@@ -102,6 +102,10 @@ void M2ReplayBus::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint3
     }
 }
 
+void M2ReplayBus::hook(uint32_t start, uint32_t end) {
+    for (uint64_t a = start & ~0xfffu; a <= end; a += (1u << kPageBits)) pages_[uint32_t(a) >> kPageBits].hooked = true;
+}
+
 void M2ReplayBus::map_device(uint32_t start, uint32_t end) {
     for (uint64_t a = start & ~0xfffu; a <= end; a += (1u << kPageBits)) {
         pages_[uint32_t(a) >> kPageBits].kind = Device;
@@ -327,12 +331,17 @@ void M2ReplayBus::write_byte(uint32_t addr, uint8_t data) {
     const unsigned sh = (addr & 3) * 8;
     switch (p.kind) {
     case Rom: return; // nopw
-    case Ram: p.base[addr & 0xfff] = data; return;
+    case Ram:
+        p.base[addr & 0xfff] = data;
+        if (p.hooked && on_write) on_write(addr & ~3u, uint32_t(data) << sh, 0xffu << sh);
+        return;
     case Tex: tex_write(p, addr, uint32_t(data) << ((addr & 3) * 8)); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr & ~3u, uint32_t(data) << sh, 0xffu << sh); return; }
         [[fallthrough]];
-    default: *sparse(addr) = data;
+    default:
+        *sparse(addr) = data;
+        if (p.hooked && on_write) on_write(addr & ~3u, uint32_t(data) << sh, 0xffu << sh);
     }
 }
 
@@ -342,12 +351,17 @@ void M2ReplayBus::write_word(uint32_t addr, uint16_t data) {
     const unsigned sh = (addr & 2) * 8;
     switch (p.kind) {
     case Rom: return;
-    case Ram: std::memcpy(p.base + (addr & 0xfff), &data, 2); return;
+    case Ram:
+        std::memcpy(p.base + (addr & 0xfff), &data, 2);
+        if (p.hooked && on_write) on_write(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
+        return;
     case Tex: tex_write(p, addr, uint32_t(data) << ((addr & 2) * 8)); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh); return; }
         [[fallthrough]];
-    default: std::memcpy(sparse(addr), &data, 2);
+    default:
+        std::memcpy(sparse(addr), &data, 2);
+        if (p.hooked && on_write) on_write(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
     }
 }
 
@@ -356,12 +370,17 @@ void M2ReplayBus::write_dword(uint32_t addr, uint32_t data) {
     const Page &p = page(addr);
     switch (p.kind) {
     case Rom: return;
-    case Ram: std::memcpy(p.base + (addr & 0xfff), &data, 4); return;
+    case Ram:
+        std::memcpy(p.base + (addr & 0xfff), &data, 4);
+        if (p.hooked && on_write) on_write(addr, data, 0xffffffffu);
+        return;
     case Tex: tex_write(p, addr, data); return;
     case Device:
         if (write_tapped(addr)) { device_write(addr, data, 0xffffffffu); return; }
         [[fallthrough]];
-    default: std::memcpy(sparse(addr), &data, 4);
+    default:
+        std::memcpy(sparse(addr), &data, 4);
+        if (p.hooked && on_write) on_write(addr, data, 0xffffffffu);
     }
 }
 

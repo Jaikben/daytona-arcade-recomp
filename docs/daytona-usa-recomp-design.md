@@ -18,7 +18,6 @@ We statically recompile the i960 game code of Daytona USA (Sega Model 2, 1994) i
 
 - Other Model 2 titles. The recompiler stays generic, but runtime HLE targets Daytona's code paths first.
 - Daytona USA 2 (Model 3, PowerPC) and the Saturn / PC ports.
-- Recompiling the sound 68000 or the drive/comm board CPUs; those run interpreted (see Audio, inputs, force feedback, link play).
 
 ## Target hardware summary
 
@@ -34,7 +33,7 @@ Figures below are confirmed against MAME at `dddd7368` (`src/mame/sega/model2.cp
 | Rasterizer | Sega custom chips; MAME has no device, it is driver code | — | Replaced by host GPU renderer |
 | 2D tilemaps / HUD | `S24TILE` (System 24 tilemap chip) | — | Reimplemented, composited on GPU |
 | Screen | `set_raw(32_MHz_XTAL/2, 656, 0, 496, 424, 0, 384)` | 16 MHz pixel clock | 496x384 active, 656x424 total |
-| Sound | Model 1 sound board (`SEGAM1AUDIO`): 68000 + YM3438 + 2x MultiPCM | 68000 `20_MHz_XTAL / 2` = 10 MHz, YM3438 8 MHz, MultiPCM 10 MHz each | Interpreted 68k + existing FM/MultiPCM cores |
+| Sound | Model 1 sound board (`SEGAM1AUDIO`): 68000 + YM3438 + 2x MultiPCM | 68000 `20_MHz_XTAL / 2` = 10 MHz, YM3438 8 MHz, MultiPCM 10 MHz each | 68000 program statically recompiled (same pipeline as the i960); FM/MultiPCM chips as native C++ |
 | Main ↔ sound | i8251 UART (uPD71051C) at 0x01c80000 | 31.25 kbit/s (`16_MHz_XTAL / 2 / 16`) | Serial byte stream, not a latch |
 | I/O | Model 1 I/O board (`SEGA_MODEL1IO`, BIOS `epr14869c`): own Z80, talks through an MB8421 dual-port RAM at 0x01c00000 | Z80 `32_MHz_XTAL / 8` = 4 MHz | HLE of the dual-port RAM protocol, SDL3 mapping |
 | Drive board | SJ25-0207-01 / 838-10646: Z80 + 2x 315-5296 + MSM6253 ADC; commands arrive through the I/O board | Z80 `XTAL(8'000'000)/2` = 4 MHz, "confirmed" | HLE: decode commands, map to SDL haptics |
@@ -193,11 +192,11 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 
 ## Audio, inputs, force feedback, link play
 
-These subsystems are small, timing-tolerant and well emulated already, so they are interpreted or HLE'd rather than recompiled.
+Nothing here is interpreted either. A board whose CPU runs a program gets that program statically recompiled, like the i960 and the TGP; a board whose behaviour is a fixed protocol gets native C++ for that protocol (HLE). If an HLE turns out not to be exact, the board's own program is recompiled instead; there is no fallback to an interpreter.
 
 **Audio**
 
-- Daytona uses the Model 1 sound board, not the SCSP board later Model 2 revisions carry (see Target hardware summary). Its 68000 runs in an embedded interpreter (e.g. Musashi, MIT-licensed) on its own thread; it is cheap at 10 MHz.
+- Daytona uses the Model 1 sound board, not the SCSP board later Model 2 revisions carry (see Target hardware summary). Its 68000 program (`epr-16489`/`16490`, loaded by the importer) is statically recompiled to native C++ by the same approach as the i960: decode from MAME's 68000 executor as the behavioural oracle, per-instruction inline semantics, a dispatch switch for computed jumps, and a lockstep check against MAME's sound CPU. No 68000 interpreter.
 - The YM3438 and the two MultiPCMs use proven cores (MAME's `ymopn`/`multipcm`, or others). Licence check before choosing.
 - Main CPU ↔ sound CPU traffic is a serial byte stream through an i8251 UART at 31.25 kbit/s. The runtime queues bytes with a timestamp so ordering matches the arcade even across threads. The i960's IRQ3 handler (request bit 10) is the transmit loop: Daytona never polls the UART status (MiSTer core, R87), so the UART interrupt must be modelled or no sound data is sent.
 - Output via SDL3 audio at 44.1 kHz with a resampler; the chips' native rates are kept internally.
@@ -319,7 +318,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 1. **M0 Tooling:** MAME trace plugin, input recorder, trace diff tool, i960 disassembler.
 2. **M1 Boot:** Recompiled code reaches attract mode with RAM hashes matching MAME; no graphics.
 3. **M2 Geometry:** the recompiled TGP program matches MAME's FIFO output for attract mode; display lists dump correctly. **Met**: native i960 + recompiled TGP + native buffer RAM + native geometrizer match MAME's rasterizer input and kept polygons bit for bit through attract, a 6,000-frame race and time attack (152 M rasterizer words, 6.7 M polygons in the race).
-4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work. **Progress**: a CPU reference rasterizer (MAME's renderer transplanted, `src/runtime/raster.cpp`) draws the 3D layer from the native pipeline pixel-identical to MAME: 423 attract frames and 5,587 race frames. It is the ground truth the GPU backend is measured against.
+4. **M3 Pixels:** GPU renderer draws attract mode and a race at native res; tilemaps and HUD work. **Progress**: a CPU reference rasterizer (MAME's renderer transplanted, `src/runtime/raster.cpp`) draws the 3D layer from the native pipeline pixel-identical to MAME: 423 attract frames and 5,587 race frames. It is the ground truth the GPU backend is measured against. The segaic24 tilemaps, palette pens, CRTC offsets and composition are native too (`src/runtime/video.cpp`): the whole composed screen is identical to MAME for 596 attract frames and 5,996 race frames.
 5. **M4 Playable:** Sound, inputs, full-race replay parity on all three courses.
 6. **M5 Cabinet feel:** Force feedback, link play on LAN, PCB side-by-side validation.
 7. **M6 Ship:** Importer, packaging on all three OSes, enhancements, settings UI.
@@ -333,7 +332,7 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 | TGP behaviour poorly documented | Wrong geometry, collision | Trace MAME per command; logic-analyse the real bus if needed |
 | Hardware sort order hard to reproduce on GPU | Visual artefacts differ | CPU-side sort replicating hardware keys; z-buffer optional |
 | Interrupt timing differences | Rare hangs, audio drift | Safe-point IRQ checks; cycle-count estimates per block if required |
-| Licensing of reused cores | Can't ship | Pick BSD/MIT cores (MAME's newer files, Musashi); audit early |
+| Licensing of reused cores | Can't ship | Transplant only BSD/MIT code (MAME's newer files); audit early |
 
 **Open questions**
 

@@ -8,6 +8,7 @@
 #include "trace/trace.h"
 
 #include <array>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -50,6 +51,12 @@ public:
     // The memories the 3D rasterizer reads (palette, colour translation,
     // luma, texture RAM), current as of now.
     VideoMem video_mem() const;
+    const uint8_t *tile_ram() const { return tile_.data(); }
+    const uint8_t *char_ram() const { return chr_.data(); }
+    // Called after a write to a hooked page is stored: dword address, data in
+    // its byte lanes, lane mask. For registers the video output tracks.
+    std::function<void(uint32_t addr, uint32_t data, uint32_t mask)> on_write;
+    void hook(uint32_t start, uint32_t end);
 
     uint32_t fetch(uint32_t addr) override;
     uint8_t read_byte(uint32_t addr) override;
@@ -75,6 +82,7 @@ private:
     struct Page {
         Kind kind = Unmapped;
         bool burst = false;        // MAME maps the range with .flags(i960_cpu_device::BURST)
+        bool hooked = false;       // writes are reported to on_write
         uint8_t *base = nullptr;   // Rom/Ram: host address of guest (page start)
     };
     static constexpr unsigned kPageBits = 12; // 4 KiB pages

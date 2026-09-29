@@ -2,6 +2,23 @@
 
 ## Current state
 
+**The whole screen now renders natively, identical to MAME.** `src/runtime/video.cpp`
+adds the segaic24 tilemap chip (four 64x64-tile layers, per-line scroll,
+special window modes, 8-pixel window masks), the tilemap palette pens (as
+MAME computes them at palette write time, refreshed each frame once a scroll
+colour is written), the CRTC offsets, and MAME's composition order (2D back,
+3D, 2D front). It runs at the i960 instruction count of each MAME screen
+update (vblank end; patch 0002 `su`/`scr` lines) and is held to a hash of
+MAME's composed screen: **596 of 596 attract frames and 5,996 of 5,996 race
+frames identical**, 3D layer 5,587 of 5,587. Dumped frames (boot settings
+screen, attract with HUD) are byte-identical to MAME's.
+
+Everything on screen now comes from native code: the recompiled i960 and
+TGP programs, and native C++ for the fixed-function chips (geometrizer,
+rasterizer, tilemaps). Still replayed from MAME's trace in the harness: the
+sound board (UART bytes) and the I/O board (dual-port RAM). Design change:
+the sound 68000 will be statically recompiled, not interpreted.
+
 **M3 started: the 3D layer renders natively, pixel-identical to MAME.**
 `src/runtime/raster.cpp` is a CPU reference rasterizer (MAME's Model 2
 renderer and the poly.h triangle/polygon setup, transplanted). In
@@ -159,19 +176,17 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. segaic24 tilemap chip (2D layers: HUD, text, backgrounds) and its CRTC
-   offsets, native, composed with the 3D layer as MAME's screen_update does;
-   check whole frames against MAME.
-2. GPU backend (SDL3 GPU: Vulkan, Metal, D3D12) drawing the same display
-   list; the CPU reference is its ground truth (tolerance-based, since GPU
-   rasterization rules differ).
-3. The game loop outside lockstep: the recompiled i960 driven by the native
-   board (vblank and timer interrupts at safe points, sound UART and I/O
-   board), so the game runs with no trace, then a window.
-4. Pin the geometrizer's libm calls (`hypot`, `sqrt`) to correctly rounded
-   versions for cross-host agreement.
-5. Harvest the 21 unhit indirect sites (a user recording of circuit select
-   and test mode).
+1. The game loop outside lockstep: the recompiled i960 driven by the native
+   board with no trace (vblank and timer interrupts, the sound UART and the
+   I/O board's dual-port RAM answered natively, inputs from the host), and
+   frames out to a window (SDL3). Then compare a free-running attract with
+   MAME's frames.
+2. Sound: statically recompile the 68000 sound program (same approach as the
+   i960, lockstep against MAME's sound CPU); YM3438 and MultiPCM as native
+   C++.
+3. GPU backend (SDL3 GPU) with the CPU reference as ground truth.
+4. Pin the geometrizer's libm calls (`hypot`, `sqrt`) for cross-host
+   agreement; harvest the 21 unhit indirect sites (a user recording).
 
 ## Open decisions
 

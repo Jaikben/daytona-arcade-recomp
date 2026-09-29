@@ -85,10 +85,14 @@ int main(int argc, char **argv) {
             std::printf("  geometrizer (native): %" PRIu64 " frames, %" PRIu64 " rasterizer words and %" PRIu64
                         " polygons identical to MAME\n",
                         geocheck->frames_checked, geocheck->words, geocheck->polys);
-        if (geocheck)
+        if (geocheck) {
             std::printf("  3D layer (CPU reference rasterizer): %" PRIu64 " of %" PRIu64 " frames identical to MAME%s%s\n",
                         geocheck->fb_checked - geocheck->fb_mismatch, geocheck->fb_checked,
                         geocheck->fb_mismatch ? "; first difference " : "", geocheck->first_fb_mismatch.c_str());
+            std::printf("  screen (tilemaps + 3D, composed): %" PRIu64 " of %" PRIu64 " frames identical to MAME%s%s\n",
+                        geocheck->scr_checked - geocheck->scr_mismatch, geocheck->scr_checked,
+                        geocheck->scr_mismatch ? "; first difference " : "", geocheck->first_scr_mismatch.c_str());
+        }
         if (geo.buffer_mismatch) std::printf("  first buffer RAM difference: %s\n", geo.first_buffer_mismatch.c_str());
         if (geo.status_mismatch) std::printf("  first FIFO-status difference: %s\n", geo.first_status_mismatch.c_str());
         return 0;

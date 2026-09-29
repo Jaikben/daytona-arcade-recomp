@@ -154,7 +154,7 @@ index f7dc50647a..5022cb3236 100644
  
  	const u32 line = 1 << 0;
 diff --git a/src/mame/sega/model2_v.cpp b/src/mame/sega/model2_v.cpp
-index 3a5bfa51ba..76255ac667 100644
+index 3a5bfa51ba..4b9589664b 100644
 --- a/src/mame/sega/model2_v.cpp
 +++ b/src/mame/sega/model2_v.cpp
 @@ -94,6 +94,8 @@
@@ -248,3 +248,44 @@ index 3a5bfa51ba..76255ac667 100644
  	/* see if we have a command in progress */
  	if (raster->cur_command != 0)
  	{
+@@ -2406,6 +2452,11 @@ void model2_state::video_start()
+ 
+ u32 model2_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, const rectangle &cliprect)
+ {
++	// daytona-arcade-recomp: screen update position (M2TRACE_GEOLOG "su")
++	if (FILE *f = m2_geo_log())
++		fprintf(f, "su %u %llu %d %d %d %d\n", unsigned(screen.frame_number()), (unsigned long long)m_maincpu->insn_count(),
++				cliprect.min_x, cliprect.max_x, cliprect.min_y, cliprect.max_y);
++
+ 	// if the scroll color table was written to, we need to refresh the palette
+ 	if (m_palette_dirty)
+ 	{
+@@ -2448,5 +2499,28 @@ u32 model2_state::screen_update(screen_device &screen, bitmap_rgb32 &bitmap, con
+ 
+ 	copybitmap_trans(bitmap, m_sys24_bitmap, 0, 0, 0, 0, cliprect, 0);
+ 
++	// daytona-arcade-recomp: the composed screen (M2TRACE_GEOLOG "scr")
++	if (FILE *f = m2_geo_log()) {
++		u64 h = 0xcbf29ce484222325ULL;
++		for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
++			for (int x = cliprect.min_x; x <= cliprect.max_x; x++) {
++				const u32 px = bitmap.pix(y, x);
++				for (int b = 0; b < 4; b++) { h ^= (px >> (8 * b)) & 0xff; h *= 0x100000001b3ULL; }
++			}
++		fprintf(f, "scr %u %016llx\n", unsigned(screen.frame_number()), (unsigned long long)h);
++		static int every = getenv("M2TRACE_FBDUMP_EVERY") ? atoi(getenv("M2TRACE_FBDUMP_EVERY")) : 0;
++		static const char *dir = getenv("M2TRACE_FBDUMP_DIR");
++		const unsigned fr = unsigned(screen.frame_number());
++		if (dir && every > 0 && fr % every == 0) {
++			char path[512];
++			snprintf(path, sizeof path, "%s/mame_scr_%05u.rgb", dir, fr);
++			if (FILE *d = fopen(path, "wb")) {
++				for (int y = cliprect.min_y; y <= cliprect.max_y; y++)
++					fwrite(&bitmap.pix(y, cliprect.min_x), 4, cliprect.max_x - cliprect.min_x + 1, d);
++				fclose(d);
++			}
++		}
++	}
++
+ 	return 0;
+ }

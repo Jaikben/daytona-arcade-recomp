@@ -115,7 +115,7 @@ uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
 }
 
 void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
-                    int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+                    int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
     mem_ = &mem;
     std::fill(dest_.begin(), dest_.end(), 0u);
     std::fill(fill_.begin(), fill_.end(), u8(0));
@@ -129,10 +129,11 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         return a > b;
     });
     for (size_t i : order)
-        if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
+        if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
 
-void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
+void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
+                        int clip_miny, int clip_maxy) {
     // model2_3d_project
     for (int i = 0; i < poly.num_vertices; i++) {
         GeoVertex &v = poly.v[i];
@@ -143,9 +144,10 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int clip_minx, int
     // model2_3d_render
     Extra extra;
     const int renderer = (poly.texheader[0] >> 13) & 3;
-    // rectangle(minx, maxx, miny, maxy) &= cliprect; the renderer's offsets are the CRTC's
-    int clip[4] = {std::max(poly.viewport[0] + crtc_x, clip_minx), std::min(poly.viewport[2] + crtc_x, clip_maxx),
-                   std::max((384 - poly.viewport[3]) + crtc_y, clip_miny), std::min((384 - poly.viewport[1]) + crtc_y, clip_maxy)};
+    // rectangle(minx, maxx, miny, maxy) &= cliprect, in the renderer's offsets
+    int clip[4] = {std::max(poly.viewport[0] + render_x, clip_minx), std::min(poly.viewport[2] + render_x, clip_maxx),
+                   std::max((384 - poly.viewport[3]) + render_y, clip_miny),
+                   std::min((384 - poly.viewport[1]) + render_y, clip_maxy)};
 
     extra.checker = (poly.texheader[0] >> 15) & 1;
     extra.lumabase = u32(poly.texheader[1] & 0xff) << 7;
