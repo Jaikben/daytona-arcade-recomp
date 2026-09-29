@@ -10,9 +10,7 @@
 // waits for the display's vsync at that point; the frame rate is the only
 // limit.
 
-#include "runtime/gen_support.h"
-#include "runtime/lockstep.h"
-#include "runtime/m2_board.h"
+#include "runtime/game_loop.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -27,12 +25,6 @@
 #include <vector>
 
 namespace {
-
-std::vector<uint8_t> load(const std::string &path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) throw std::runtime_error("cannot open " + path);
-    return {std::istreambuf_iterator<char>(f), {}};
-}
 
 // scripts/inputs format: "frames N", "<from>-<to> name=value" or "<at> name=value".
 struct Script {
@@ -104,87 +96,27 @@ int main(int argc, char **argv) {
     }
 
     try {
-        rt::M2Board::Images img;
-        img.program = load(dir + "/program.bin");
-        img.main_data = load(dir + "/main_data.bin");
-        img.copro_tables = load(dir + "/copro_tables.bin");
-        img.copro_data = load(dir + "/copro_data.bin");
-        img.polygons = load(dir + "/polygons.bin");
-        img.textures = load(dir + "/textures.bin");
-        rt::M2Board board(std::move(img));
-        rt::Cpu cpu(&board);
-        rt::Lockstep ls(cpu);
-        board.attach(cpu, ls);
-        cpu.reset();
-        gen::Env env{cpu, ls};
+        rt::GameLoop game(dir);
         Script script;
         if (!inputs_path.empty()) script.load(inputs_path);
-
-        // Frame pacing (no clock): see the file comment. The caps only bound a
-        // frame that never reaches its idle loop.
-        constexpr uint64_t kProbe = 1024;        // instructions between idle checks
-        // A frame that never reaches the wait loop (the boot-time texture
-        // upload) is CPU-bound: vblank comes after one frame's worth of i960
-        // work (25 MHz / 57.52 Hz, about 110k instructions as MAME measures).
-        constexpr uint64_t kFrameCap = 110000;
-        constexpr uint64_t kVblankCap = 40000;   // a vblank handler that never returns
-        constexpr uint64_t kMinFrame = kProbe * 2;
-        bool in_vblank = false;
-        uint64_t frame_start = 0, vblank_start = 0;
-        uint64_t frames_done = 0;
-
-        std::function<void()> probe;
-        auto start_vblank = [&] {
-            board.io().inputs = script.at(board.frame());
-            board.vblank_start();
-            in_vblank = true;
-            vblank_start = ls.count;
-        };
-        auto end_vblank = [&] {
-            board.vblank_end();
-            in_vblank = false;
-            frame_start = ls.count;
-            ++frames_done;
-            if (frames_done >= frames) ls.end_count = ls.count; // gen::run returns
-            if (!dump_dir.empty() && every && board.frame() % every == 0) {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (uint64_t f = 0; f < frames; f++) {
+            game.run_frame(script.at(game.board().frame()));
+            if (!dump_dir.empty() && every && game.board().frame() % every == 0) {
                 char path[512];
-                std::snprintf(path, sizeof path, "%s/run_%05" PRIu64 ".rgb", dump_dir.c_str(), board.frame());
+                std::snprintf(path, sizeof path, "%s/run_%05" PRIu64 ".rgb", dump_dir.c_str(), game.board().frame());
                 if (FILE *d = std::fopen(path, "wb")) {
-                    std::fwrite(board.video().screen().data(), 4, board.video().screen().size(), d);
+                    std::fwrite(game.screen().data(), 4, game.screen().size(), d);
                     std::fclose(d);
                 }
             }
-        };
-        probe = [&] {
-            const bool idle = board.in_idle_loop();
-            if (in_vblank) {
-                if ((idle && ls.count - vblank_start >= kProbe * 2) || ls.count - vblank_start >= kVblankCap) end_vblank();
-            } else {
-                const uint64_t since = ls.count - frame_start;
-                if (since >= kFrameCap && std::getenv("M2RUN_VERBOSE"))
-                    std::fprintf(stderr, "frame %" PRIu64 ": no wait loop after %" PRIu64 " instructions; IP %08x\n",
-                                 board.frame(), since, cpu.m_IP);
-                if ((idle && since >= kMinFrame) || since >= kFrameCap) start_vblank();
-            }
-            if (frames_done < frames) ls.add_callback(ls.count + kProbe, probe);
-        };
-        ls.add_callback(kProbe, probe);
-
-        const auto t0 = std::chrono::steady_clock::now();
-        while (frames_done < frames) {
-            if (!gen::has_code(cpu.m_IP)) {
-                char b[128];
-                std::snprintf(b, sizeof b, "no recompiled code at %08x: add it to the seeds", cpu.m_IP);
-                throw rt::Fatal(b);
-            }
-            gen::run(env);
         }
         const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         std::printf("m2run: %" PRIu64 " frames, %" PRIu64 " i960 instructions (all native), %" PRIu64
                     " TGP instructions, %d interrupts, %zu bytes to the sound board; %.2f s (%.0f frames/s)\n",
-                    frames_done, ls.count, board.tgp().tgp_instructions(), ls.interrupts(), board.sound_bytes().size(), s,
-                    double(frames_done) / s);
-        std::printf("  last screen hash %016" PRIx64 "\n", board.video().screen_hash());
+                    game.frames(), game.instructions(), game.board().tgp().tgp_instructions(), game.interrupts(),
+                    game.board().sound_bytes().size(), s, double(game.frames()) / s);
+        std::printf("  last screen hash %016" PRIx64 "\n", game.board().video().screen_hash());
         return 0;
     } catch (const std::exception &e) {
         std::printf("m2run: stopped: %s\n", e.what());

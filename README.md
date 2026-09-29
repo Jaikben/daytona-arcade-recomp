@@ -31,3 +31,23 @@ source for the oracle test), `--build-mame` (the patched MAME that records
 validation traces; Linux and macOS).
 
 After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
+
+## Playing
+
+    build/daytona [--gpu vulkan|direct3d12|metal] [--fullscreen]
+
+(`build/Release/daytona.exe` with the Visual Studio generator.) SDL picks the
+GPU backend unless `--gpu` is given. Settings and backup RAM are saved to your
+user data folder on exit.
+
+| Control | Keyboard | Gamepad |
+| --- | --- | --- |
+| Steer | Left / Right | Left stick |
+| Accelerate / brake | Up or Z / Down or X | Right / left trigger |
+| Gears 1-4 | 1 2 3 4 | Shoulders (down / up) |
+| View buttons VR1-VR4 | A S D F | Face buttons |
+| Coin / start | 5 / Enter | Back / Start |
+| Test / service | F2 / F3 | |
+| Fullscreen / quit | F11 / Esc | |
+
+No sound yet: the sound board is next.

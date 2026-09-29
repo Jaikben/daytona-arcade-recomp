@@ -4,7 +4,9 @@
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 [--test-extras] [--with-mame]
 #
 # Installs (skipping what is already there): Git, CMake, Ninja, Python 3 and
-# Visual Studio 2022 Build Tools with the C++ workload (MSVC). Put your own
+# Visual Studio 2022 Build Tools with the C++ workload (MSVC and the Windows
+# SDK, which has Direct3D 12). SDL 3 is fetched and built with the project;
+# Vulkan comes with the GPU driver. Put your own
 # ROM set at roms\daytona93.zip to have the game recompiled too.
 
 $ErrorActionPreference = 'Stop'

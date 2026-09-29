@@ -60,6 +60,7 @@ add_library(runtime STATIC
     src/runtime/raster.cpp
     src/runtime/video.cpp
     src/runtime/m2_board.cpp
+    src/runtime/game_loop.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
@@ -93,6 +94,22 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN})
     # The game on its own: native board runtime, no trace.
     add_executable(m2run tools/m2run/main.cpp ${GEN_SOURCES} ${TGP_GEN})
     target_link_libraries(m2run PRIVATE runtime)
+
+    # The game in a window: SDL3 (window, input, SDL_GPU: Vulkan, Direct3D 12,
+    # Metal). SDL is fetched by scripts/setup.py into extern/sdl3.
+    if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
+        if(NOT TARGET SDL3::SDL3-static)
+            set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+            set(SDL_STATIC ON CACHE BOOL "" FORCE)
+            set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+            set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+            add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
+        endif()
+        add_executable(daytona WIN32 src/app/main.cpp ${GEN_SOURCES} ${TGP_GEN})
+        target_link_libraries(daytona PRIVATE runtime SDL3::SDL3-static)
+    else()
+        message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
+    endif()
     if(NOT MSVC)
         set_source_files_properties(${GEN_SOURCES} ${TGP_GEN} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     endif()

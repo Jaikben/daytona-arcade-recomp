@@ -2,6 +2,19 @@
 
 ## Current state
 
+**The game is playable in a window.** `daytona` (`src/app/main.cpp`): SDL
+3.4.16 (built from source, static) with SDL_GPU: Vulkan or Direct3D 12 on
+Windows, Vulkan on Linux, Metal on macOS (`--gpu` to choose). Each composed
+frame is uploaded to a GPU texture and blitted, letterboxed 4:3, onto the
+swapchain; the game advances at the board's 57.52 frames/s and is presented
+at the display's rate. Keyboard and gamepad map to the I/O board; settings
+EEPROM and backup RAM persist in the SDL pref path. Verified here on Vulkan
+(Mesa lavapipe under Xvfb): the attract demo in the window. Direct3D 12 and
+Metal not run yet (no Windows or Mac here). The 3D layer is still drawn by
+the CPU reference rasterizer; the GPU rasterizer is a later step.
+`rt::GameLoop` (`src/runtime/game_loop.cpp`) holds the frame pacing that
+`m2run` and `daytona` share.
+
 **The game runs on its own.** `m2run` runs the recompiled game on the
 native board runtime (`src/runtime/m2_board.cpp`) with no trace and no
 MAME: boot, the settings screen, then the attract demo in full 3D.
@@ -208,14 +221,13 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. A window: SDL3, the composed screen presented each frame at vsync,
-   keyboard/gamepad/wheel mapped to the I/O board inputs; settings EEPROM
-   and backup RAM saved to files.
-2. Sound: the sound board's program statically recompiled (68000), YM3438
-   and MultiPCM as native C++, fed from the UART bytes.
-3. Check a free-running coin-up and race against the scripted inputs
-   (compare with MAME's frames by eye and by game state).
-4. GPU renderer (SDL3 GPU) with the CPU reference as ground truth.
+1. Sound: the sound board's 68000 program statically recompiled, YM3438
+   and MultiPCM as native C++, fed from the UART bytes; SDL audio out.
+2. Run `daytona` on Windows (Direct3D 12 and Vulkan) and macOS (Metal) and
+   fix whatever MSVC or Apple clang reject.
+3. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
+   SPIR-V, DXIL and MSL), measured against the CPU reference.
+4. Wheel support and control remapping; widescreen and resolution options.
 
 ## Open decisions
 

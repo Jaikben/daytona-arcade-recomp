@@ -9,7 +9,8 @@ you already have one.
 Always:
   - checks the toolchain: git, CMake >= 3.20, a C++20 compiler (Ninja used
     when present; Visual Studio's generator on Windows);
-  - fetches Berkeley SoftFloat 3e at its pinned commit into extern/;
+  - fetches Berkeley SoftFloat 3e and SDL 3 at their pinned commits into
+    extern/ (SDL is built from source with the project, statically);
   - configures and builds the tools and tests, runs the tests;
   - if your ROM set is at roms/daytona93.zip: imports it, recompiles the
     game's code to native C++ and builds it (all under build/, git-ignored).
@@ -41,6 +42,7 @@ WINDOWS = os.name == "nt"
 
 # Pinned third-party sources (THIRD_PARTY.md).
 SOFTFLOAT = ("https://github.com/ucb-bar/berkeley-softfloat-3.git", "a0c6494cdc11865811dec815d5c0049fba9d82a8")
+SDL3 = ("https://github.com/libsdl-org/SDL.git", "fa2c02bb6e21974a89ea9824bc53c9932abe5f9c")  # release-3.4.16
 GHIDRA_I960 = ("https://github.com/mumbel/ghidra_i960.git", "727ef7872c5b1cd6ceb5a81f5e474d1ced92945c")
 MAME_COMMIT = "dddd73680656e355bb2b5beecab1167c9f07bf81"
 
@@ -135,6 +137,9 @@ def main():
 
     say("Fetching SoftFloat 3e (extF80 reference for i960 FP)")
     fetch(*SOFTFLOAT, "softfloat")
+
+    say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
+    fetch(*SDL3, "sdl3")
 
     if args.test_extras:
         say("Optional test extras")
