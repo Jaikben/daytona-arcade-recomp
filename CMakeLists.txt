@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
-    add_compile_options(/W4 /fp:strict)
+    # /bigobj: the generated game code has many labels per object file
+    add_compile_options(/W4 /fp:strict /bigobj /utf-8)
 else()
     # No -ffast-math, ever (rules.md): exact rounding is the point. No FP
     # contraction either: a fused multiply-add (ARM64 always has one) rounds

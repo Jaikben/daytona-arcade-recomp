@@ -141,8 +141,10 @@ Built and tested here: i960 decoder + `i960dis`, trace library + `tracediff`,
 and the MAME plugin `tools/mame-plugins/m2trace` (trace recorder, input
 recorder/replayer). The plugin is tested only against a mock of MAME's Lua API.
 
-Build: `scripts/fetch_mame.sh` (optional, for the oracle test), then
-`cmake -S . -B build -G Ninja && ninja -C build && ctest --test-dir build`.
+Build: `./setup.sh` (Linux, macOS) or `setup.ps1` (Windows) installs the
+toolchain, fetches the pinned dependencies, builds, recompiles the game if
+`roms/daytona93.zip` is there, and runs the tests (see README.md). Verified
+end to end on Linux with GCC and Clang; macOS and Windows (MSVC) not yet run.
 The Lua tests need `pip install lupa` (Lua 5.4) and skip without it.
 
 Running the plugin (user's machine, with their ROM set):
