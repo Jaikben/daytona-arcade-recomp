@@ -35,6 +35,7 @@ dumps/
 
 # ---- Build output ----
 build/
+build-*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/

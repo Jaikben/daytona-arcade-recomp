@@ -7,4 +7,4 @@ cd "$(dirname "$0")/../extern/mame"
 # tests read. Our patches are already applied to the tracked files.
 [ "$(git config core.sparseCheckout)" = true ] && git sparse-checkout disable
 make SUBTARGET=m2 SOURCES=src/mame/sega/model2.cpp TOOLS=0 USE_QTDEBUG=0 NOWERROR=1 SYMBOLS=0 OPTIMIZE=2 \
-    -j"$(nproc)" "$@"
+    -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" "$@"
