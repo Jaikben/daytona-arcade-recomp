@@ -17,7 +17,7 @@ void Launcher::check_rom() {
     checks_.clear();
     rom_ok_ = false;
     if (cfg_.rom_path.empty()) {
-        rom_message_ = "Choose your daytona93.zip ROM set.";
+        rom_message_ = "Choose your daytona93 ROM set (.zip or .7z).";
         return;
     }
     try {
@@ -42,7 +42,7 @@ void SDLCALL Launcher::dialog_done(void *self, const char *const *files, int) {
 }
 
 void Launcher::browse() {
-    static const SDL_DialogFileFilter filters[] = {{"ROM set (zip)", "zip"}, {"All files", "*"}};
+    static const SDL_DialogFileFilter filters[] = {{"ROM set (zip, 7z)", "zip;7z"}, {"All files", "*"}};
     dialog_pending_ = true;
     SDL_ShowOpenFileDialog(dialog_done, this, window_, filters, 2, cfg_.rom_path.empty() ? nullptr : cfg_.rom_path.c_str(), false);
 }

@@ -6,7 +6,8 @@ and the fixed-function hardware (geometrizer, rasterizer, tilemaps) is native
 C++. No interpreter, no emulation core. MAME is used only as a test oracle.
 See `docs/daytona-usa-recomp-design.md` and `HANDOFF.md`.
 
-No game data is in this repository. You need your own `daytona93` ROM set.
+No game data is in this repository. You need your own `daytona93` ROM set
+(a MAME-format `.zip` or `.7z`).
 
 ## Setup
 
@@ -22,7 +23,7 @@ These install the toolchain (C++20 compiler, CMake, Ninja, Python 3, Git;
 Visual Studio 2022 Build Tools on Windows, Homebrew packages on macOS, your
 distribution's packages on Linux), fetch the pinned dependencies into
 `extern/`, build, and run the tests. Put your ROM set at
-`roms/daytona93.zip` first and the game code is recompiled as well (into
+`roms/daytona93.zip` (or `.7z`) first and the game code is recompiled as well (into
 `build/`, never committed). Already have a toolchain? Run
 `python3 scripts/setup.py` directly.
 
@@ -39,7 +40,7 @@ After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
 (`build/Release/daytona.exe` with the Visual Studio generator.) The launcher
 opens first:
 
-- **Game**: choose your `daytona93.zip` (Browse, or type the path); every file
+- **Game**: choose your `daytona93` ROM set, `.zip` or `.7z` (Browse, or type the path); every file
   is checked against the ROM set this build was recompiled from. Graphics API
   (automatic, Vulkan, Direct3D 12, Metal) and fullscreen. Start.
 - **Controls**: bind every arcade control to a key and a gamepad button or

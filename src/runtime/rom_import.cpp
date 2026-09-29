@@ -1,5 +1,6 @@
 #include "runtime/rom_import.h"
 
+#include "runtime/archive.h"
 #include "runtime/zip.h"
 
 #include <cstdio>
@@ -55,14 +56,15 @@ std::string hex8(uint32_t v) {
 
 std::vector<RomCheck> check_rom_set(const std::string &zip_path) {
     std::vector<RomCheck> out;
-    Zip z(zip_path);
+    const auto z = open_archive(zip_path);
     for (const Load &l : kLoads) {
         RomCheck c;
         c.file = l.file;
-        const auto it = z.entries().find(l.file);
-        if (it == z.entries().end()) c.problem = "missing";
-        else if (it->second.usize != l.size) c.problem = "wrong size";
-        else if (it->second.crc != l.crc) c.problem = "wrong CRC " + hex8(it->second.crc) + " (expected " + hex8(l.crc) + ")";
+        const auto it = z->entries().find(l.file);
+        if (it == z->entries().end()) c.problem = "missing";
+        else if (it->second.size != l.size) c.problem = "wrong size";
+        else if (it->second.has_crc && it->second.crc != l.crc)
+            c.problem = "wrong CRC " + hex8(it->second.crc) + " (expected " + hex8(l.crc) + ")";
         else c.ok = true;
         out.push_back(c);
     }
@@ -70,7 +72,7 @@ std::vector<RomCheck> check_rom_set(const std::string &zip_path) {
 }
 
 M2Board::Images import_rom_set(const std::string &zip_path) {
-    Zip z(zip_path);
+    const auto z = open_archive(zip_path);
     M2Board::Images img;
     img.program.assign(0x200000, 0);
     img.main_data.assign(0x2000000, 0);
@@ -79,7 +81,7 @@ M2Board::Images import_rom_set(const std::string &zip_path) {
     img.textures.assign(0x1000000, 0);
     img.copro_tables.assign(0x40000, 0);
     for (const Load &l : kLoads) {
-        const std::vector<uint8_t> data = z.read(l.file); // CRC against the zip directory
+        const std::vector<uint8_t> data = z->read(l.file); // CRC against the archive's own
         if (data.size() != l.size || crc32(data.data(), data.size()) != l.crc)
             throw ZipError(std::string(l.file) + ": not the daytona93 ROM this build was recompiled from");
         std::vector<uint8_t> *r = nullptr;

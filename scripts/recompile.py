@@ -4,7 +4,8 @@ them. Same steps on Linux, macOS and Windows.
 
   recompile.py [--build-dir build] [--config Release]
 
-Needs the user's ROM set at roms/daytona93.zip (git-ignored). Everything
+Needs the user's ROM set at roms/daytona93.zip or roms/daytona93.7z
+(git-ignored). Everything
 derived from it (images, generated C++) goes under the build directory,
 which is git-ignored: never commit it.
 """
@@ -39,14 +40,15 @@ def main():
     args = ap.parse_args()
     build = os.path.join(ROOT, args.build_dir)
     cache = os.path.join(build, "rom_cache", "daytona93")
-    zip_path = os.path.join(ROOT, "roms", "daytona93.zip")
-
-    if not os.path.exists(os.path.join(cache, "tgp_program.bin")):
-        if not os.path.exists(zip_path):
-            sys.exit("recompile: put your ROM set at roms/daytona93.zip first")
-        run([sys.executable, os.path.join("scripts", "m2import.py"), zip_path, cache])
+    roms = [os.path.join(ROOT, "roms", "daytona93." + ext) for ext in ("zip", "7z")]
+    roms = [r for r in roms if os.path.exists(r)]
 
     build_cmd = ["cmake", "--build", build, "--config", args.config]
+    if not os.path.exists(os.path.join(cache, "tgp_program.bin")):
+        if not roms:
+            sys.exit("recompile: put your ROM set at roms/daytona93.zip (or .7z) first")
+        run(build_cmd + ["--target", "m2import"])
+        run([tool(build, args.config, "m2import"), roms[0], cache])
     run(build_cmd + ["--target", "m2recomp", "m2tgprecomp"])
 
     gen = os.path.join(build, "gen", "daytona93")

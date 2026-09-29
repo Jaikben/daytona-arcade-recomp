@@ -63,10 +63,30 @@ add_library(runtime STATIC
     src/runtime/game_loop.cpp
     src/runtime/zip.cpp
     src/runtime/rom_import.cpp
+    src/runtime/archive.cpp
     src/runtime/m2_replay_bus.cpp
     src/runtime/lockstep.cpp
 )
 target_include_directories(runtime PUBLIC src)
+# 7z ROM sets: the 7-Zip LZMA SDK's decoder (public-domain files only),
+# fetched by scripts/setup.py into extern/lzma.
+set(LZMA_DIR ${CMAKE_SOURCE_DIR}/extern/lzma/C)
+if(EXISTS ${LZMA_DIR}/7zArcIn.c)
+    add_library(lzma7z STATIC
+        ${LZMA_DIR}/7zArcIn.c ${LZMA_DIR}/7zDec.c ${LZMA_DIR}/7zBuf.c ${LZMA_DIR}/7zCrc.c ${LZMA_DIR}/7zCrcOpt.c
+        ${LZMA_DIR}/7zStream.c ${LZMA_DIR}/7zAlloc.c ${LZMA_DIR}/Alloc.c ${LZMA_DIR}/LzmaDec.c ${LZMA_DIR}/Lzma2Dec.c
+        ${LZMA_DIR}/Bra.c ${LZMA_DIR}/Bra86.c ${LZMA_DIR}/BraIA64.c ${LZMA_DIR}/Bcj2.c ${LZMA_DIR}/Delta.c
+        ${LZMA_DIR}/CpuArch.c ${LZMA_DIR}/Ppmd7.c ${LZMA_DIR}/Ppmd7Dec.c)
+    target_include_directories(lzma7z SYSTEM PUBLIC ${LZMA_DIR})
+    target_compile_definitions(lzma7z PRIVATE Z7_PPMD_SUPPORT) # 7z's PPMd method too, not only LZMA/LZMA2
+    if(NOT MSVC)
+        target_compile_options(lzma7z PRIVATE -w)
+    endif()
+    target_link_libraries(runtime PUBLIC lzma7z)
+    target_compile_definitions(runtime PRIVATE M2_HAVE_7Z)
+else()
+    message(STATUS "extern/lzma not found: 7z ROM sets unsupported (run scripts/setup.py)")
+endif()
 target_link_libraries(runtime PUBLIC trace i960)
 
 # Reference interpreter (MAME's i960 executor, transplanted, BSD-3). Test
@@ -131,6 +151,10 @@ endif()
 
 # The TGP recompiler and, when it has been run, the lockstep check of its
 # output against MAME's TGP log.
+# The ROM set importer (zip or 7z) for the build.
+add_executable(m2import tools/m2import/main.cpp)
+target_link_libraries(m2import PRIVATE runtime)
+
 add_executable(m2tgprecomp tools/m2tgprecomp/main.cpp)
 target_include_directories(m2tgprecomp PRIVATE src)
 if(EXISTS ${TGP_GEN})

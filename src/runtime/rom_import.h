@@ -1,4 +1,4 @@
-// Load the user's daytona93 ROM set (a MAME-format zip) into the memory
+// Load the user's daytona93 ROM set (a MAME-format zip or 7z) into the memory
 // images the board runs from, in memory: every file CRC-checked against
 // MAME's ROM_START(daytona93), then laid out as MAME loads it
 // (ROM_LOAD32_WORD interleave, ROM_COPY mirrors). The same table as

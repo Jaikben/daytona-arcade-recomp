@@ -11,7 +11,11 @@ bind), analogue triggers for the pedals and a stick for steering, live
 meters, dead zone, invert. Settings save to `launcher.ini` in the SDL pref
 path as they change. The ROM set is loaded natively from the zip
 (`src/runtime/zip.cpp`, own inflate; `rom_import.cpp`, the importer's table):
-images byte-identical to `scripts/m2import.py`'s, in 0.8 s. Esc in game
+images byte-identical to `scripts/m2import.py`'s, in 0.8 s. 7z ROM sets too (`src/runtime/archive.cpp`: the
+7-Zip LZMA SDK's public-domain decoder; solid LZMA2, LZMA, PPMd checked
+byte-identical to the zip import, 0.9 s for 7-Zip's default). The build's
+importer is now the same C++ code (`tools/m2import`, used by
+`scripts/recompile.py`), so a .7z-only user can build. Esc in game
 returns to the launcher (Resume, Reset, Quit). Verified here under Xvfb on
 Vulkan: verification, the Controls tab, a key rebind saved to the ini, Start
 from the zip, pause, and the zenity file dialog. Resolution and upscaling

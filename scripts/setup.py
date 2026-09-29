@@ -12,7 +12,7 @@ Always:
   - fetches Berkeley SoftFloat 3e and SDL 3 at their pinned commits into
     extern/ (SDL is built from source with the project, statically);
   - configures and builds the tools and tests, runs the tests;
-  - if your ROM set is at roms/daytona93.zip: imports it, recompiles the
+  - if your ROM set is at roms/daytona93.zip (or .7z): imports it, recompiles the
     game's code to native C++ and builds it (all under build/, git-ignored).
 Options:
   --test-extras  pip packages and modules for the optional tests (lupa for the
@@ -44,6 +44,7 @@ WINDOWS = os.name == "nt"
 SOFTFLOAT = ("https://github.com/ucb-bar/berkeley-softfloat-3.git", "a0c6494cdc11865811dec815d5c0049fba9d82a8")
 SDL3 = ("https://github.com/libsdl-org/SDL.git", "fa2c02bb6e21974a89ea9824bc53c9932abe5f9c")  # release-3.4.16
 IMGUI = ("https://github.com/ocornut/imgui.git", "f1cc2ae15e53a861a874c3034aae6798fde194ab")  # v1.92.9b
+LZMA_SDK = ("https://github.com/ip7z/7zip.git", "0766b733fe3e06dd2a7f9a3cfbf2108ac73abd17")  # 7-Zip 26.03 (C/: LZMA SDK)
 GHIDRA_I960 = ("https://github.com/mumbel/ghidra_i960.git", "727ef7872c5b1cd6ceb5a81f5e474d1ced92945c")
 MAME_COMMIT = "dddd73680656e355bb2b5beecab1167c9f07bf81"
 
@@ -142,6 +143,9 @@ def main():
     say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
     fetch(*SDL3, "sdl3")
 
+    say("Fetching the 7-Zip LZMA SDK 26.03 (7z ROM sets)")
+    fetch(*LZMA_SDK, "lzma")
+
     say("Fetching Dear ImGui 1.92.9b (launcher interface)")
     fetch(*IMGUI, "imgui")
 
@@ -166,11 +170,11 @@ def main():
         return
     configure_and_build(build)
 
-    if os.path.exists(os.path.join(ROOT, "roms", "daytona93.zip")):
+    if any(os.path.exists(os.path.join(ROOT, "roms", "daytona93." + e)) for e in ("zip", "7z")):
         say("Recompiling the game to native code (your ROM set, kept in build/)")
         run([sys.executable, os.path.join("scripts", "recompile.py"), "--build-dir", args.build_dir])
     else:
-        say("No ROM set at roms/daytona93.zip: tools built, game code not recompiled yet")
+        say("No ROM set at roms/daytona93.zip or .7z: tools built, game code not recompiled yet")
 
     say("Running the tests")
     run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], check=False)
