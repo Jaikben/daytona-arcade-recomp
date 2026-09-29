@@ -27,6 +27,11 @@ How it runs, with no clock:
 - Sound UART: bytes collected for the sound runtime (next); TxRDY is
   immediate, so the IRQ3 handler drains its queue at once.
 
+With scripted inputs (`--inputs scripts/inputs/race_basic.txt`) the whole
+game flow runs standalone: coin-up, Circuit Select, car select, the race's
+rolling start (3,000 frames in 23 s headless: 80 M i960 and 62 M TGP
+instructions, 381 bytes sent to the sound board).
+
 **The whole screen now renders natively, identical to MAME.** `src/runtime/video.cpp`
 adds the segaic24 tilemap chip (four 64x64-tile layers, per-line scroll,
 special window modes, 8-pixel window masks), the tilemap palette pens (as
