@@ -203,6 +203,32 @@ Nothing here is interpreted either. A board whose CPU runs a program gets that p
 - Main CPU ↔ sound CPU traffic is a serial byte stream through an i8251 UART at 31.25 kbit/s. The i960's IRQ3 handler (request bit 10) is the transmit loop: Daytona never polls the UART status (MiSTer core, R87), so the UART interrupt must be modelled or no sound data is sent. The i960 side hands its bytes over each frame; the sound board receives them at the line rate.
 - Output via SDL3 audio: the YM (55.6 kHz) and MultiPCM (44.6 kHz) outputs go to two SDL audio streams at their own rates, which SDL resamples and mixes. The game runs on the display clock and the device on its own, so a speed trim of at most 0.5% holds the queue near 60 ms.
 
+**Native audio replacement (experimental, shared across frontends)**
+
+A separate, user-requested backend replaces the recompiled sound program and
+sound-chip device models with direct ROM command/sequence decoding and a
+48 kHz PCM voice mixer. The existing backend remains the accuracy reference;
+native mode never silently falls back to it. This is an explicit exception to
+the sound-board recompilation policy above, not a claim of chip-level parity.
+
+The shared engine is portable C++. SDL2 on Vita and SDL3 on desktop provide
+device-clocked callbacks; bounded command queues separate main-board updates
+from sequencing and sample generation. Menu pause, reset and shutdown stop the
+callback before destroying its engine or ROM storage. Native mode deliberately
+keeps music/sample playback at device speed even when graphics frames are slow.
+
+The initial native mixer uses linear interpolation, a short linear ADSR and
+equal-power panning rather than reproducing MultiPCM envelopes/LFOs bit for bit.
+It must be labelled experimental until the command/voice behavior and listening
+tests cover the full game. Unsupported commands, invalid data and queue
+overflows must remain visible, not be replaced with invented sounds.
+
+FM was audited with both 6,000-frame attract and race replays: all 23,178,664
+FM float samples were exactly zero; no channel key-ons or DAC enable occurred.
+Static sound-driver call sites only initialize YM registers and use timer
+control. The native sequencer supplies that event clock without an FM generator.
+The measurements cover these replays, not an assertion about other ROM sets.
+
 **Inputs**
 
 | Arcade control | Host mapping |

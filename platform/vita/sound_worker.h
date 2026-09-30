@@ -41,6 +41,7 @@ public:
     int affinity_before() const { return affinity_before_; }
     int affinity_mask() const { return affinity_mask_; }
     int affinity_result() const { return affinity_result_; }
+    uint64_t last_sound_ticks() const { return last_sound_ticks_; }
     uint64_t last_audio_ticks() const { return last_audio_ticks_; }
 
     template<class Game>
@@ -61,6 +62,21 @@ public:
             }, clock);
     }
 
+    // packet must remain alive and unmoved until finish. Unlike dispatch(Game),
+    // detached execution/completion never reads or writes GameLoop state, so
+    // the owner may prepare the next main-board frame while this runs. Keep at
+    // most one active packet plus that next packet; join before re-submission.
+    template<class Packet, class Output>
+    void dispatch_packet(Packet &packet, Output &audio, uint64_t (*clock)()) {
+        dispatch(&packet,
+            [](void *p) { return static_cast<Packet *>(p)->execute(); },
+            [](void *, uint64_t) {},
+            &audio, [](void *p, void *output) {
+                if (auto *sound = static_cast<Packet *>(p)->sound())
+                    static_cast<Output *>(output)->push(*sound);
+            }, clock);
+    }
+
     // Completes profiling on the owner thread and rethrows worker failures
     // there, so the frontend's normal runtime-error path remains effective.
     void finish() {
@@ -71,6 +87,7 @@ public:
         void *context = context_;
         Complete complete = complete_;
         const uint64_t ticks = ticks_;
+        last_sound_ticks_ = ticks;
         last_audio_ticks_ = queue_ticks_;
         std::exception_ptr error = error_;
         context_ = nullptr;
@@ -115,7 +132,7 @@ private:
     void *queue_context_ = nullptr;
     Queue queue_ = nullptr;
     Clock queue_clock_ = nullptr;
-    uint64_t queue_ticks_ = 0, last_audio_ticks_ = 0;
+    uint64_t queue_ticks_ = 0, last_audio_ticks_ = 0, last_sound_ticks_ = 0;
     uint64_t ticks_ = 0;
     std::exception_ptr error_;
     bool queued_ = false, busy_ = false, done_ = false, stopping_ = false, initialized_ = false;
@@ -140,6 +157,7 @@ private:
         finish(); // also makes accidental re-submission safe
         if (!thread_) {
             const Result result = run(context, execute, output, queue, clock);
+            last_sound_ticks_ = result.sound;
             last_audio_ticks_ = result.audio;
             complete(context, result.sound);
             if (result.error) std::rethrow_exception(result.error);

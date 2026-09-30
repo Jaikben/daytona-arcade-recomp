@@ -15,6 +15,7 @@ struct Config {
     bool fullscreen = false;
     float volume = 0.8f;      // 0..1
     bool mute = false;
+    bool native_audio = false; // applies on reset; reference remains the default
     Controls controls;
 
     Config() { controls.set_defaults(); }

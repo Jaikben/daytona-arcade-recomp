@@ -7,13 +7,15 @@
 // played through SDL audio.
 //
 //   daytona [--rom FILE.zip] [--autostart] [--gpu vulkan|direct3d12|metal]
-//           [--fullscreen] [--frames N]
+//           [--fullscreen] [--frames N] [--audio native|reference]
 //
 // In the game: Esc opens the launcher (resume, reset, controls), F11
 // toggles fullscreen. Controls are set in the launcher and saved.
 
 #include "app/config.h"
 #include "app/launcher.h"
+#include "app/native_audio.h"
+#include "runtime/native_sound_engine.h"
 #include "runtime/game_loop.h"
 #include "runtime/rom_import.h"
 
@@ -30,6 +32,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -44,6 +47,7 @@ constexpr double kArcadeHz = rt::GameLoop::kFrameHz; // 16 MHz / (656 x 424), th
 class Audio {
 public:
     static constexpr double kLatency = 0.06; // seconds queued
+    ~Audio() { close(); }
 
     bool open(double fm_rate, double pcm_rate) {
         dev_ = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
@@ -52,7 +56,9 @@ public:
         const SDL_AudioSpec fm{SDL_AUDIO_F32, 2, fm_rate_}, pcm{SDL_AUDIO_F32, 2, int(pcm_rate + 0.5)};
         fm_ = SDL_CreateAudioStream(&fm, nullptr);
         pcm_ = SDL_CreateAudioStream(&pcm, nullptr);
-        if (!fm_ || !pcm_ || !SDL_BindAudioStream(dev_, fm_) || !SDL_BindAudioStream(dev_, pcm_)) return false;
+        if (!fm_ || !pcm_ || !SDL_BindAudioStream(dev_, fm_) || !SDL_BindAudioStream(dev_, pcm_)) {
+            close(); return false;
+        }
         return true;
     }
     void push(snd::SoundBoard &sb, float gain) {
@@ -122,6 +128,13 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--rom") && i + 1 < argc) cfg.rom_path = argv[++i];
         else if (!std::strcmp(argv[i], "--gpu") && i + 1 < argc) cfg.gpu = argv[++i];
+        else if (!std::strcmp(argv[i], "--audio")) {
+            if (i + 1 == argc || (std::strcmp(argv[i + 1], "native") && std::strcmp(argv[i + 1], "reference"))) {
+                std::fprintf(stderr, "daytona: --audio expects native or reference\n");
+                return 1;
+            }
+            cfg.native_audio = !std::strcmp(argv[++i], "native");
+        }
         else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = std::strtoull(argv[++i], nullptr, 10);
         else if (!std::strcmp(argv[i], "--fullscreen")) cfg.fullscreen = true;
         else if (!std::strcmp(argv[i], "--autostart")) autostart = true;
@@ -130,11 +143,11 @@ int main(int argc, char **argv) {
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
     Audio audio;
-    bool have_audio = false;
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO))
-        have_audio = audio.open(snd::SoundBoard::kYmClock / 144.0, snd::SoundBoard::kPcmClock / 224.0);
-    if (have_audio) std::printf("daytona: audio driver %s\n", SDL_GetCurrentAudioDriver());
-    else std::fprintf(stderr, "daytona: no audio output (%s); the game runs silent\n", SDL_GetError());
+    app::NativeAudio<snd::NativeSoundEngine> native_audio;
+    const bool audio_initialized = SDL_InitSubSystem(SDL_INIT_AUDIO);
+    bool have_audio = false, native_active = false, native_fault = false;
+    if (audio_initialized) std::printf("daytona: audio driver %s\n", SDL_GetCurrentAudioDriver());
+    else std::fprintf(stderr, "daytona: no audio output (%s)\n", SDL_GetError());
 
     constexpr int W = rt::GameLoop::kWidth, H = rt::GameLoop::kHeight;
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
@@ -190,15 +203,37 @@ int main(int argc, char **argv) {
     };
     auto start_game = [&] {
         save_nv();
+        native_audio.close(); // joins callback before replacing its ROMs/engine
+        audio.close();
         game.reset();
+        have_audio = false;
+        native_fault = false;
+        native_active = cfg.native_audio;
         try {
-            game = std::make_unique<rt::GameLoop>(rt::import_rom_set(cfg.rom_path));
-            audio.clear();
+            auto images = rt::import_rom_set(cfg.rom_path);
+            if (native_active) {
+                if (!audio_initialized) throw std::runtime_error("Native audio needs an available audio device.");
+                auto engine = std::make_unique<snd::NativeSoundEngine>(std::move(images.sound_program),
+                    std::move(images.pcm1), std::move(images.pcm2));
+                if (!native_audio.open(std::move(engine)))
+                    throw std::runtime_error(std::string("Cannot open native audio: ") + SDL_GetError());
+                native_audio.volume(cfg.volume);
+                native_audio.mute(cfg.mute);
+            } else if (audio_initialized) {
+                have_audio = audio.open(snd::SoundBoard::kYmClock / 144.0, snd::SoundBoard::kPcmClock / 224.0);
+                if (!have_audio) std::fprintf(stderr, "daytona: reference audio unavailable (%s)\n", SDL_GetError());
+            }
+            game = std::make_unique<rt::GameLoop>(std::move(images), !native_active);
+            std::printf("daytona: audio backend %s\n", native_active
+                ? "native (experimental, 48000 Hz device clock; no reference sound board)" : "reference");
             load_file(eeprom_path, game->board().io().eeprom);
             load_file(backup_path, game->board().backup_ram());
             launcher.set_error("");
             return true;
         } catch (const std::exception &e) {
+            native_audio.close();
+            audio.close();
+            game.reset();
             launcher.set_error(e.what());
             return false;
         }
@@ -206,6 +241,19 @@ int main(int argc, char **argv) {
 
     bool in_launcher = true, running = true, have_frame = false, new_frame = false;
     if (autostart && launcher.rom_ok() && start_game()) in_launcher = false;
+    auto sync_native_audio = [&] {
+        if (native_fault) in_launcher = true;
+        if (!native_audio.available()) return;
+        native_audio.volume(cfg.volume);
+        native_audio.mute(cfg.mute);
+        if (in_launcher || !running) native_audio.pause();
+        else if (!native_audio.resume()) {
+            launcher.set_error(std::string("Native audio resume failed; reset the game: ") + SDL_GetError());
+            in_launcher = native_fault = true;
+            native_audio.pause();
+        }
+    };
+    sync_native_audio();
     SDL_Gamepad *pad = nullptr;
     uint64_t last = SDL_GetTicksNS();
     double pending = 0;
@@ -231,6 +279,20 @@ int main(int argc, char **argv) {
             }
         }
 
+        sync_native_audio();
+        if (native_active) {
+            const auto health = native_audio.stats();
+            if (health.failed || health.invalid || health.unsupported) {
+                native_audio.pause();
+                char message[192];
+                std::snprintf(message, sizeof message,
+                    "Native audio fault (callback %u, invalid %u, unsupported %u); reset or select reference audio.",
+                    health.failed, health.invalid, health.unsupported);
+                launcher.set_error(message);
+                in_launcher = native_fault = true;
+            }
+        }
+
         // Game: arcade speed (57.52 frames/s), presented at the display's rate.
         const uint64_t now = SDL_GetTicksNS();
         pending = std::min(pending + double(now - last), frame_ns * 4);
@@ -238,6 +300,15 @@ int main(int argc, char **argv) {
         if (game && !in_launcher) {
             while (pending >= frame_ns) {
                 game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), pad));
+                if (native_active) {
+                    const auto bytes = game->board().take_sound_bytes();
+                    if (!native_audio.send(bytes.data(), bytes.size())) {
+                        native_audio.pause();
+                        launcher.set_error("Native audio command queue failed; reset the game or select reference audio.");
+                        in_launcher = native_fault = true;
+                        break;
+                    }
+                }
                 pending -= frame_ns;
                 new_frame = have_frame = true;
                 if (max_frames && game->frames() >= max_frames) running = false;
@@ -283,6 +354,7 @@ int main(int argc, char **argv) {
             case app::Launcher::Quit: running = false; break;
             default: break;
             }
+            sync_native_audio();
             ImGui::Render();
             draw = ImGui::GetDrawData();
             ImGui_ImplSDLGPU3_PrepareDrawData(draw, cmd);
@@ -326,6 +398,13 @@ int main(int argc, char **argv) {
     save_nv();
     cfg.save();
     if (game) std::printf("daytona: %llu frames\n", (unsigned long long)game->frames());
+    if (native_audio.available()) {
+        native_audio.pause();
+        const auto stats = native_audio.stats();
+        std::printf("daytona: native audio callbacks=%u frames=%u queued=%u overflows=%u failed=%u invalid=%u unsupported=%u\n",
+            stats.callbacks, stats.frames, stats.queued, stats.overflows, stats.failed, stats.invalid, stats.unsupported);
+    }
+    native_audio.close();
     audio.close();
     SDL_WaitForGPUIdle(dev);
     ImGui_ImplSDLGPU3_Shutdown();

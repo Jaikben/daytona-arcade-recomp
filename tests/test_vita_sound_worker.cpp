@@ -68,6 +68,20 @@ struct QueueOutput {
 std::atomic<uint64_t> queue_ticks{0};
 uint64_t queue_clock() { return queue_ticks.fetch_add(11); }
 
+struct DetachedPacket {
+    Job *board;
+    uint64_t execute() { return board->execute_deferred_sound(); }
+    Job *sound() { return board; }
+};
+struct DetachedOutput {
+    int calls = 0;
+    void push(Job &job) {
+        mock::require((std::this_thread::get_id() != job.owner) == job.expect_worker, "detached queue uses expected thread");
+        mock::require(job.completed == 0, "detached job never completes into owner profile");
+        ++calls;
+    }
+};
+
 int main() {
     try {
         // Dispatch returns while work is blocked: independent rendering can
@@ -120,6 +134,44 @@ int main() {
         }
         mock::reset();
 
+        // A detached packet can remain blocked while main prepares the next
+        // board/profile. Its completion must not modify that newer profile.
+        {
+            Job board; board.released = false;
+            DetachedPacket packet{&board}; DetachedOutput output;
+            vita::SoundWorker worker;
+            mock::require(worker.open(), "detached worker opens");
+            worker.dispatch_packet(packet, output, queue_clock);
+            board.wait_started();
+            rt::FrameProfile next_profile{100, 20, 5, 0};
+            for (int i = 0; i < 100; ++i) ++next_profile.total;
+            board.release(); worker.finish();
+            mock::require(board.completed == 0 && next_profile.total == 200 && next_profile.sound == 0,
+                          "detached finish leaves next board profile unchanged");
+            mock::require(worker.last_sound_ticks() == 17 && worker.last_audio_ticks() == 11 && output.calls == 1,
+                          "detached timings separate from board profile");
+            worker.finish();
+            mock::require(output.calls == 1, "idle finish does not replay detached packet");
+            for (int i = 0; i < 200; ++i) {
+                worker.dispatch_packet(packet, output, queue_clock);
+                ++next_profile.total;
+                worker.finish();
+            }
+            mock::require(board.executed == 201 && output.calls == 201 && board.completed == 0,
+                          "every detached frame queues exactly once without profile completion");
+            board.fail = true;
+            worker.dispatch_packet(packet, output, queue_clock);
+            bool caught = false;
+            try { worker.finish(); } catch (const std::runtime_error &) { caught = true; }
+            mock::require(caught && output.calls == 201 && worker.last_sound_ticks() == 0,
+                          "detached execution failure drains and never queues partial output");
+            board.fail = false;
+            worker.dispatch_packet(packet, output, queue_clock);
+            worker.close();
+            mock::require(output.calls == 202, "detached shutdown drains final queue job");
+        }
+        mock::reset();
+
         // Resource failures preserve audio via the identical synchronous task.
         for (int fail = 1; fail <= 4; ++fail) {
             mock::reset(fail);
@@ -128,6 +180,20 @@ int main() {
             Job job; job.expect_worker = false;
             worker.dispatch(job); worker.finish();
             mock::require(job.executed == 1 && job.completed == 1, "fallback executes full sound frame");
+            Job detached; detached.expect_worker = false;
+            DetachedPacket packet{&detached}; DetachedOutput output;
+            worker.dispatch_packet(packet, output, queue_clock);
+            mock::require(detached.executed == 1 && detached.completed == 0 && output.calls == 1 &&
+                          worker.last_sound_ticks() == 17 && worker.last_audio_ticks() == 11,
+                          "detached fallback completes immediately with separate timings");
+            worker.finish();
+            mock::require(output.calls == 1, "fallback finish does not replay output");
+            detached.fail = true;
+            bool caught = false;
+            try { worker.dispatch_packet(packet, output, queue_clock); }
+            catch (const std::runtime_error &) { caught = true; }
+            mock::require(caught && output.calls == 1 && worker.last_sound_ticks() == 0,
+                          "synchronous detached error propagates without queuing or replay");
             worker.close();
         }
         mock::reset();

@@ -28,6 +28,7 @@ void Config::load() {
         else if (k == "fullscreen") fullscreen = v == "1";
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
+        else if (k == "native_audio") native_audio = v == "1";
         else if (k == "deadzone") controls.deadzone = std::strtof(v.c_str(), nullptr);
         else if (k == "steer_invert") controls.steer_invert = v == "1";
         else
@@ -47,6 +48,7 @@ void Config::save() const {
     f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";
+    f << "native_audio=" << (native_audio ? 1 : 0) << "\n";
     f << "deadzone=" << controls.deadzone << "\n";
     f << "steer_invert=" << (controls.steer_invert ? 1 : 0) << "\n";
     for (int a = 0; a < kNumActions; a++) {

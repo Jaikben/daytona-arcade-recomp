@@ -19,7 +19,7 @@ constexpr uint64_t kVblankCap = 40000;  // a vblank handler that never returns t
 constexpr uint64_t kMinFrame = kProbe * 2;
 } // namespace
 
-GameLoop::GameLoop(const std::string &dir) : GameLoop([&] {
+GameLoop::GameLoop(const std::string &dir, bool sound_enabled) : GameLoop([&] {
     M2Board::Images img;
     img.program = load(dir + "/program.bin");
     img.main_data = load(dir + "/main_data.bin");
@@ -31,10 +31,10 @@ GameLoop::GameLoop(const std::string &dir) : GameLoop([&] {
     img.pcm1 = load(dir + "/pcm1.bin");
     img.pcm2 = load(dir + "/pcm2.bin");
     return img;
-}()) {}
+}(), sound_enabled) {}
 
-GameLoop::GameLoop(M2Board::Images img) {
-    if (!img.sound_program.empty()) sound_ = std::make_unique<snd::SoundBoard>(img.sound_program, img.pcm1, img.pcm2);
+GameLoop::GameLoop(M2Board::Images img, bool sound_enabled) {
+    if (sound_enabled && !img.sound_program.empty()) sound_ = std::make_unique<snd::SoundBoard>(img.sound_program, img.pcm1, img.pcm2);
     board_ = std::make_unique<M2Board>(std::move(img));
     cpu_ = std::make_unique<Cpu>(board_.get());
     ls_ = std::make_unique<Lockstep>(*cpu_);
@@ -76,6 +76,24 @@ void GameLoop::probe() {
 void GameLoop::run_frame(const Inputs &inputs) {
     run_frame_deferred_sound(inputs);
     complete_deferred_sound(execute_deferred_sound());
+}
+
+GameLoop::SoundPacket GameLoop::run_frame_sound_packet(const Inputs &inputs) {
+    run_frame_deferred_sound(inputs);
+    sound_frame_pending_ = false;
+    return SoundPacket(sound_.get(), std::move(pending_sound_bytes_), sound_profile_clock_);
+}
+
+uint64_t GameLoop::SoundPacket::execute() {
+    if (!sound_) return 0;
+    if (!pending_) throw Fatal("detached sound frame has already executed");
+    // A partial failure must not permit replaying UART bytes or board time.
+    pending_ = false;
+    const uint64_t begin = clock_ ? clock_() : 0;
+    sound_->send(bytes_.data(), bytes_.size());
+    sound_->advance(1.0 / kFrameHz);
+    const uint64_t end = clock_ ? clock_() : 0;
+    return end >= begin ? end - begin : 0;
 }
 
 void GameLoop::run_frame_deferred_sound(const Inputs &inputs) {

@@ -1,8 +1,11 @@
 #define SDL_MAIN_HANDLED
 #include "audio.h"
+#include "native_audio.h"
+#include "runtime/native_sound_engine.h"
 #include "sound_worker.h"
 #include "controls.h"
 #include "diagnostic_log.h"
+#include "async_log.h"
 #include "gpu_fast.h"
 #include "gpu_text.h"
 #include "runtime/game_loop.h"
@@ -23,11 +26,18 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <vector>
+#include <utility>
+
+#ifndef DAYTONA_VITA_DIAGNOSTICS
+#define DAYTONA_VITA_DIAGNOSTICS 0
+#endif
 
 extern "C" { unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
 
 namespace {
+constexpr bool kDiagnostics = DAYTONA_VITA_DIAGNOSTICS != 0;
 constexpr const char *kDirectory = "ux0:data/daytona93";
 constexpr const char *kRom = "ux0:data/daytona93/daytona93.zip";
 
@@ -87,12 +97,18 @@ uint64_t ticks_us() {
     return f ? SDL_GetPerformanceCounter() * 1000000ull / f : 0;
 }
 
+// Measurement only; never use this clock to pace game or audio playback.
+uint64_t diagnostic_ticks_us() {
+    return kDiagnostics ? ticks_us() : 0;
+}
+
 struct VitaSettings {
     int cpu_clock = 333;
     int gpu_clock = 111;
     int volume = 80;
     int deadzone = 12;
     bool mute = false;
+    bool native_audio = false; // explicitly selected while native fidelity is validated
     bool steer_invert = false;
 
     void defaults() { *this = VitaSettings{}; }
@@ -118,6 +134,7 @@ struct VitaSettings {
             else if (!std::strcmp(key, "gpu_clock")) gpu_clock = value;
             else if (!std::strcmp(key, "volume")) volume = value;
             else if (!std::strcmp(key, "mute")) mute = value != 0;
+            else if (!std::strcmp(key, "native_audio")) native_audio = value != 0;
             else if (!std::strcmp(key, "deadzone")) deadzone = value;
             else if (!std::strcmp(key, "steer_invert")) steer_invert = value != 0;
         }
@@ -126,8 +143,8 @@ struct VitaSettings {
     bool save() const {
         FILE *f = std::fopen("ux0:data/daytona93/vita.cfg.tmp", "w");
         if (!f) return false;
-        std::fprintf(f, "cpu_clock=%d\ngpu_clock=%d\nvolume=%d\nmute=%d\ndeadzone=%d\nsteer_invert=%d\n",
-                     cpu_clock, gpu_clock, volume, int(mute), deadzone, int(steer_invert));
+        std::fprintf(f, "cpu_clock=%d\ngpu_clock=%d\nvolume=%d\nmute=%d\nnative_audio=%d\ndeadzone=%d\nsteer_invert=%d\n",
+                     cpu_clock, gpu_clock, volume, int(mute), int(native_audio), deadzone, int(steer_invert));
         bool ok = std::fflush(f) == 0;
         if (std::fclose(f) != 0) ok = false;
         if (!ok) { std::remove("ux0:data/daytona93/vita.cfg.tmp"); return false; }
@@ -145,7 +162,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU20", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU23", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
@@ -160,7 +177,7 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
         vita::gpu_text("CROSS SELECT  CIRCLE RESUME  START+SELECT MENU", 30, 516, white, 2, 74, 1);
         return;
     }
-    const char *values[12];
+    const char *values[13];
     char cpu[32], gpu[32], volume[32], mute[32], deadzone[32], invert[32];
     std::snprintf(cpu, sizeof cpu, "CPU CLOCK: %d MHz", settings.cpu_clock);
     std::snprintf(gpu, sizeof gpu, "GPU CLOCK: %d MHz", settings.gpu_clock);
@@ -169,11 +186,12 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     std::snprintf(deadzone, sizeof deadzone, "DEAD ZONE: %d%%", settings.deadzone);
     std::snprintf(invert, sizeof invert, "INVERT STEERING: %s", settings.steer_invert ? "ON" : "OFF");
     values[0]=cpu; values[1]=gpu; values[2]=volume; values[3]=mute; values[4]=deadzone; values[5]=invert;
-    values[6]="GRAPHICS API: GXM"; values[7]="FULLSCREEN: ON"; values[8]="ROM: DAYTONA93.ZIP";
-    values[9]="BINDINGS: VITA FIXED"; values[10]="RESET DEFAULTS"; values[11]="BACK";
-    for (int i = 0; i < 12; ++i) {
+    values[6]=settings.native_audio ? "AUDIO ENGINE: NATIVE (TEST)" : "AUDIO ENGINE: REFERENCE";
+    values[7]="GRAPHICS API: GXM"; values[8]="FULLSCREEN: ON"; values[9]="ROM: DAYTONA93.ZIP";
+    values[10]="BINDINGS: VITA FIXED"; values[11]="RESET DEFAULTS"; values[12]="BACK";
+    for (int i = 0; i < 13; ++i) {
         std::string label = std::string(i == selection ? "> " : "  ") + values[i];
-        vita::gpu_text(label, 42, 68 + i * 35, i == selection ? yellow : white, 2, 70, 1);
+        vita::gpu_text(label, 42, 68 + i * 32, i == selection ? yellow : white, 2, 70, 1);
     }
     vita::gpu_text(status, 30, 489, white, 1, 112, 2);
     vita::gpu_text("LEFT/RIGHT CHANGE  CROSS SELECT  CIRCLE BACK", 30, 526, white, 1, 112, 1);
@@ -182,11 +200,11 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
 
 int main(int, char **) {
     sceIoMkdir(kDirectory, 0777);
-    vita::DiagnosticLog log;
+    vita::DiagnosticLog log(kDiagnostics);
     log.begin();
-    log.literal("GPU20: configurable clocks and GXM System24 fast path starting\n");
+    log.literal("GPU23: configurable clocks and GXM System24 fast path starting\n");
     void *heap_probe = std::malloc(1024);
-    if (!heap_probe) { log.literal("GPU20: heap unavailable\n"); sceKernelExitProcess(1); }
+    if (!heap_probe) { log.fault("GPU23: heap unavailable\n"); sceKernelExitProcess(1); }
     std::free(heap_probe);
 
     VitaSettings settings;
@@ -195,6 +213,8 @@ int main(int, char **) {
     const int gpu_clock_before = scePowerGetGpuClockFrequency();
     const int cpu_clock_result = scePowerSetArmClockFrequency(settings.cpu_clock);
     const int gpu_clock_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
+    if (cpu_clock_result < 0 || gpu_clock_result < 0)
+        log.fault("GPU23: clock request failed: cpu=%d gpu=%d\n", cpu_clock_result, gpu_clock_result);
     auto restore_clocks = [&] {
         if (arm_clock_before > 0) scePowerSetArmClockFrequency(arm_clock_before);
         if (gpu_clock_before > 0) scePowerSetGpuClockFrequency(gpu_clock_before);
@@ -203,46 +223,54 @@ int main(int, char **) {
     const int bus_clock = scePowerGetBusClockFrequency();
     const int gpu_clock = scePowerGetGpuClockFrequency();
     const int xbar_clock = scePowerGetGpuXbarClockFrequency();
-    log.log("GPU20 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
+    log.log("GPU23 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
             settings.cpu_clock, settings.gpu_clock, arm_clock, bus_clock, gpu_clock, xbar_clock,
             arm_clock_before, gpu_clock_before, cpu_clock_result, gpu_clock_result);
-    log.literal("GPU20 stage: SDL timer/audio init begin\n");
+    log.literal("GPU23 stage: SDL timer/audio init begin\n");
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0) {
-        log.log("GPU20: SDL timer/audio init failed: %s\n", SDL_GetError());
+        log.fault("GPU23: SDL timer/audio init failed: %s\n", SDL_GetError());
         restore_clocks();
         return 1;
     }
-    log.literal("GPU20 stage: SDL init done; vita2d init begin\n");
+    log.literal("GPU23 stage: SDL init done; vita2d init begin\n");
     if (vita2d_init_advanced(8 * 1024 * 1024) < 0) {
-        log.literal("GPU20: vita2d/GXM initialization failed\n");
+        log.fault("GPU23: vita2d/GXM initialization failed\n");
         SDL_Quit();
         restore_clocks();
         return 1;
     }
-    log.literal("GPU20 stage: vita2d init done; framebuffer textures begin\n");
+    log.literal("GPU23 stage: vita2d init done; framebuffer textures begin\n");
     vita2d_set_vblank_wait(1);
     vita2d_set_clear_color(RGBA8(0,0,0,255));
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
 
     vita::GpuFastRenderer gpu;
     if (!gpu.ok()) {
-        log.literal("GPU20: framebuffer texture allocation failed\n");
+        log.fault("GPU23: framebuffer texture allocation failed\n");
         gpu.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
-    log.log("GPU20 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
+    log.log("GPU23 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
     vita::Audio audio;
-    if (!audio.open()) log.log("GPU20: audio unavailable: %s\n", SDL_GetError());
+    vita::NativeAudio<snd::NativeSoundEngine> native_audio;
+    bool active_native_audio = false;
+    if (!audio.open()) log.fault("GPU23: audio unavailable: %s\n", SDL_GetError());
     audio.volume(float(settings.volume) / 100.0f);
     audio.mute(settings.mute);
-    log.literal("GPU20 stage: audio done; main loop ready\n");
+    log.literal("GPU23 stage: audio done; main loop ready\n");
 
     std::unique_ptr<rt::GameLoop> game;
-    // Declared after game: its destructor drains work before game is destroyed.
+    // Destruction order keeps the detached packet, game and audio alive until
+    // the worker has drained. Only one sound packet may be in flight.
+    rt::GameLoop::SoundPacket active_sound;
     vita::SoundWorker sound_worker;
     sound_worker.open();
-    log.log("GPU20 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
+    log.log("GPU23 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
             int(sound_worker.threaded()), sound_worker.affinity_result(), sound_worker.affinity_mask());
+    vita::AsyncLog perf_log;
+    if constexpr (kDiagnostics) perf_log.open(log, ticks_us);
+    log.log("GPU23 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
+            int(perf_log.threaded()));
     vita::Controls controls;
     vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
     bool running = true, menu = true, options = false, wait_release = true, gpu_fast = true;
@@ -252,42 +280,76 @@ int main(int, char **) {
     uint64_t last = ticks_us(), perf_start = last, perf_frames = 0, perf_run_us = 0, perf_gpu_us = 0;
     uint64_t perf_core_us = 0, perf_geo_us = 0, perf_video_us = 0, perf_sound_us = 0;
     uint64_t perf_presents = 0, perf_wait_us = 0, perf_encode_us = 0;
-    uint64_t perf_sound_wait_us = 0, perf_audio_queue_us = 0;
+    uint64_t perf_sound_wait_us = 0, perf_audio_queue_us = 0, perf_sound_frames = 0;
     uint64_t perf_sort_us = 0, perf_polygon_us = 0, perf_tile_us = 0, perf_upload_us = 0;
-    uint64_t previous_log_us = 0;
+    uint64_t previous_log_us = 0, perf_frame_peak_us = 0;
+    bool sound_in_flight = false;
     double display_fps = 0.0;
+
+    // Join only after the following frame's board work, or before an operation
+    // that mutates audio/lifetime state. The worker never touches GameLoop's
+    // profile or pending bytes while the next board frame runs.
+    auto finish_sound = [&]() -> bool {
+        if (!sound_in_flight) return true;
+        sound_in_flight = false;
+        const uint64_t begin = diagnostic_ticks_us();
+        try { sound_worker.finish(); }
+        catch (const std::exception &e) {
+            perf_sound_wait_us += diagnostic_ticks_us() - begin;
+            status = e.what();
+            perf_log.sync([&] { log.fault("GPU23 sound runtime: %s\n", e.what()); });
+            menu = true;
+            audio.pause(); native_audio.pause();
+            active_sound = {};
+            game.reset(); // finish has joined, including its error path
+            return false;
+        }
+        perf_sound_wait_us += diagnostic_ticks_us() - begin;
+        perf_sound_us += sound_worker.last_sound_ticks();
+        perf_audio_queue_us += sound_worker.last_audio_ticks();
+        ++perf_sound_frames;
+        return true;
+    };
 
     auto apply_preferences = [&] {
         audio.volume(float(settings.volume) / 100.0f);
         audio.mute(settings.mute);
+        native_audio.volume(float(settings.volume) / 100.0f);
+        native_audio.mute(settings.mute);
         controls.set_deadzone(float(settings.deadzone) / 100.0f);
         controls.set_steer_invert(settings.steer_invert);
     };
     auto commit_settings = [&](bool set_clocks) {
+        if (!finish_sound()) return;
+        perf_log.drain();
         int cpu_result = 0, gpu_result = 0;
         if (set_clocks) {
             cpu_result = scePowerSetArmClockFrequency(settings.cpu_clock);
             gpu_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
         }
+        if (cpu_result < 0 || gpu_result < 0)
+            log.fault("GPU23: clock request failed: cpu=%d gpu=%d\n", cpu_result, gpu_result);
         apply_preferences();
         const bool saved = settings.save();
+        if (!saved) log.fault("GPU23: settings save failed\n");
         char message[160];
         std::snprintf(message, sizeof message, "CPU %d/%d MHz  GPU %d/%d MHz  SETTINGS %s",
                       scePowerGetArmClockFrequency(), settings.cpu_clock,
                       scePowerGetGpuClockFrequency(), settings.gpu_clock, saved ? "SAVED" : "SAVE FAILED");
         status = message;
-        log.log("GPU20 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d saved=%d\n",
+        log.log("GPU23 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d native_audio=%d saved=%d\n",
                 settings.cpu_clock, settings.gpu_clock, scePowerGetArmClockFrequency(),
                 scePowerGetGpuClockFrequency(), cpu_result, gpu_result, settings.volume,
-                int(settings.mute), settings.deadzone, int(settings.steer_invert), int(saved));
+                int(settings.mute), settings.deadzone, int(settings.steer_invert), int(settings.native_audio), int(saved));
     };
     apply_preferences();
 
     auto save = [&] {
+        if (!finish_sound()) return false;
         if (!game) return true;
         const bool a = save_nv("ioboard_eeprom.bin", game->board().io().eeprom);
         const bool b = save_nv("backup_ram.bin", game->board().backup_ram());
-        if (!a || !b) log.literal("GPU20: save failed\n");
+        if (!a || !b) perf_log.sync([&] { log.fault("GPU23: save failed\n"); });
         return a && b;
     };
     auto apply_mode = [&] {
@@ -296,21 +358,39 @@ int main(int, char **) {
         clock.reset();
     };
     auto start_game = [&]() -> bool {
-        sound_worker.finish();
+        if (!finish_sound()) return false;
         save();
+        active_sound = {};
+        native_audio.close();
+        audio.close();
         game.reset();
         gpu.reset_materials();
-        audio.pause();
         status = "LOADING DAYTONA93...";
         gpu.prepare_frame();
         vita2d_start_drawing(); vita2d_clear_screen(); draw_menu(false, false, 0, settings, status, display_fps); vita2d_end_drawing(); vita2d_swap_buffers();
         try {
             auto images = rt::import_rom_set(kRom);
-            game = std::make_unique<rt::GameLoop>(std::move(images));
-            game->set_profile_clock(ticks_us);
+            active_native_audio = settings.native_audio;
+            if (active_native_audio) {
+                sound_worker.close();
+                auto engine = std::make_unique<snd::NativeSoundEngine>(
+                    std::move(images.sound_program), std::move(images.pcm1), std::move(images.pcm2));
+                if (!native_audio.open(std::move(engine), kDiagnostics ? ticks_us : nullptr))
+                    throw std::runtime_error("Native audio output unavailable; select Reference audio and reset");
+            } else {
+                if (!sound_worker.threaded()) sound_worker.open();
+                if (!audio.open()) perf_log.sync([&] { log.fault("GPU23 reference audio unavailable: %s\n", SDL_GetError()); });
+            }
+            game = std::make_unique<rt::GameLoop>(std::move(images), !active_native_audio);
+            perf_log.sync([&] {
+                log.log("GPU23 audio engine: backend=%s clock=%s reference_sound_board=%d\n",
+                        active_native_audio ? "NATIVE_TEST" : "REFERENCE",
+                        active_native_audio ? "AUDIO_DEVICE_48000" : "GAME_FRAME", int(game->sound() != nullptr));
+            });
+            game->set_profile_clock(kDiagnostics ? ticks_us : nullptr);
             load_nv("ioboard_eeprom.bin", game->board().io().eeprom);
             load_nv("backup_ram.bin", game->board().backup_ram());
-            game->board().video().set_profile_clock(ticks_us);
+            game->board().video().set_profile_clock(kDiagnostics ? ticks_us : nullptr);
             apply_mode();
             controls = vita::Controls{};
             apply_preferences();
@@ -318,7 +398,10 @@ int main(int, char **) {
             wait_release = true;
             return true;
         } catch (const std::exception &e) {
-            status = e.what(); log.log("GPU20 start: %s\n", e.what()); return false;
+            native_audio.close(); audio.pause(); game.reset();
+            status = e.what();
+            perf_log.sync([&] { log.fault("GPU23 start: %s\n", e.what()); });
+            return false;
         }
     };
 
@@ -335,11 +418,12 @@ int main(int, char **) {
         }
         if (!menu && !wait_release && vita::menu_chord(pad.buttons)) {
             menu = true; options = false; selection = 0;
-            audio.pause(); save(); clock.reset(); wait_release = true;
+            finish_sound();
+            audio.pause(); native_audio.pause(); save(); clock.reset(); wait_release = true;
         }
         if (menu && !wait_release) {
             if (options) {
-                constexpr int kOptionCount = 12;
+                constexpr int kOptionCount = 13;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
                 if (pressed & vita::Down) selection = (selection + 1) % kOptionCount;
                 if (pressed & vita::Circle) { options = false; selection = 2; wait_release = true; }
@@ -365,23 +449,28 @@ int main(int, char **) {
                         changed = true;
                     } else if (selection == 5 && (direction || activate)) {
                         settings.steer_invert = !settings.steer_invert; changed = true;
-                    } else if (selection == 6 && activate) {
-                        status = "VITA RENDERER IS FIXED TO NATIVE GXM GPU FAST.";
+                    } else if (selection == 6 && (direction || activate)) {
+                        settings.native_audio = !settings.native_audio; changed = true;
                     } else if (selection == 7 && activate) {
-                        status = "VITA OUTPUT IS FIXED FULLSCREEN AT 960 X 544.";
+                        status = "VITA RENDERER IS FIXED TO NATIVE GXM GPU FAST.";
                     } else if (selection == 8 && activate) {
+                        status = "VITA OUTPUT IS FIXED FULLSCREEN AT 960 X 544.";
+                    } else if (selection == 9 && activate) {
                         FILE *rom = std::fopen(kRom, "rb");
                         status = rom ? "ROM CHECK OK: UX0:DATA/DAYTONA93/DAYTONA93.ZIP"
                                      : "ROM MISSING: UX0:DATA/DAYTONA93/DAYTONA93.ZIP";
                         if (rom) std::fclose(rom);
-                    } else if (selection == 9 && activate) {
-                        status = "STEER=L-STICK  PEDALS=R-STICK/L/R  SHIFT=UP/DOWN";
                     } else if (selection == 10 && activate) {
-                        settings.defaults(); changed = clocks_changed = true;
+                        status = "STEER=L-STICK  PEDALS=R-STICK/L/R  SHIFT=UP/DOWN";
                     } else if (selection == 11 && activate) {
+                        settings.defaults(); changed = clocks_changed = true;
+                    } else if (selection == 12 && activate) {
                         options = false; selection = 2; wait_release = true;
                     }
-                    if (changed) commit_settings(clocks_changed);
+                    if (changed) {
+                        commit_settings(clocks_changed);
+                        if (selection == 6) status = "AUDIO ENGINE CHANGE SAVED. RESET GAME TO APPLY. NATIVE IS EXPERIMENTAL.";
+                    }
                 }
             } else {
                 if (pressed & vita::Up) selection = (selection + 3) % 4;
@@ -404,25 +493,54 @@ int main(int, char **) {
 
         bool simulated = false;
         if (game && !menu) {
+            if (active_native_audio) native_audio.resume();
             const int frames = clock.advance(elapsed);
             for (int n = 0; n < frames; ++n) {
-                const uint64_t begin = ticks_us();
+                const uint64_t begin = diagnostic_ticks_us();
                 try {
-                    game->run_frame_deferred_sound(map_input(controls.sample(wait_release ? vita::Pad{} : pad)));
-                    sound_worker.dispatch(*game, audio, ticks_us);
+                    auto next_sound = game->run_frame_sound_packet(
+                        map_input(controls.sample(wait_release ? vita::Pad{} : pad)));
+                    perf_run_us += diagnostic_ticks_us() - begin;
+                    const auto &fp = game->last_profile();
+                    perf_core_us += fp.core(); perf_geo_us += fp.geometry;
+                    perf_video_us += fp.video;
+                    ++perf_frames;
+                    if (active_native_audio) {
+                        // Only commands cross into audio. The callback sequences
+                        // and mixes continuously, not once per graphics frame.
+                        const auto bytes = game->board().take_sound_bytes();
+                        const auto health = native_audio.stats();
+                        if (health.failed || health.invalid || health.unsupported) {
+                            char error[192];
+                            std::snprintf(error, sizeof error,
+                                "Native audio fault: callback=%u invalid=%u unsupported=%u. Reset with Reference audio.",
+                                health.failed, health.invalid, health.unsupported);
+                            throw std::runtime_error(error);
+                        }
+                        if (!native_audio.send(bytes.data(), bytes.size()))
+                            throw std::runtime_error("Native audio queue overflow; use Reference audio and reset");
+                    } else {
+                        // Reference backend retains the bounded sound pipeline.
+                        if (!finish_sound()) break;
+                        active_sound = std::move(next_sound);
+                        sound_worker.dispatch_packet(active_sound, audio, kDiagnostics ? ticks_us : nullptr);
+                        sound_in_flight = true;
+                    }
                     simulated = true;
                 } catch (const std::exception &e) {
-                    status = e.what(); log.log("GPU20 runtime: %s\n", e.what()); menu = true; game.reset(); break;
+                    // A board/dispatch failure must not destroy a sound board
+                    // still used by the previous job.
+                    finish_sound();
+                    status = e.what();
+                    perf_log.sync([&] { log.fault("GPU23 runtime: %s\n", e.what()); });
+                    menu = true; audio.pause(); native_audio.close(); active_sound = {}; game.reset(); break;
                 }
-                perf_run_us += ticks_us() - begin;
-                // Sound runs concurrently with command generation below.
-                // FrameClock is capped at one step; join before the next step.
             }
         } else clock.reset();
 
-        const uint64_t gpu_begin = ticks_us();
+        const uint64_t gpu_begin = diagnostic_ticks_us();
         gpu.prepare_frame();
-        const uint64_t gpu_ready = ticks_us();
+        const uint64_t gpu_ready = diagnostic_ticks_us();
         vita2d_start_drawing();
         vita2d_clear_screen();
         if (menu) draw_menu(bool(game), options, selection, settings, status, display_fps);
@@ -437,27 +555,11 @@ int main(int, char **) {
             perf_encode_us += uint64_t(gpu.last_gpu_ms() * 1000.0);
             perf_sort_us += gpu.last_sort_us(); perf_polygon_us += gpu.last_polygon_us();
             perf_tile_us += gpu.last_tile_us(); perf_upload_us += gpu.last_upload_us();
-            perf_gpu_us += ticks_us() - gpu_begin;
+            perf_gpu_us += diagnostic_ticks_us() - gpu_begin;
         }
 
-        if (simulated && game) {
-            const uint64_t wait_begin = ticks_us();
-            try { sound_worker.finish(); }
-            catch (const std::exception &e) {
-                status = e.what();
-                log.log("GPU20 sound runtime: %s\n", e.what());
-                menu = true; audio.pause(); game.reset();
-            }
-            perf_sound_wait_us += ticks_us() - wait_begin;
-            if (game) {
-                const auto &fp = game->last_profile();
-                perf_core_us += fp.core(); perf_geo_us += fp.geometry;
-                perf_video_us += fp.video; perf_sound_us += fp.sound;
-                perf_audio_queue_us += sound_worker.last_audio_ticks();
-                ++perf_frames;
-            }
-        }
         const uint64_t after = ticks_us();
+        if (simulated) perf_frame_peak_us = std::max(perf_frame_peak_us, after - now);
         if (after - perf_start >= 2000000) {
             const double sec = double(after - perf_start) / 1000000.0;
             display_fps = sec > 0 ? double(perf_frames) / sec : 0.0;
@@ -465,14 +567,20 @@ int main(int, char **) {
             const double present_divisor = perf_presents ? double(perf_presents) : 1.0;
             const double gpu_ms = double(perf_gpu_us) / present_divisor / 1000.0;
             const double frame_divisor = perf_frames ? double(perf_frames) : 1.0;
-            if (game) {
+            const double sound_divisor = perf_sound_frames ? double(perf_sound_frames) : 1.0;
+            if (kDiagnostics && game) {
                 const auto &vp = game->board().video().last_profile();
+                const auto log_stats = perf_log.stats();
+                const auto native_stats = native_audio.stats();
                 const uint64_t log_begin = ticks_us();
-                log.log("gpu20: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_prev_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x\n",
+                perf_log.try_log("gpu23: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_enqueue_prev_ms=%.2f log_write_prev_ms=%.2f log_write_peak_ms=%.2f log_drops=%u log_failures=%u sound_frames=%u frame_peak_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x audio=%s native_frames=%u native_last_ms=%.3f native_peak_ms=%.3f native_queue=%u native_overflows=%u native_failed=%u native_unsupported=%u native_invalid=%u native_notes=%u native_voices=%u\n",
                         gpu_fast ? "GPU_FAST" : "CPU_EXACT", int(menu), unsigned(perf_frames), unsigned(perf_presents),
-                        sec * 1000.0, double(previous_log_us) / 1000.0, display_fps, run_ms,
+                        sec * 1000.0, double(previous_log_us) / 1000.0,
+                        double(log_stats.last_write_ticks) / 1000.0, double(log_stats.max_write_ticks) / 1000.0,
+                        unsigned(log_stats.dropped), unsigned(log_stats.failures), unsigned(perf_sound_frames),
+                        double(perf_frame_peak_us) / 1000.0, display_fps, run_ms,
                         double(perf_core_us)/frame_divisor/1000.0, double(perf_geo_us)/frame_divisor/1000.0,
-                        double(perf_video_us)/frame_divisor/1000.0, double(perf_sound_us)/frame_divisor/1000.0, gpu_ms, double(perf_encode_us)/present_divisor/1000.0, double(perf_wait_us)/present_divisor/1000.0, double(perf_sound_wait_us)/frame_divisor/1000.0, double(perf_audio_queue_us)/frame_divisor/1000.0,
+                        double(perf_video_us)/frame_divisor/1000.0, double(perf_sound_us)/sound_divisor/1000.0, gpu_ms, double(perf_encode_us)/present_divisor/1000.0, double(perf_wait_us)/present_divisor/1000.0, double(perf_sound_wait_us)/frame_divisor/1000.0, double(perf_audio_queue_us)/sound_divisor/1000.0,
                         double(perf_sort_us)/present_divisor/1000.0, double(perf_polygon_us)/present_divisor/1000.0,
                         double(perf_tile_us)/present_divisor/1000.0, double(perf_upload_us)/present_divisor/1000.0,
                         scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency(),
@@ -481,26 +589,34 @@ int main(int, char **) {
                         unsigned(gpu.cached_materials()), unsigned(gpu.cached_sources()), gpu.material_builds(), gpu.material_defers(), double(gpu.cached_bytes())/(1024.0*1024.0),
                         double(gpu.reserved_bytes())/(1024.0*1024.0), gpu.min_pool_free()/1024u, gpu.pool_drops(), gpu.material_drops(), gpu.subdivided_polys(), unsigned(gpu.submitted_vertices()), gpu.system24_uploaded_tiles(), gpu.cache_resets(), gpu.system24_quads(), gpu.textured_draws(), gpu.solid_draws(), gpu.clip_changes(), gpu.textured_polys(), gpu.solid_polys(), gpu.shader_setups(), gpu.state_reuses(), gpu.draw_errors(), gpu.checker_polys(), gpu.textured_checker_polys(),
                         unsigned(game->board().video().system24_word(0x5004)),
-                        unsigned(game->board().video().system24_word(0x5006)));
+                        unsigned(game->board().video().system24_word(0x5006)),
+                        active_native_audio ? "NATIVE_TEST" : "REFERENCE", native_stats.frames,
+                        double(native_stats.last_us)/1000.0, double(native_stats.peak_us)/1000.0,
+                        native_stats.queued, native_stats.overflows, native_stats.failed,
+                        native_stats.unsupported, native_stats.invalid, native_stats.notes, native_stats.voices);
                 previous_log_us = ticks_us() - log_begin;
             }
             perf_start = after; perf_frames = perf_run_us = perf_gpu_us = 0;
             perf_core_us = perf_geo_us = perf_video_us = perf_sound_us = 0;
             perf_presents = perf_wait_us = perf_encode_us = 0;
-            perf_sound_wait_us = perf_audio_queue_us = 0;
+            perf_sound_wait_us = perf_audio_queue_us = perf_sound_frames = 0;
+            perf_frame_peak_us = 0;
             perf_sort_us = perf_polygon_us = perf_tile_us = perf_upload_us = 0;
         }
         if (menu || !simulated) SDL_Delay(1);
     }
 
+    finish_sound();
     sound_worker.close();
     save();
     settings.save();
+    native_audio.close();
     audio.close();
     gpu.shutdown();
     restore_clocks();
     vita2d_fini();
+    perf_log.close(); // join file I/O before destroying SDL synchronization
     SDL_Quit();
-    log.literal("GPU20: clean exit\n");
+    log.literal("GPU23: clean exit\n");
     return 0;
 }

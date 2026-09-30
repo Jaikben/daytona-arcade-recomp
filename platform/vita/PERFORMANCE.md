@@ -1,23 +1,116 @@
 # Vita performance diagnostics
 
-## Native GXM builds (GPU20 / 01.18)
+## Quiet native GXM build (GPU23 / 01.21)
+
+Startup and periodic diagnostic logging are now off by default for the GXM
+frontend. The logger does not create/truncate/append/sync the file during
+normal startup, gameplay, settings changes or exit; its background writer is
+not started. Periodic record formatting and optional board/audio profiling
+clocks are disabled too. Game pacing, menu FPS, native audio health checks,
+sound commands, renderer behavior and saved clock/audio settings are unchanged.
+
+Unexpected failures still appear on screen where the frontend can display
+them and append a bounded fault record to `vita-diag.log`. A quiet launch does
+not erase an existing log. This is a routine-diagnostics switch, not suppression
+of runtime faults. The older software-rendered diagnostic frontend is unchanged.
+
+Re-enable the GXM diagnostic build with `scripts/build_vita.py --gpu-fast
+--diagnostics` (plus the usual SDK/build arguments), or set
+`-DDAYTONA_VITA_DIAGNOSTICS=ON` in the Vita CMake build. Default is OFF.
+Keep GPU22 for an unchanged diagnostic comparison.
+
+The supplied GPU22 device log contains 78 active windows covering 157.274 s,
+all using native audio without a reference sound board. Audio produced
+7,551,488 stereo frames and 7,969 notes. Native callback failures, unsupported
+commands, invalid events, queue overflows, GPU draw errors and pool/material
+drops all stayed zero. Maximum queue depth was three bytes and callback peak
+was 4.662 ms. CPU/GPU clocks stayed at 444/166 MHz. The one startup material
+deferral was the existing per-frame construction budget, not a resource error.
+
+Simulation FPS ranged 22.45–57.45 (time-weighted 33.78), so the user's improved
+smoothness is not proof of locked full speed. The log ends during normal
+gameplay, without a clean-exit marker. Background diagnostic writes reached
+39.56 ms; their duration is not main-thread blocking time. No observed health
+fault requires routine logging to stay enabled.
+
+## Native GXM builds (GPU22 / 01.20)
+
+GPU22 adds the shared, opt-in native audio replacement used by both desktop
+and Vita. Select `AUDIO ENGINE: NATIVE (TEST)` in Options and reset the game.
+Reference remains the default. See [native audio](../../docs/native-audio.md)
+for architecture, measured fidelity differences and reproduction commands.
+
+Native mode has no reference sound board or sound worker. The SDL device
+callback clocks the sequencer and mixer independently of game frames; periodic
+records add `audio=NATIVE_TEST`, callback timing, queue depth and health counters.
+Keep main CPU/geometry/GXM measurements separate from callback wall time.
+The GPU20 road fixes and GPU21 reference pipeline remain unchanged.
+
+The supplied GPU21 hardware run showed zero residual sound waits, but detailed
+scenes still reached about 24 FPS. Moving more audio work is therefore not a
+guarantee of full-speed graphics. GPU22 needs a fresh device measurement.
+
+Host validation: 19 runnable CTests passed (two optional Lua tests skipped),
+including native mixer, sequencer and both callback adapters. The native
+6,000-frame race health test passed with no invalid/unsupported events,
+clipping or callback heap allocations, exercising 129 samples and up to 41
+voices. A one-second graphics stall still produced 48,000 audio frames and
+33 new note starts. ASan/UBSan checks passed; this is not Vita runtime proof.
 
 The sections below this one describe the original software-rendered diagnostic
-patch, not the current `main_gpu.cpp` path. Current builds write
+patch, not the current `main_gpu.cpp` path. Diagnostic-enabled builds write
 `ux0:data/daytona93/vita-diag.log`; copy it before relaunching.
 
 - `geo_ms` measures complete geometrizer execution, including lighting. It is
   not a deadline that abandons later lighting work. Lighting is stored in each
   polygon before that polygon is published.
 - `run_ms` measures main-thread board work. `sound_ms` and
-  `audio_worker_queue_ms` are worker durations overlapping rendering; do not
-  add them to main time. `sound_wait_ms` is the residual main-thread join.
+  `audio_worker_queue_ms` are worker durations overlapping rendering and the
+  following main-board frame; do not add them to main time. Their denominator
+  is `sound_frames`, which may differ from `frames` by one at a window boundary.
+  `sound_wait_ms` is the residual main-thread join per board frame.
 - `poly_ms` includes `sort_ms`. `tiles_ms` and `upload_ms` measure the other
   native GXM preparation stages. These are CPU submission times, not GPU
   execution timestamps. `gpu_wait_ms` measures the pool-reuse fence.
 - `menu`, `frames`, `presents`, and `window_ms` expose paused or repeated-frame
-  windows. `log_prev_ms` measures the previous synchronous log write, which is
-  included in the next FPS window but not in the rendering stage counters.
+  windows. `frame_peak_ms` is the longest active main-loop iteration in this
+  window (not GPU elapsed time).
+- Periodic samples use a bounded background writer. `log_enqueue_prev_ms`
+  measures the previous formatting/enqueue call; `log_write_prev_ms` and
+  `log_write_peak_ms` report background I/O. `log_drops` and `log_failures`
+  are cumulative counters. A busy/unavailable worker drops telemetry instead
+  of blocking a gameplay frame. Startup/error/exit records stay synchronous,
+  with a drain barrier before touching the shared file sink.
+
+The GPU20 hardware log supplied for this iteration shows steady CPU 444/GPU
+166 MHz, roughly 28-46 FPS in the 3D scenes, residual audio waits up to 7.84 ms,
+and synchronous diagnostic writes increasing from about 5 to 20 ms. Geometry
+and polygon submission still dominate detailed scenes; clocks were not dropping.
+GPU21 keeps the confirmed road fix and moves the sound join past the next
+main-board step. Each job owns its UART-byte packet; at most one sound job and
+one newly prepared packet exist. Join before the next sound dispatch, audio
+settings/pause, save/reset or game destruction. This changes host scheduling,
+not guest timing, command order or sample count.
+
+A further non-final-Z geometry decoder shortcut was tested and rejected:
+interleaved 6,000-frame host runs averaged 783.56 ms baseline versus 792.19 ms
+candidate, with identical polygon output. No geometry or GPU rendering change
+is retained in GPU21. Host results do not establish device frame rate.
+
+GPU21 host validation: all 15 runnable CTests pass (two optional Lua tests
+skip), as do the renderer/lifetime ASan+UBSan checks and sound/audio/logger
+thread-sanitizer tests. A 6,000-frame race compared every CPU screen hash and
+11,589,332 FM plus 9,312,856 PCM float samples bit-for-bit, with identical
+i960/TGP/68000 instruction counts and UART totals. The first sound job was
+held until the next actual board frame completed. This checks overlap, packet
+ownership, profile isolation and sample ordering, not Vita frame rate.
+
+Reproduce the opt-in ROM-backed comparison after generating/importing the
+user-supplied ROM set:
+
+```sh
+bash scripts/test_vita_sound_pipeline.sh build 6000
+```
 
 The banked-corner sampler audit (attract frames 1000-1120) found coordinates
 outside the nominal texture dimensions on 48,582 polygons. The CPU masks those

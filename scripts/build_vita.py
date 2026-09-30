@@ -29,6 +29,7 @@ def main(argv=None):
     ap.add_argument("--compile-check", action="store_true")
     ap.add_argument("--reference-renderer", action="store_true", help="disable OPT03 renderer changes for comparison")
     ap.add_argument("--gpu-fast", action="store_true", help="build experimental vita2d/GXM 3D renderer (requires vdpm libvita2d)")
+    ap.add_argument("--diagnostics", action="store_true", help="enable GXM startup/performance file logging (faults always recorded)")
     args = ap.parse_args(argv)
     if args.jobs < 1:
         ap.error("--jobs must be positive")
@@ -55,6 +56,7 @@ def main(argv=None):
          f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", "-DCMAKE_BUILD_TYPE=Release",
          f"-DDAYTONA_GEN_ROOT={gen}",
          f"-DDAYTONA_VITA_RENDER_OPT={'OFF' if args.reference_renderer else 'ON'}",
+         f"-DDAYTONA_VITA_DIAGNOSTICS={'ON' if args.diagnostics else 'OFF'}",
          f"-DDAYTONA_VITA_GPU_FAST={'ON' if args.gpu_fast else 'OFF'}",
          f"-DDAYTONA_VITA_COMPILE_CHECK={'ON' if args.compile_check else 'OFF'}"], env)
     run(["cmake", "--build", build, "--parallel", args.jobs], env)

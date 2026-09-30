@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "../platform/vita/diagnostic_log.h"
 #include <cassert>
 #include <cstring>
@@ -30,6 +33,7 @@ int sceIoClose(SceUID fd) { assert(fd == 5); ++closes; return close_result; }
 }
 int main() {
     reset(); vita::DiagnosticLog log;
+    assert(log.enabled());
     disk = "old";
     assert(log.begin() && disk.find("OPT03") != std::string::npos && disk.find("old") == std::string::npos);
     assert((flags_seen & SCE_O_TRUNC) && opens == 1 && closes == 1 && syncs == 1);
@@ -62,7 +66,7 @@ int main() {
     reset(); vita::DiagnosticLog truncated;
     const std::string huge(2048, 'X');
     assert(truncated.log("%s", huge.c_str()));
-    assert(disk.size() == 1023 && disk.ends_with(" [truncated]\n"));
+    assert(disk.size() == 1535 && disk.ends_with(" [truncated]\n"));
 
     reset(); vita::DiagnosticLog bounded;
     const std::string full(vita::DiagnosticLog::kLimit, 'Y');
@@ -75,5 +79,60 @@ int main() {
     assert(!invalid.append(nullptr, 2) && invalid.error() == -1 && opens == 0);
     reset(); vita::DiagnosticLog overreported; write_result = 2;
     assert(!overreported.literal("x") && overreported.error() == -1 && closes == 1);
-    std::puts("Vita direct-log tests passed (header, append, partial/zero/error writes, open/sync/close failures, bounds)");
+    reset();
+    disk = "previous hardware log\n";
+    const std::string previous = disk;
+    {
+        vita::DiagnosticLog quiet(false);
+        assert(!quiet.enabled() && std::strcmp(quiet.state(), "OFF") == 0);
+        int formatted = 37;
+        for (int i = 0; i < 100; ++i) {
+            assert(quiet.begin());
+            assert(quiet.literal("routine startup\n"));
+            assert(quiet.log("routine %d%n", i, &formatted));
+            assert(quiet.log("%s", huge.c_str()));
+            assert(quiet.log(nullptr));
+            assert(quiet.append(nullptr, vita::DiagnosticLog::kLimit + 1));
+        }
+        assert(formatted == 37); // No formatting, not merely no writes.
+        assert(quiet.bytes() == 0 && quiet.error() == 0 && quiet.sync_error() == 0 && !quiet.limited());
+        assert(std::strcmp(quiet.state(), "OFF") == 0 && disk == previous);
+    }
+    assert(opens == 0 && write_calls == 0 && syncs == 0 && closes == 0);
+
+    reset(); disk = previous;
+    vita::DiagnosticLog quiet_fault(false);
+    assert(quiet_fault.fault("fatal: %s %d\n", "test", 17));
+    assert(!quiet_fault.enabled() && std::strcmp(quiet_fault.state(), "OFF") == 0);
+    assert(disk == previous + "fatal: test 17\n");
+    assert((flags_seen & SCE_O_APPEND) && !(flags_seen & SCE_O_TRUNC));
+    assert(opens == 1 && write_calls == 1 && syncs == 1 && closes == 1);
+    const size_t fault_bytes = quiet_fault.bytes();
+    assert(fault_bytes == std::strlen("fatal: test 17\n"));
+    assert(quiet_fault.begin() && quiet_fault.log("still quiet\n"));
+    assert(quiet_fault.bytes() == fault_bytes && opens == 1);
+    assert(quiet_fault.fault("%s", huge.c_str()));
+    assert(quiet_fault.bytes() == fault_bytes + 1535 && disk.starts_with(previous));
+    assert(disk.ends_with(" [truncated]\n") && !quiet_fault.enabled());
+    while (quiet_fault.fault("%s", huge.c_str())) {}
+    assert(quiet_fault.limited() && quiet_fault.bytes() <= vita::DiagnosticLog::kLimit);
+    assert(disk.size() == previous.size() + quiet_fault.bytes());
+
+    reset(); disk = previous;
+    vita::DiagnosticLog quiet_open_fail(false); open_result = -13;
+    assert(!quiet_open_fail.fault("fatal: test\n"));
+    assert(quiet_open_fail.error() == -13 && !quiet_open_fail.enabled());
+    assert(std::strcmp(quiet_open_fail.state(), "ERROR") == 0);
+    assert(opens == 1 && write_calls == 0 && closes == 0 && syncs == 0 && disk == previous);
+    assert(quiet_open_fail.begin() && quiet_open_fail.log("routine\n"));
+    assert(quiet_open_fail.error() == -13 && opens == 1);
+
+    reset(); vita::DiagnosticLog quiet_sync_fail(false); sync_result = -38;
+    assert(quiet_sync_fail.fault("fatal: test\n"));
+    assert(quiet_sync_fail.sync_error() == -38 && !quiet_sync_fail.enabled());
+    assert(std::strcmp(quiet_sync_fail.state(), "SYNC WARNING") == 0 && closes == 1);
+
+    reset(); vita::DiagnosticLog quiet_invalid_fault(false);
+    assert(!quiet_invalid_fault.fault(nullptr) && quiet_invalid_fault.error() == -1 && opens == 0);
+    std::puts("Vita direct-log tests passed (enabled/quiet lifecycle, fault-only append, no-format quiet path, I/O errors, bounds)");
 }

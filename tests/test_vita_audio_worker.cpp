@@ -130,6 +130,12 @@ struct AudioGame {
     }
 };
 
+struct AudioPacket {
+    AudioGame *source;
+    uint64_t execute() { return source->execute_deferred_sound(); }
+    snd::SoundBoard *sound() { return source->sound(); }
+};
+
 int main() {
     try {
         mock::reset();
@@ -154,6 +160,21 @@ int main() {
             mock::require(worker.last_audio_ticks() == 11, "queue time measured separately");
             mock::require(audio_mock::render(reference_id, 4096) == audio_mock::render(threaded_id, 4096),
                           "queue thread leaves callback PCM samples bit-identical");
+        }
+        // The detached packet queues through the same production Audio path,
+        // without completing into the current main-board profile.
+        AudioPacket packet{&worker_game};
+        for (int frame = 0; frame < 64; ++frame) {
+            reference.volume(float(frame % 7) / 6.f); threaded.volume(float(frame % 7) / 6.f);
+            reference.mute(frame % 11 == 0); threaded.mute(frame % 11 == 0);
+            serial_game.execute_deferred_sound(); reference.push(*serial_game.sound());
+            serial_game.complete_deferred_sound(17);
+            worker.dispatch_packet(packet, threaded, audio_mock::clock);
+            worker.finish();
+            mock::require(worker_game.completed == 64 && worker.last_sound_ticks() == 17,
+                          "detached queue has no game-profile completion");
+            mock::require(audio_mock::render(reference_id, 4096) == audio_mock::render(threaded_id, 4096),
+                          "detached callback PCM bit-identical with settings after join");
         }
         reference.pause(); threaded.pause();
 
@@ -180,7 +201,7 @@ int main() {
             while (!stop.load()) { audio_mock::render(threaded_id, 512); std::this_thread::yield(); }
         });
         for (int frame = 0; frame < 120; ++frame) {
-            worker.dispatch(worker_game, threaded, audio_mock::clock);
+            worker.dispatch_packet(packet, threaded, audio_mock::clock);
             worker.finish();
             threaded.volume(float(frame % 5) / 4.f);
             threaded.mute(frame % 17 == 0);

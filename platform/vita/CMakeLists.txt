@@ -23,6 +23,10 @@ add_compile_options(-Wall -Wextra -fno-fast-math -ffp-contract=off -ffunction-se
 
 option(DAYTONA_VITA_COMPILE_CHECK "Compile runtime and frontend without ROM-derived code; produces no VPK" OFF)
 option(DAYTONA_VITA_GPU_FAST "Experimental vita2d/GXM 3D path" OFF)
+option(DAYTONA_VITA_DIAGNOSTICS "GXM startup/performance file logging (faults always recorded)" OFF)
+# Keep the switch frontend-only; audio/render/game code is identical in both builds.
+set_source_files_properties(main_gpu.cpp PROPERTIES COMPILE_DEFINITIONS
+    "DAYTONA_VITA_DIAGNOSTICS=$<BOOL:${DAYTONA_VITA_DIAGNOSTICS}>")
 set(DAYTONA_GEN_ROOT "${DAYTONA_ROOT}/build/gen" CACHE PATH "Host-generated i960, TGP and 68000 C++ root")
 set(DAYTONA_VITA_TITLEID "DAYT00093" CACHE STRING "Nine-character Vita title ID")
 if(NOT DAYTONA_VITA_COMPILE_CHECK)
@@ -63,7 +67,7 @@ target_compile_options(vita_ymfm PRIVATE -w)
 
 # The same native runtime as the desktop; no refcore or interpreter is linked.
 set(RUNTIME_FILES cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import
-    archive m2_replay_bus lockstep snd_cpu multipcm sound_board)
+    archive m2_replay_bus lockstep snd_cpu multipcm sound_board native_sample_mixer native_sound_sequencer native_sound_engine)
 set(RUNTIME_SOURCES)
 foreach(name IN LISTS RUNTIME_FILES)
     list(APPEND RUNTIME_SOURCES "${DAYTONA_ROOT}/src/runtime/${name}.cpp")
@@ -114,7 +118,7 @@ else()
             SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub ScePgf_stub ScePvf_stub
             SceCommonDialog_stub SceAppMgr_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub
             freetype png jpeg z pthread m)
-        set(VITA_APP_NAME "Daytona Recomp GPU20")
+        set(VITA_APP_NAME "Daytona Recomp GPU23")
     else()
         add_executable(daytona_vita main.cpp ${GEN_SOURCES})
         target_link_libraries(daytona_vita PRIVATE vita_runtime ${VITA_SDL_TARGET} SceCtrl_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub pthread m)
@@ -124,7 +128,7 @@ else()
     set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     vita_create_self(eboot.bin daytona_vita UNSAFE)
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
-        VERSION "01.18" NAME "${VITA_APP_NAME}"
+        VERSION "01.21" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
         FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md")
 endif()
