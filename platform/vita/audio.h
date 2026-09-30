@@ -8,8 +8,9 @@
 #include <cstring>
 
 namespace vita {
-// The SDL playback callback consumes only converted samples. The optional
-// sound worker finishes before push(); i960/TGP SoftFloat stays on main.
+// The SDL playback callback consumes only converted samples. The sound worker
+// may call push(); join it before main changes settings, pauses or closes audio.
+// SDL's device lock serializes stream conversion with the playback callback.
 class Audio {
 public:
     Audio() = default;

@@ -145,7 +145,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU18", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU20", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
@@ -184,9 +184,9 @@ int main(int, char **) {
     sceIoMkdir(kDirectory, 0777);
     vita::DiagnosticLog log;
     log.begin();
-    log.literal("GPU18: configurable clocks and GXM System24 fast path starting\n");
+    log.literal("GPU20: configurable clocks and GXM System24 fast path starting\n");
     void *heap_probe = std::malloc(1024);
-    if (!heap_probe) { log.literal("GPU18: heap unavailable\n"); sceKernelExitProcess(1); }
+    if (!heap_probe) { log.literal("GPU20: heap unavailable\n"); sceKernelExitProcess(1); }
     std::free(heap_probe);
 
     VitaSettings settings;
@@ -203,45 +203,45 @@ int main(int, char **) {
     const int bus_clock = scePowerGetBusClockFrequency();
     const int gpu_clock = scePowerGetGpuClockFrequency();
     const int xbar_clock = scePowerGetGpuXbarClockFrequency();
-    log.log("GPU18 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
+    log.log("GPU20 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
             settings.cpu_clock, settings.gpu_clock, arm_clock, bus_clock, gpu_clock, xbar_clock,
             arm_clock_before, gpu_clock_before, cpu_clock_result, gpu_clock_result);
-    log.literal("GPU18 stage: SDL timer/audio init begin\n");
+    log.literal("GPU20 stage: SDL timer/audio init begin\n");
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0) {
-        log.log("GPU18: SDL timer/audio init failed: %s\n", SDL_GetError());
+        log.log("GPU20: SDL timer/audio init failed: %s\n", SDL_GetError());
         restore_clocks();
         return 1;
     }
-    log.literal("GPU18 stage: SDL init done; vita2d init begin\n");
+    log.literal("GPU20 stage: SDL init done; vita2d init begin\n");
     if (vita2d_init_advanced(8 * 1024 * 1024) < 0) {
-        log.literal("GPU18: vita2d/GXM initialization failed\n");
+        log.literal("GPU20: vita2d/GXM initialization failed\n");
         SDL_Quit();
         restore_clocks();
         return 1;
     }
-    log.literal("GPU18 stage: vita2d init done; framebuffer textures begin\n");
+    log.literal("GPU20 stage: vita2d init done; framebuffer textures begin\n");
     vita2d_set_vblank_wait(1);
     vita2d_set_clear_color(RGBA8(0,0,0,255));
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
 
     vita::GpuFastRenderer gpu;
     if (!gpu.ok()) {
-        log.literal("GPU18: framebuffer texture allocation failed\n");
+        log.literal("GPU20: framebuffer texture allocation failed\n");
         gpu.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
-    log.log("GPU18 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
+    log.log("GPU20 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
     vita::Audio audio;
-    if (!audio.open()) log.log("GPU18: audio unavailable: %s\n", SDL_GetError());
+    if (!audio.open()) log.log("GPU20: audio unavailable: %s\n", SDL_GetError());
     audio.volume(float(settings.volume) / 100.0f);
     audio.mute(settings.mute);
-    log.literal("GPU18 stage: audio done; main loop ready\n");
+    log.literal("GPU20 stage: audio done; main loop ready\n");
 
     std::unique_ptr<rt::GameLoop> game;
     // Declared after game: its destructor drains work before game is destroyed.
     vita::SoundWorker sound_worker;
     sound_worker.open();
-    log.log("GPU18 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
+    log.log("GPU20 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
             int(sound_worker.threaded()), sound_worker.affinity_result(), sound_worker.affinity_mask());
     vita::Controls controls;
     vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
@@ -253,6 +253,8 @@ int main(int, char **) {
     uint64_t perf_core_us = 0, perf_geo_us = 0, perf_video_us = 0, perf_sound_us = 0;
     uint64_t perf_presents = 0, perf_wait_us = 0, perf_encode_us = 0;
     uint64_t perf_sound_wait_us = 0, perf_audio_queue_us = 0;
+    uint64_t perf_sort_us = 0, perf_polygon_us = 0, perf_tile_us = 0, perf_upload_us = 0;
+    uint64_t previous_log_us = 0;
     double display_fps = 0.0;
 
     auto apply_preferences = [&] {
@@ -274,7 +276,7 @@ int main(int, char **) {
                       scePowerGetArmClockFrequency(), settings.cpu_clock,
                       scePowerGetGpuClockFrequency(), settings.gpu_clock, saved ? "SAVED" : "SAVE FAILED");
         status = message;
-        log.log("GPU18 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d saved=%d\n",
+        log.log("GPU20 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d saved=%d\n",
                 settings.cpu_clock, settings.gpu_clock, scePowerGetArmClockFrequency(),
                 scePowerGetGpuClockFrequency(), cpu_result, gpu_result, settings.volume,
                 int(settings.mute), settings.deadzone, int(settings.steer_invert), int(saved));
@@ -285,7 +287,7 @@ int main(int, char **) {
         if (!game) return true;
         const bool a = save_nv("ioboard_eeprom.bin", game->board().io().eeprom);
         const bool b = save_nv("backup_ram.bin", game->board().backup_ram());
-        if (!a || !b) log.literal("GPU18: save failed\n");
+        if (!a || !b) log.literal("GPU20: save failed\n");
         return a && b;
     };
     auto apply_mode = [&] {
@@ -316,7 +318,7 @@ int main(int, char **) {
             wait_release = true;
             return true;
         } catch (const std::exception &e) {
-            status = e.what(); log.log("GPU18 start: %s\n", e.what()); return false;
+            status = e.what(); log.log("GPU20 start: %s\n", e.what()); return false;
         }
     };
 
@@ -407,10 +409,10 @@ int main(int, char **) {
                 const uint64_t begin = ticks_us();
                 try {
                     game->run_frame_deferred_sound(map_input(controls.sample(wait_release ? vita::Pad{} : pad)));
-                    sound_worker.dispatch(*game);
+                    sound_worker.dispatch(*game, audio, ticks_us);
                     simulated = true;
                 } catch (const std::exception &e) {
-                    status = e.what(); log.log("GPU18 runtime: %s\n", e.what()); menu = true; game.reset(); break;
+                    status = e.what(); log.log("GPU20 runtime: %s\n", e.what()); menu = true; game.reset(); break;
                 }
                 perf_run_us += ticks_us() - begin;
                 // Sound runs concurrently with command generation below.
@@ -433,6 +435,8 @@ int main(int, char **) {
             ++perf_presents;
             perf_wait_us += gpu_ready - gpu_begin;
             perf_encode_us += uint64_t(gpu.last_gpu_ms() * 1000.0);
+            perf_sort_us += gpu.last_sort_us(); perf_polygon_us += gpu.last_polygon_us();
+            perf_tile_us += gpu.last_tile_us(); perf_upload_us += gpu.last_upload_us();
             perf_gpu_us += ticks_us() - gpu_begin;
         }
 
@@ -441,7 +445,7 @@ int main(int, char **) {
             try { sound_worker.finish(); }
             catch (const std::exception &e) {
                 status = e.what();
-                log.log("GPU18 sound runtime: %s\n", e.what());
+                log.log("GPU20 sound runtime: %s\n", e.what());
                 menu = true; audio.pause(); game.reset();
             }
             perf_sound_wait_us += ticks_us() - wait_begin;
@@ -449,9 +453,7 @@ int main(int, char **) {
                 const auto &fp = game->last_profile();
                 perf_core_us += fp.core(); perf_geo_us += fp.geometry;
                 perf_video_us += fp.video; perf_sound_us += fp.sound;
-                const uint64_t queue_begin = ticks_us();
-                if (game->sound()) audio.push(*game->sound());
-                perf_audio_queue_us += ticks_us() - queue_begin;
+                perf_audio_queue_us += sound_worker.last_audio_ticks();
                 ++perf_frames;
             }
         }
@@ -465,21 +467,28 @@ int main(int, char **) {
             const double frame_divisor = perf_frames ? double(perf_frames) : 1.0;
             if (game) {
                 const auto &vp = game->board().video().last_profile();
-                log.log("gpu18: mode=%s sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_queue_ms=%.2f cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u sys24_ctrl=%04x/%04x\n",
-                        gpu_fast ? "GPU_FAST" : "CPU_EXACT", display_fps, run_ms,
+                const uint64_t log_begin = ticks_us();
+                log.log("gpu20: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_prev_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x\n",
+                        gpu_fast ? "GPU_FAST" : "CPU_EXACT", int(menu), unsigned(perf_frames), unsigned(perf_presents),
+                        sec * 1000.0, double(previous_log_us) / 1000.0, display_fps, run_ms,
                         double(perf_core_us)/frame_divisor/1000.0, double(perf_geo_us)/frame_divisor/1000.0,
                         double(perf_video_us)/frame_divisor/1000.0, double(perf_sound_us)/frame_divisor/1000.0, gpu_ms, double(perf_encode_us)/present_divisor/1000.0, double(perf_wait_us)/present_divisor/1000.0, double(perf_sound_wait_us)/frame_divisor/1000.0, double(perf_audio_queue_us)/frame_divisor/1000.0,
+                        double(perf_sort_us)/present_divisor/1000.0, double(perf_polygon_us)/present_divisor/1000.0,
+                        double(perf_tile_us)/present_divisor/1000.0, double(perf_upload_us)/present_divisor/1000.0,
+                        scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency(),
                         double(vp.raster)/1000.0, double(vp.tile_cache)/1000.0, double(vp.tile_draw)/1000.0,
                         double(vp.composite)/1000.0, unsigned(vp.layers_rebuilt), vp.tiles_rebuilt, vp.characters_changed,
                         unsigned(gpu.cached_materials()), unsigned(gpu.cached_sources()), gpu.material_builds(), gpu.material_defers(), double(gpu.cached_bytes())/(1024.0*1024.0),
-                        double(gpu.reserved_bytes())/(1024.0*1024.0), gpu.min_pool_free()/1024u, gpu.pool_drops(), gpu.material_drops(), gpu.subdivided_polys(), unsigned(gpu.submitted_vertices()), gpu.system24_uploaded_tiles(), gpu.cache_resets(), gpu.system24_quads(), gpu.textured_draws(), gpu.solid_draws(), gpu.clip_changes(), gpu.textured_polys(), gpu.solid_polys(), gpu.shader_setups(), gpu.state_reuses(), gpu.draw_errors(),
+                        double(gpu.reserved_bytes())/(1024.0*1024.0), gpu.min_pool_free()/1024u, gpu.pool_drops(), gpu.material_drops(), gpu.subdivided_polys(), unsigned(gpu.submitted_vertices()), gpu.system24_uploaded_tiles(), gpu.cache_resets(), gpu.system24_quads(), gpu.textured_draws(), gpu.solid_draws(), gpu.clip_changes(), gpu.textured_polys(), gpu.solid_polys(), gpu.shader_setups(), gpu.state_reuses(), gpu.draw_errors(), gpu.checker_polys(), gpu.textured_checker_polys(),
                         unsigned(game->board().video().system24_word(0x5004)),
                         unsigned(game->board().video().system24_word(0x5006)));
+                previous_log_us = ticks_us() - log_begin;
             }
             perf_start = after; perf_frames = perf_run_us = perf_gpu_us = 0;
             perf_core_us = perf_geo_us = perf_video_us = perf_sound_us = 0;
             perf_presents = perf_wait_us = perf_encode_us = 0;
             perf_sound_wait_us = perf_audio_queue_us = 0;
+            perf_sort_us = perf_polygon_us = perf_tile_us = perf_upload_us = 0;
         }
         if (menu || !simulated) SDL_Delay(1);
     }
@@ -492,6 +501,6 @@ int main(int, char **) {
     restore_clocks();
     vita2d_fini();
     SDL_Quit();
-    log.literal("GPU18: clean exit\n");
+    log.literal("GPU20: clean exit\n");
     return 0;
 }

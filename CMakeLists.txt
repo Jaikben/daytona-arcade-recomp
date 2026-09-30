@@ -236,6 +236,14 @@ target_include_directories(test_vita_gpu_lifetime PRIVATE tests/vita_gpu_shim sr
 target_compile_definitions(test_vita_gpu_lifetime PRIVATE M2_VITA_RENDER_OPT=1)
 add_test(NAME vita_gpu_lifetime COMMAND test_vita_gpu_lifetime)
 
+add_executable(test_vita_tessellation tests/test_vita_tessellation.cpp)
+target_include_directories(test_vita_tessellation PRIVATE tests/vita_gpu_shim platform/vita)
+add_test(NAME vita_tessellation COMMAND test_vita_tessellation)
+
+add_executable(test_vita_polygon_order tests/test_vita_polygon_order.cpp)
+target_include_directories(test_vita_polygon_order PRIVATE platform/vita src)
+add_test(NAME vita_polygon_order COMMAND test_vita_polygon_order)
+
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
@@ -254,6 +262,11 @@ add_executable(test_vita_sound_worker tests/test_vita_sound_worker.cpp)
 target_include_directories(test_vita_sound_worker PRIVATE tests/vita_audio_shim)
 target_link_libraries(test_vita_sound_worker PRIVATE Threads::Threads)
 add_test(NAME vita_sound_worker COMMAND test_vita_sound_worker)
+
+add_executable(test_vita_audio_worker tests/test_vita_audio_worker.cpp)
+target_include_directories(test_vita_audio_worker PRIVATE tests/vita_audio_shim)
+target_link_libraries(test_vita_audio_worker PRIVATE Threads::Threads)
+add_test(NAME vita_audio_worker COMMAND test_vita_audio_worker)
 
 # Measurement, not a test: where MAME's double FP disagrees with the model.
 add_executable(fp_vs_mame tests/fp_vs_mame.cpp)

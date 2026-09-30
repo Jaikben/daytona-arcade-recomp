@@ -2,6 +2,7 @@
 
 #include "runtime/video.h"
 #include "gpu_memory.h"
+#include "polygon_order.h"
 #include <vita2d.h>
 #include <array>
 #include <cstdint>
@@ -17,7 +18,7 @@ public:
     GpuFastRenderer(const GpuFastRenderer &) = delete;
     GpuFastRenderer &operator=(const GpuFastRenderer &) = delete;
 
-    bool ok() const { return background_ && foreground_ && system24_ok_ && source_memory_.ok() && palette_memory_.ok(); }
+    bool ok() const { return background_ && foreground_ && checker_texture_ && system24_ok_ && source_memory_.ok() && palette_memory_.ok(); }
     void reset_materials();
     // Call after CPU simulation and before vita2d_start_drawing (also for menus).
     void prepare_frame();
@@ -25,6 +26,10 @@ public:
     void draw(rt::Video &video);
     void draw_exact(rt::Video &video);
     double last_gpu_ms() const { return last_gpu_ms_; }
+    uint64_t last_sort_us() const { return last_sort_us_; }
+    uint64_t last_polygon_us() const { return last_polygon_us_; }
+    uint64_t last_tile_us() const { return last_tile_us_; }
+    uint64_t last_upload_us() const { return last_upload_us_; }
     std::size_t cached_bytes() const { return cached_bytes_; }
     std::size_t cached_materials() const { return materials_.size(); }
     std::size_t cached_sources() const { return sources_.size(); }
@@ -43,6 +48,8 @@ public:
     unsigned solid_draws() const { return solid_draws_; }
     unsigned textured_polys() const { return textured_polys_; }
     unsigned solid_polys() const { return solid_polys_; }
+    unsigned checker_polys() const { return checker_polys_; }
+    unsigned textured_checker_polys() const { return textured_checker_polys_; }
     unsigned shader_setups() const { return shader_setups_; }
     unsigned state_reuses() const { return state_reuses_; }
     unsigned draw_errors() const { return draw_errors_; }
@@ -88,6 +95,7 @@ private:
         MaterialKey key;
         Source *source = nullptr;
         uint32_t *palette = nullptr;
+        vita2d_texture view{}; // Immutable, non-owning source plus palette binding.
         std::size_t bytes = 0;
         uint64_t stamp = 0;
     };
@@ -98,20 +106,23 @@ private:
     GpuMemoryArena palette_memory_{4u * 1024u * 1024u, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE};
     vita2d_texture *background_ = nullptr;
     vita2d_texture *foreground_ = nullptr;
+    vita2d_texture *checker_texture_ = nullptr;
     std::array<vita2d_texture *, 8> system24_textures_{};
     unsigned system24_uploaded_tiles_ = 0;
     std::unordered_map<SourceKey, Source, SourceKeyHash> sources_;
     std::unordered_map<MaterialKey, Material, MaterialKeyHash> materials_;
     unsigned cache_resets_ = 0;
     bool cache_reset_pending_ = false;
-    std::vector<std::size_t> order_;
+    PolygonOrder order_;
     std::size_t cached_bytes_ = 0;
     uint64_t stamp_ = 0;
     double last_gpu_ms_ = 0.0;
+    uint64_t last_sort_us_ = 0, last_polygon_us_ = 0, last_tile_us_ = 0, last_upload_us_ = 0;
     unsigned pool_drops_ = 0, material_drops_ = 0, material_builds_ = 0,
              material_defers_ = 0, subdivided_polys_ = 0, min_pool_free_ = 0, system24_quads_ = 0,
              textured_draws_ = 0, solid_draws_ = 0, clip_changes_ = 0;
     unsigned textured_polys_ = 0, solid_polys_ = 0;
+    unsigned checker_polys_ = 0, textured_checker_polys_ = 0;
     unsigned shader_setups_ = 0, state_reuses_ = 0, draw_errors_ = 0;
     std::size_t submitted_vertices_ = 0;
     bool shutdown_ = false, system24_ok_ = true;

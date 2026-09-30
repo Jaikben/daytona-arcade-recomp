@@ -1,4 +1,47 @@
-# Vita performance diagnostic patch
+# Vita performance diagnostics
+
+## Native GXM builds (GPU20 / 01.18)
+
+The sections below this one describe the original software-rendered diagnostic
+patch, not the current `main_gpu.cpp` path. Current builds write
+`ux0:data/daytona93/vita-diag.log`; copy it before relaunching.
+
+- `geo_ms` measures complete geometrizer execution, including lighting. It is
+  not a deadline that abandons later lighting work. Lighting is stored in each
+  polygon before that polygon is published.
+- `run_ms` measures main-thread board work. `sound_ms` and
+  `audio_worker_queue_ms` are worker durations overlapping rendering; do not
+  add them to main time. `sound_wait_ms` is the residual main-thread join.
+- `poly_ms` includes `sort_ms`. `tiles_ms` and `upload_ms` measure the other
+  native GXM preparation stages. These are CPU submission times, not GPU
+  execution timestamps. `gpu_wait_ms` measures the pool-reuse fence.
+- `menu`, `frames`, `presents`, and `window_ms` expose paused or repeated-frame
+  windows. `log_prev_ms` measures the previous synchronous log write, which is
+  included in the next FPS window but not in the rendering stage counters.
+
+The banked-corner sampler audit (attract frames 1000-1120) found coordinates
+outside the nominal texture dimensions on 48,582 polygons. The CPU masks those
+coordinates even when the texture wrap flag is clear; that flag changes
+bilinear neighbors at the seam, not the overall repetition. GPU19 selected
+CLAMP in that case. Of 85,113 visible centroid samples, 4,037 became near-black
+under CLAMP but bright under the CPU's repeating coordinates. GPU20 retains
+MIRROR where requested and uses REPEAT otherwise. Exact seam interpolation and
+mip/microtexture behavior remain separate GPU approximations.
+
+GPU20's integer-key ordering preserves the CPU reference's window/depth/tie
+order; the painter path still traverses that order in reverse. A 6,000-frame
+host race compared 6,564,621 indices with no differences. Host timings do not
+prove Vita speed or pixel output.
+
+The rendering audit also found solid checker polygons filled as opaque quads
+in GPU19. In the same host race, 27,614 such polygons were fully black, including
+9,880 with bounding boxes over 5,000 native-screen pixels. Alternating-pixel
+coverage must be retained, not replaced with an opaque shadow. Other GPU
+approximations (including textured checker patterns, mip/microtexture sampling
+and quantized lighting) remain separate fidelity limits; a black-road photo
+alone does not distinguish them.
+
+## Original software-rendered diagnostic patch
 
 This patch is based on branch `psvita-native-frontend` at `d39e47a`, with
 the separate 192 MiB startup correction already applied. It has not been

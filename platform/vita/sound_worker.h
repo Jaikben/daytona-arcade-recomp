@@ -11,7 +11,8 @@
 namespace vita {
 
 // A single in-flight sound frame. Main owns all submission/completion calls;
-// the worker owns only execute_deferred_sound until finish joins that work.
+// the worker owns execute_deferred_sound and optional audio conversion until
+// finish joins both stages. Main must not change or close that audio meanwhile.
 // Keep this object alive until after finish, and finish before destroying the
 // submitted game. The SDL playback callback still consumes converted samples.
 class SoundWorker {
@@ -40,12 +41,24 @@ public:
     int affinity_before() const { return affinity_before_; }
     int affinity_mask() const { return affinity_mask_; }
     int affinity_result() const { return affinity_result_; }
+    uint64_t last_audio_ticks() const { return last_audio_ticks_; }
 
     template<class Game>
     void dispatch(Game &game) {
         dispatch(&game,
             [](void *p) { return static_cast<Game *>(p)->execute_deferred_sound(); },
             [](void *p, uint64_t ticks) { static_cast<Game *>(p)->complete_deferred_sound(ticks); });
+    }
+
+    template<class Game, class Output>
+    void dispatch(Game &game, Output &audio, uint64_t (*clock)()) {
+        dispatch(&game,
+            [](void *p) { return static_cast<Game *>(p)->execute_deferred_sound(); },
+            [](void *p, uint64_t ticks) { static_cast<Game *>(p)->complete_deferred_sound(ticks); },
+            &audio, [](void *p, void *output) {
+                if (auto *sound = static_cast<Game *>(p)->sound())
+                    static_cast<Output *>(output)->push(*sound);
+            }, clock);
     }
 
     // Completes profiling on the owner thread and rethrows worker failures
@@ -58,6 +71,7 @@ public:
         void *context = context_;
         Complete complete = complete_;
         const uint64_t ticks = ticks_;
+        last_audio_ticks_ = queue_ticks_;
         std::exception_ptr error = error_;
         context_ = nullptr;
         error_ = nullptr;
@@ -89,31 +103,55 @@ public:
 private:
     using Execute = uint64_t (*)(void *);
     using Complete = void (*)(void *, uint64_t);
+    using Queue = void (*)(void *, void *);
+    using Clock = uint64_t (*)();
+    struct Result { uint64_t sound = 0, audio = 0; std::exception_ptr error; };
     SDL_Thread *thread_ = nullptr;
     SDL_mutex *mutex_ = nullptr;
     SDL_cond *ready_ = nullptr, *completed_ = nullptr;
     void *context_ = nullptr;
     Execute execute_ = nullptr;
     Complete complete_ = nullptr;
+    void *queue_context_ = nullptr;
+    Queue queue_ = nullptr;
+    Clock queue_clock_ = nullptr;
+    uint64_t queue_ticks_ = 0, last_audio_ticks_ = 0;
     uint64_t ticks_ = 0;
     std::exception_ptr error_;
     bool queued_ = false, busy_ = false, done_ = false, stopping_ = false, initialized_ = false;
     int affinity_before_ = 0, affinity_mask_ = 0, affinity_result_ = 0;
 
-    void dispatch(void *context, Execute execute, Complete complete) {
+    static Result run(void *context, Execute execute, void *output, Queue queue, Clock clock) {
+        Result result;
+        try {
+            result.sound = execute(context);
+            if (queue) {
+                const uint64_t begin = clock ? clock() : 0;
+                queue(context, output);
+                const uint64_t end = clock ? clock() : 0;
+                result.audio = end >= begin ? end - begin : 0;
+            }
+        } catch (...) { result.error = std::current_exception(); }
+        return result;
+    }
+
+    void dispatch(void *context, Execute execute, Complete complete,
+                  void *output = nullptr, Queue queue = nullptr, Clock clock = nullptr) {
         finish(); // also makes accidental re-submission safe
         if (!thread_) {
-            uint64_t ticks = 0;
-            std::exception_ptr error;
-            try { ticks = execute(context); } catch (...) { error = std::current_exception(); }
-            complete(context, ticks);
-            if (error) std::rethrow_exception(error);
+            const Result result = run(context, execute, output, queue, clock);
+            last_audio_ticks_ = result.audio;
+            complete(context, result.sound);
+            if (result.error) std::rethrow_exception(result.error);
             return;
         }
         SDL_LockMutex(mutex_);
         context_ = context;
         execute_ = execute;
         complete_ = complete;
+        queue_context_ = output;
+        queue_ = queue;
+        queue_clock_ = clock;
         done_ = false;
         queued_ = busy_ = true;
         SDL_CondSignal(ready_);
@@ -140,14 +178,16 @@ private:
             if (self.stopping_) break;
             void *context = self.context_;
             Execute execute = self.execute_;
+            void *output = self.queue_context_;
+            Queue queue = self.queue_;
+            Clock clock = self.queue_clock_;
             self.queued_ = false;
             SDL_UnlockMutex(self.mutex_);
-            uint64_t ticks = 0;
-            std::exception_ptr error;
-            try { ticks = execute(context); } catch (...) { error = std::current_exception(); }
+            const Result result = run(context, execute, output, queue, clock);
             SDL_LockMutex(self.mutex_);
-            self.ticks_ = ticks;
-            self.error_ = error;
+            self.ticks_ = result.sound;
+            self.queue_ticks_ = result.audio;
+            self.error_ = result.error;
             self.done_ = true;
             SDL_CondSignal(self.completed_);
         }

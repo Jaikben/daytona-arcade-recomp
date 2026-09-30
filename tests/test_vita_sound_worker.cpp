@@ -10,51 +10,7 @@
 #include <thread>
 #include <vector>
 
-struct SDL_mutex { std::mutex value; };
-struct SDL_cond { std::condition_variable value; };
-struct SDL_Thread { std::thread value; int result = 0; };
-
-namespace mock {
-int live_mutex = 0, live_cond = 0, live_thread = 0;
-int allocation = 0, fail_at = 0;
-bool fail() { return ++allocation == fail_at; }
-void require(bool condition, const char *message) {
-    if (!condition) throw std::runtime_error(message);
-}
-void reset(int fail_at = 0) {
-    require(!live_mutex && !live_cond && !live_thread, "all worker resources released");
-    allocation = 0; mock::fail_at = fail_at;
-}
-}
-SDL_mutex *SDL_CreateMutex() {
-    if (mock::fail()) return nullptr;
-    ++mock::live_mutex; return new SDL_mutex;
-}
-void SDL_DestroyMutex(SDL_mutex *p) { --mock::live_mutex; delete p; }
-int SDL_LockMutex(SDL_mutex *p) { p->value.lock(); return 0; }
-int SDL_UnlockMutex(SDL_mutex *p) { p->value.unlock(); return 0; }
-SDL_cond *SDL_CreateCond() {
-    if (mock::fail()) return nullptr;
-    ++mock::live_cond; return new SDL_cond;
-}
-void SDL_DestroyCond(SDL_cond *p) { --mock::live_cond; delete p; }
-int SDL_CondWait(SDL_cond *c, SDL_mutex *m) {
-    std::unique_lock<std::mutex> lock(m->value, std::adopt_lock);
-    c->value.wait(lock); lock.release(); return 0;
-}
-int SDL_CondSignal(SDL_cond *p) { p->value.notify_one(); return 0; }
-SDL_Thread *SDL_CreateThreadWithStackSize(int (*fn)(void *), const char *, size_t stack, void *p) {
-    mock::require(stack == 512u * 1024u, "native sound worker has explicit 512 KiB stack");
-    if (mock::fail()) return nullptr;
-    auto *thread = new SDL_Thread;
-    thread->value = std::thread([=] { thread->result = fn(p); });
-    ++mock::live_thread; return thread;
-}
-void SDL_WaitThread(SDL_Thread *thread, int *result) {
-    thread->value.join();
-    if (result) *result = thread->result;
-    --mock::live_thread; delete thread;
-}
+#include "vita_audio_thread_mock.inc"
 
 struct Job {
     const std::thread::id owner = std::this_thread::get_id();
@@ -81,6 +37,7 @@ struct Job {
         }
         return 17;
     }
+    Job *sound() { return this; }
     void complete_deferred_sound(uint64_t ticks) {
         mock::require(std::this_thread::get_id() == owner, "completion on owner thread");
         mock::require(ticks == (fail ? 0u : 17u), "sound timing passed to owner");
@@ -97,6 +54,19 @@ struct Job {
         released = true; changed.notify_all();
     }
 };
+
+struct QueueOutput {
+    int calls = 0;
+    bool fail = false;
+    void push(Job &job) {
+        mock::require((std::this_thread::get_id() != job.owner) == job.expect_worker, "queue executes on sound worker");
+        mock::require(job.executed == job.completed + 1, "queue follows sound before owner completion");
+        ++calls;
+        if (fail) throw std::runtime_error("queue failure");
+    }
+};
+std::atomic<uint64_t> queue_ticks{0};
+uint64_t queue_clock() { return queue_ticks.fetch_add(11); }
 
 int main() {
     try {
@@ -133,6 +103,20 @@ int main() {
             Job recovered;
             worker.dispatch(recovered); worker.finish();
             mock::require(recovered.completed == 1, "worker remains usable after exception");
+
+            Job queued; QueueOutput output;
+            worker.dispatch(queued, output, queue_clock); worker.finish();
+            mock::require(output.calls == 1 && queued.completed == 1 && worker.last_audio_ticks() == 11,
+                          "sound and queue complete once with separate timings");
+            output.fail = true;
+            worker.dispatch(queued, output, queue_clock); caught = false;
+            try { worker.finish(); } catch (const std::runtime_error &) { caught = true; }
+            mock::require(caught && queued.completed == 2, "queue errors reach owner after sound profile completion");
+            Job sound_failure; sound_failure.fail = true;
+            output.fail = false; const int queued_before = output.calls;
+            worker.dispatch(sound_failure, output, queue_clock); caught = false;
+            try { worker.finish(); } catch (const std::runtime_error &) { caught = true; }
+            mock::require(caught && output.calls == queued_before, "failed sound never queues incomplete samples");
         }
         mock::reset();
 

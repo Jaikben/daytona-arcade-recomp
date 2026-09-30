@@ -3,6 +3,7 @@ struct SceGxmContext {
     int shader = 0;
     SceGxmTexture texture{};
     const void *vertices = nullptr;
+    uint32_t tint = 0;
 };
 namespace mock {
 SceGxmContext context;
@@ -23,6 +24,7 @@ void vita2d_draw_array_textured(const vita2d_texture *t, int primitive,
                               const vita2d_texture_vertex *v, unsigned count, uint32_t color) {
     mock::context.shader = 1;
     mock::context.texture = t->gxm_tex;
+    mock::context.tint = color;
     mock::context.vertices = v;
     ++mock::full_setups;
     // libvita2d allocates temporary tint floats for each full setup.
@@ -54,7 +56,7 @@ int sceGxmDraw(SceGxmContext *c, int primitive, int index_format, const void *in
     ++mock::direct_draws;
     if (c->shader == 1) {
         vita2d_texture view{c->texture};
-        mock_draw_array_textured(&view, primitive, static_cast<const vita2d_texture_vertex *>(c->vertices), count, 0xffffffffu);
+        mock_draw_array_textured(&view, primitive, static_cast<const vita2d_texture_vertex *>(c->vertices), count, c->tint);
     } else mock_draw_array(primitive, static_cast<const vita2d_color_vertex *>(c->vertices), count);
     return 0;
 }

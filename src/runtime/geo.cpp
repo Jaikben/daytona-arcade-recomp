@@ -142,6 +142,14 @@ inline uint16_t Geo::float_to_zval(float floatval, int32_t z_adjust)
 		return 0xffff; // above 14 is too large
 }
 
+static inline bool polygon_inside_plane(const GeoVertex *v, int32_t count, const Geo::plane &clip_plane)
+{
+    for (int32_t i = 0; i < count; ++i)
+        if (!(dot_product(v[i], clip_plane.normal) >= clip_plane.distance))
+            return false;
+    return true;
+}
+
 static int32_t clip_polygon(GeoVertex *v, int32_t num_vertices, GeoVertex *vout, Geo::plane clip_plane)
 {
 	if (num_vertices <= 0)
@@ -356,7 +364,12 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		/* do clipping */
 		for (int i = 0; i < 4 && clipped_verts; i++)
 		{
-			clipped_verts = clip_polygon(verts_in, clipped_verts, verts_out, raster->clip_plane[raster->center_sel][i]);
+			const auto &clip_plane = raster->clip_plane[raster->center_sel][i];
+			// Most polygons are wholly inside a plane. Preserve the same dot
+			// comparisons while avoiding the edge walk and vertex copies.
+			if (polygon_inside_plane(verts_in, clipped_verts, clip_plane))
+				continue;
+			clipped_verts = clip_polygon(verts_in, clipped_verts, verts_out, clip_plane);
 			std::swap(verts_in, verts_out);
 		}
 

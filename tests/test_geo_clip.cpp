@@ -44,6 +44,7 @@ int main() {
     std::mt19937 random(0x24c11f);
     const auto value = [&] { return float(int(random() % 200001) - 100000) / 100.0f; };
     constexpr unsigned cases = 100000;
+    unsigned accepted_without_clipping = 0;
     for (unsigned trial = 0; trial < cases; ++trial) {
         rt::GeoVertex input[8], expected[16], actual[16];
         const int count = 1 + random() % 8;
@@ -59,6 +60,12 @@ int main() {
         plane.normal.x = value(); plane.normal.y = value(); plane.normal.p[0] = value();
         plane.distance = trial % 7 == 0 ? rt::dot_product(input[0], plane.normal) : value();
         const int want = reference_clip(input, count, expected, plane);
+        if (rt::polygon_inside_plane(input, count, plane)) {
+            if (want != count) return 1;
+            for (int i = 0; i < count; ++i)
+                if (!same(input[i], expected[i])) return 1;
+            ++accepted_without_clipping;
+        }
         const int got = rt::clip_polygon(input, count, actual, plane);
         if (got != want) {
             std::fprintf(stderr, "clip count differs at case %u: %d / %d\n", trial, got, want);
@@ -70,5 +77,7 @@ int main() {
                 return 1;
             }
     }
-    std::printf("geometry clipping: %u bit-identical cases and empty-input check passed\n", cases);
+    if (!accepted_without_clipping) return 1;
+    std::printf("geometry clipping: %u bit-identical cases, %u exact bypasses and empty-input check passed\n",
+                cases, accepted_without_clipping);
 }

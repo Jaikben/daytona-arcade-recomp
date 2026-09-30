@@ -114,7 +114,7 @@ else()
             SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub ScePgf_stub ScePvf_stub
             SceCommonDialog_stub SceAppMgr_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub
             freetype png jpeg z pthread m)
-        set(VITA_APP_NAME "Daytona Recomp GPU18")
+        set(VITA_APP_NAME "Daytona Recomp GPU20")
     else()
         add_executable(daytona_vita main.cpp ${GEN_SOURCES})
         target_link_libraries(daytona_vita PRIVATE vita_runtime ${VITA_SDL_TARGET} SceCtrl_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub pthread m)
@@ -124,7 +124,7 @@ else()
     set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     vita_create_self(eboot.bin daytona_vita UNSAFE)
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
-        VERSION "01.16" NAME "${VITA_APP_NAME}"
+        VERSION "01.18" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
         FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md")
 endif()

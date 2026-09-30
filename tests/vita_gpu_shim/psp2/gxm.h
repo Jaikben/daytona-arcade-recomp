@@ -15,6 +15,7 @@ struct SceGxmTexture {
     uint32_t *palette = nullptr;
     uint32_t width = 0, height = 0, stride = 0;
     SceGxmTextureFormat format = 0;
+    int u_mode = 0, v_mode = 0, min_filter = 0, mag_filter = 0;
 };
 int sceGxmMapMemory(void *, SceSize, int);
 int sceGxmUnmapMemory(void *);

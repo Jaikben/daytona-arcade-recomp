@@ -22,7 +22,7 @@
 
 namespace mock {
 void require(bool condition, const char *message) {
-    if (!condition) throw std::runtime_error(message);
+    if (!condition) { std::fprintf(stderr, "Contract failure: %s\n", message); throw std::runtime_error(message); }
 }
 struct Block { void *base; size_t bytes; size_t alignment; bool mapped; };
 struct Reader { const uint8_t *base; std::vector<uint8_t> original; };
@@ -37,6 +37,7 @@ bool scene = false;
 void reset_graphics_state();
 std::vector<float> ordered_x;
 std::vector<const void *> ordered_palettes;
+#include "vita_gpu_capture.inc"
 
 bool live(const void *pointer, size_t bytes) {
     const auto p = reinterpret_cast<uintptr_t>(pointer);
@@ -59,6 +60,7 @@ void start_scene() {
     pool_used = 0;
     reset_graphics_state();
     ordered_x.clear(); ordered_palettes.clear();
+    captured_draws.clear(); clip_rectangle = {0, 0, 960, 544};
     scene = true;
 }
 void end_scene() { require(scene, "no scene to end"); scene = false; }
@@ -124,8 +126,8 @@ int sceGxmTextureInitLinear(SceGxmTexture *texture, void *base, SceGxmTextureFor
     *texture = {base, nullptr, width, height, stride, format};
     return 0;
 }
-int sceGxmTextureSetUAddrMode(SceGxmTexture *, int) { return 0; }
-int sceGxmTextureSetVAddrMode(SceGxmTexture *, int) { return 0; }
+int sceGxmTextureSetUAddrMode(SceGxmTexture *t, int mode) { t->u_mode = mode; return 0; }
+int sceGxmTextureSetVAddrMode(SceGxmTexture *t, int mode) { t->v_mode = mode; return 0; }
 int sceGxmTextureSetPalette(SceGxmTexture *texture, void *palette) {
     mock::require((reinterpret_cast<uintptr_t>(palette) & 63u) == 0, "palette alignment");
     mock::require(mock::live(palette, 1024), "palette outside mapping");
@@ -143,7 +145,7 @@ void vita2d_wait_rendering_done() {
     mock::readers.clear();
     ++mock::waits;
 }
-void vita2d_texture_set_filters(vita2d_texture *, int, int) {}
+void vita2d_texture_set_filters(vita2d_texture *t, int min, int mag) { t->gxm_tex.min_filter = min; t->gxm_tex.mag_filter = mag; }
 void *vita2d_texture_get_datap(const vita2d_texture *t) { return t->gxm_tex.data; }
 unsigned vita2d_texture_get_stride(const vita2d_texture *t) { return t->gxm_tex.stride; }
 unsigned vita2d_pool_free_space() { return unsigned(mock::pool.size() - mock::pool_used); }
@@ -158,9 +160,11 @@ void *vita2d_pool_memalign(unsigned bytes, unsigned alignment) {
 }
 void vita2d_draw_rectangle(float, float, float, float, uint32_t) {}
 void mock_draw_array_textured(const vita2d_texture *texture, int,
-                                const vita2d_texture_vertex *vertices, unsigned count, uint32_t) {
+                                const vita2d_texture_vertex *vertices, unsigned count, uint32_t tint) {
     mock::require(count <= 65532 && count % 3 == 0, "draw exceeds the 16-bit libvita2d triangle index table");
     mock::textured_vertices += count;
+    if (mock::capture_draws) mock::captured_draws.push_back({true, texture->gxm_tex,
+        {vertices, vertices + count}, {}, tint, mock::clip_rectangle});
     for (unsigned i = 0; i < count; ++i) {
         mock::ordered_x.push_back(vertices[i].x);
         mock::ordered_palettes.push_back(texture->gxm_tex.palette);
@@ -175,6 +179,8 @@ void mock_draw_array_textured(const vita2d_texture *texture, int,
     ++mock::draws;
 }
 void mock_draw_array(int, const vita2d_color_vertex *vertices, unsigned count) {
+    if (mock::capture_draws) mock::captured_draws.push_back({false, {}, {},
+        {vertices, vertices + count}, 0, mock::clip_rectangle});
     for (unsigned i = 0; i < count; ++i) {
         mock::ordered_x.push_back(vertices[i].x);
         mock::ordered_palettes.push_back(nullptr);
@@ -190,7 +196,9 @@ void vita2d_draw_texture_scale(const vita2d_texture *t, float, float, float, flo
 }
 void vita2d_enable_clipping() {}
 void vita2d_disable_clipping() {}
-void vita2d_set_clip_rectangle(int, int, int, int) { mock::reset_graphics_state(); }
+void vita2d_set_clip_rectangle(int l, int t, int r, int b) {
+    mock::reset_graphics_state(); mock::clip_rectangle = {l, t, r, b};
+}
 vita2d_texture *vita2d_create_empty_texture_format(unsigned, unsigned, SceGxmTextureFormat) {
     throw std::runtime_error("legacy libvita2d texture allocator called");
 }
@@ -333,6 +341,8 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
 }
 #include "vita_gpu_batch_limit.inc"
 #include "vita_gpu_batch_state.inc"
+#include "vita_gpu_checker.inc"
+#include "vita_gpu_addressing.inc"
 } // namespace
 
 int main() {
@@ -343,6 +353,9 @@ int main() {
         test_vertices(renderer, images);
         test_system24_batch_limit(renderer, images);
         test_polygon_batch_state(renderer, images);
+        test_checker_pixels(renderer);
+        test_checker_state(renderer);
+        test_source_addressing(renderer);
         renderer.shutdown();
         renderer.shutdown();
         mock::require(mock::blocks.empty() && mock::maps == mock::unmaps && mock::allocations == mock::frees,

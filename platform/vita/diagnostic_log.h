@@ -24,7 +24,7 @@ public:
     __attribute__((format(printf, 2, 3)))
 #endif
     bool log(const char *format, ...) {
-        char buffer[1024];
+        char buffer[1536];
         va_list args;
         va_start(args, format);
         const int n = std::vsnprintf(buffer, sizeof(buffer), format, args);
