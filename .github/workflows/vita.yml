@@ -1,9 +1,9 @@
 name: Vita compile check
 on:
   push:
-    paths: ['platform/vita/**', 'src/**', 'cmake/**', 'scripts/setup.py', 'scripts/build_vita.py', 'tests/test_vita_controls.cpp', 'tests/test_build_vita.py', '.github/workflows/vita.yml']
+    paths: ['platform/vita/**', 'src/**', 'cmake/**', 'scripts/setup.py', 'scripts/build_vita.py', 'tests/test_vita_*.cpp', 'tests/vita_sdl_shim/**', 'tests/test_build_vita.py', '.github/workflows/vita.yml']
   pull_request:
-    paths: ['platform/vita/**', 'src/**', 'cmake/**', 'scripts/setup.py', 'scripts/build_vita.py', 'tests/test_vita_controls.cpp', 'tests/test_build_vita.py', '.github/workflows/vita.yml']
+    paths: ['platform/vita/**', 'src/**', 'cmake/**', 'scripts/setup.py', 'scripts/build_vita.py', 'tests/test_vita_*.cpp', 'tests/vita_sdl_shim/**', 'tests/test_build_vita.py', '.github/workflows/vita.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,6 +19,10 @@ jobs:
           mkdir -p build
           g++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined tests/test_vita_controls.cpp -o build/test_vita_controls
           build/test_vita_controls
+          g++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/test_vita_performance.cpp -o build/test_vita_performance
+          build/test_vita_performance
+          g++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -Itests/vita_sdl_shim tests/test_vita_text.cpp -o build/test_vita_text
+          build/test_vita_text
           python3 -m unittest discover -s tests -p test_build_vita.py -v
   arm-compile:
     runs-on: ubuntu-24.04

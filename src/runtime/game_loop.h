@@ -6,6 +6,7 @@
 // window that is the display's vsync, so the frame rate is the only limit.
 #pragma once
 
+#include "runtime/frame_profile.h"
 #include "runtime/gen_support.h"
 #include "runtime/lockstep.h"
 #include "runtime/m2_board.h"
@@ -29,6 +30,10 @@ public:
     // board at the start of this frame's vblank.
     void run_frame(const Inputs &inputs);
 
+    // Opt-in profiling in caller-defined host ticks; no SDL dependency here.
+    void set_profile_clock(FrameProfiler::Clock clock) { profiler_.set_clock(clock); }
+    const FrameProfile &last_profile() const { return profiler_.frame; }
+
     const std::vector<uint32_t> &screen() const { return board_->video().screen(); } // 496x384, 0xAARRGGBB
     static constexpr int kWidth = Video::W, kHeight = Video::H;
     M2Board &board() { return *board_; }
@@ -40,6 +45,7 @@ public:
 
 private:
     void probe();
+    FrameProfiler profiler_;
     std::unique_ptr<M2Board> board_;
     std::unique_ptr<Cpu> cpu_;
     std::unique_ptr<Lockstep> ls_;

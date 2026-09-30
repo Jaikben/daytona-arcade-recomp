@@ -69,16 +69,23 @@ private:
 // Host time only; each simulation step still advances at GameLoop::kFrameHz.
 class FrameClock {
 public:
-    explicit FrameClock(double hz) : step_(1.0 / hz) {}
+    explicit FrameClock(double hz, int max_steps = 4)
+        : step_(1.0 / hz), max_steps_(std::clamp(max_steps, 1, 4)) {}
     int advance(double seconds) {
         if (!std::isfinite(seconds) || seconds < 0) { reset(); return 0; }
         pending_ = std::min(pending_ + seconds, step_ * 4);
         int count = 0;
-        while (pending_ >= step_ && count < 4) { pending_ -= step_; ++count; }
+        while (pending_ >= step_ && count < max_steps_) { pending_ -= step_; ++count; }
+        // Under load, present each completed frame instead of computing up to
+        // four complete rasters and displaying only the last. Discard overdue
+        // host-time debt, not guest instructions; preserve fractional time so
+        // 57.524 Hz on a 60 Hz display does not accidentally become 30 Hz.
+        if (pending_ >= step_) pending_ = std::fmod(pending_, step_);
         return count;
     }
     void reset() { pending_ = 0; }
 private:
     double step_, pending_ = 0;
+    int max_steps_;
 };
 } // namespace vita

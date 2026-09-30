@@ -1,6 +1,7 @@
 // Small project-owned menu font. No font files or third-party UI dependency.
 #pragma once
 #include <SDL.h>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <string_view>
@@ -34,6 +35,15 @@ inline void text(SDL_Renderer *renderer, std::string_view value, int x, int y, i
         {'!',{4,4,4,4,4,0,4}}, {'=',{0,0,31,0,31,0,0}},
         {',',{0,0,0,0,6,4,8}}, {'\'',{4,4,0,0,0,0,0}}
     };
+    if (scale <= 0 || columns <= 0 || lines <= 0) return;
+    // Same pixels and draw color, but bounded batches instead of one SDL call
+    // per lit font pixel. No font texture allocation or external font asset.
+    std::array<SDL_Rect, 256> pixels;
+    int used = 0;
+    auto flush = [&] {
+        if (used) SDL_RenderFillRects(renderer, pixels.data(), used);
+        used = 0;
+    };
     int column = 0, line = 0;
     for (unsigned char raw : value) {
         if (raw == '\n' || column >= columns) {
@@ -45,12 +55,13 @@ inline void text(SDL_Renderer *renderer, std::string_view value, int x, int y, i
         for (const auto &glyph : font) if (glyph.character == c) {
             for (int row = 0; row < 7; ++row) for (int bit = 0; bit < 5; ++bit)
                 if (glyph.rows[row] & (16 >> bit)) {
-                    SDL_Rect pixel{x + (column * 6 + bit) * scale, y + (line * 9 + row) * scale, scale, scale};
-                    SDL_RenderFillRect(renderer, &pixel);
+                    pixels[used++] = SDL_Rect{x + (column * 6 + bit) * scale, y + (line * 9 + row) * scale, scale, scale};
+                    if (used == int(pixels.size())) flush();
                 }
             break;
         }
         ++column;
     }
+    flush();
 }
 } // namespace vita

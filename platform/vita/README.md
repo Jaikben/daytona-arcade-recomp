@@ -103,9 +103,16 @@ presses do not leak into the game.
 
 The frontend retains the desktop's square-pixel framebuffer aspect ratio,
 with side bars on the Vita display. Simulation steps use
-`rt::GameLoop::kFrameHz`, not a hard-coded 60 Hz. Missed host time is capped
-to four pending steps, as on the desktop; slow hardware is not a promise of
-full speed and the game logic is never sped up to compensate.
+`rt::GameLoop::kFrameHz`, not a hard-coded 60 Hz. The Vita frontend now runs
+at most one complete simulation frame before presenting it. Fractional host
+time is retained at normal speed; overdue whole steps are discarded under
+load rather than rendering four complete frames and displaying only the last.
+This slows wall-clock progress when the device cannot keep up; it does not
+skip guest instructions, increase the guest timestep, or make the simulation
+itself four times faster. The generic FrameClock default remains four steps.
+
+See [PERFORMANCE.md](PERFORMANCE.md) for the stage timings now written to
+`vita.log`. This is a diagnostic build, not a confirmed full-speed fix.
 
 ## Sound and saved data
 

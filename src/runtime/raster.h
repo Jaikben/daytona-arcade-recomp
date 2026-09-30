@@ -17,6 +17,8 @@
 #include "runtime/geo.h"
 
 #include <cstdint>
+#include <cstddef>
+#include <array>
 #include <vector>
 
 namespace rt {
@@ -57,11 +59,24 @@ private:
     std::vector<uint8_t> fill_;
     uint8_t gamma_[256];
     const VideoMem *mem_ = nullptr;
+#ifdef M2_VITA_RENDER_OPT
+    struct ShadeEntry {
+        uint32_t key = 0xffffffffu;
+        std::array<uint32_t, 128> colors{};
+    };
+    // Cleared logically every render: palette/luma/translation RAM may change
+    // between frames. A pointer is used only while its polygon is being drawn.
+    std::array<ShadeEntry, 64> shades_;
+    const uint32_t *shade_table(const Extra &o);
+    std::vector<std::size_t> order_;
+#endif
 
     void render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
                     int clip_miny, int clip_maxy);
     template <bool Translucent> void draw_scanline_solid(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
     template <bool Translucent> void draw_scanline_tex(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
+    template <bool Translucent, bool Cached> void draw_tex_span(int32_t y, int32_t x0, int32_t x1,
+        const float *start, const float *dpdx, const Extra &o);
     void scanline(int renderer, int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o);
     void render_triangle(const int *clip, int renderer, const Extra &o, const GeoVertex &v1, const GeoVertex &v2, const GeoVertex &v3);
     template <int NumVerts> void render_polygon(const int *clip, int renderer, const Extra &o, const GeoVertex *v);

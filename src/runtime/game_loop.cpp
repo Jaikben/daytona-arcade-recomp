@@ -48,7 +48,10 @@ void GameLoop::probe() {
     const bool idle = board_->in_idle_loop();
     if (in_vblank_) {
         if ((idle && ls_->count - vblank_start_ >= kProbe * 2) || ls_->count - vblank_start_ >= kVblankCap) {
-            board_->vblank_end();
+            {
+                auto sample = profiler_.measure(profiler_.frame.video);
+                board_->vblank_end();
+            }
             in_vblank_ = false;
             frame_start_ = ls_->count;
             ++frames_;
@@ -59,7 +62,10 @@ void GameLoop::probe() {
         const uint64_t since = ls_->count - frame_start_;
         if ((idle && since >= kMinFrame) || since >= kFrameCap) {
             board_->io().inputs = inputs_;
-            board_->vblank_start();
+            {
+                auto sample = profiler_.measure(profiler_.frame.geometry);
+                board_->vblank_start();
+            }
             in_vblank_ = true;
             vblank_start_ = ls_->count;
         }
@@ -68,6 +74,8 @@ void GameLoop::probe() {
 }
 
 void GameLoop::run_frame(const Inputs &inputs) {
+    profiler_.reset();
+    auto frame_sample = profiler_.measure(profiler_.frame.total);
     inputs_ = inputs;
     frame_done_ = false;
     ls_->end_count = UINT64_MAX;
@@ -82,6 +90,7 @@ void GameLoop::run_frame(const Inputs &inputs) {
     // The sound board runs alongside: this frame's command bytes go down the
     // serial line, and it advances one frame of board time.
     if (sound_) {
+        auto sound_sample = profiler_.measure(profiler_.frame.sound);
         const std::vector<uint8_t> bytes = board_->take_sound_bytes();
         sound_->send(bytes.data(), bytes.size());
         sound_->advance(1.0 / kFrameHz);

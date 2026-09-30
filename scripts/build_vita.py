@@ -27,6 +27,8 @@ def main(argv=None):
     ap.add_argument("--vitasdk", type=Path, default=os.environ.get("VITASDK"))
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 2, 4))
     ap.add_argument("--compile-check", action="store_true")
+    ap.add_argument("--reference-renderer", action="store_true", help="disable OPT03 renderer changes for comparison")
+    ap.add_argument("--gpu-fast", action="store_true", help="build experimental vita2d/GXM 3D renderer (requires vdpm libvita2d)")
     args = ap.parse_args(argv)
     if args.jobs < 1:
         ap.error("--jobs must be positive")
@@ -52,6 +54,8 @@ def main(argv=None):
     run(["cmake", "-S", ROOT / "platform/vita", "-B", build,
          f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", "-DCMAKE_BUILD_TYPE=Release",
          f"-DDAYTONA_GEN_ROOT={gen}",
+         f"-DDAYTONA_VITA_RENDER_OPT={'OFF' if args.reference_renderer else 'ON'}",
+         f"-DDAYTONA_VITA_GPU_FAST={'ON' if args.gpu_fast else 'OFF'}",
          f"-DDAYTONA_VITA_COMPILE_CHECK={'ON' if args.compile_check else 'OFF'}"], env)
     run(["cmake", "--build", build, "--parallel", args.jobs], env)
     if args.compile_check:
@@ -60,7 +64,8 @@ def main(argv=None):
         package = build / "daytona_vita.vpk"
         if not package.is_file():
             raise RuntimeError(f"build completed without the expected package: {package}")
-        print(f"VPK: {package}\nROM location on Vita: ux0:data/daytona93/daytona93.zip")
+        mode = "GPU FAST" if args.gpu_fast else "CPU EXACT"
+        print(f"VPK: {package}\nRenderer build: {mode}\nROM location on Vita: ux0:data/daytona93/daytona93.zip")
     return 0
 
 

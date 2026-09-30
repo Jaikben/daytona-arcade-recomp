@@ -67,6 +67,16 @@ class BuildVitaTests(unittest.TestCase):
         self.assertTrue(configure.kwargs["env"]["PATH"].startswith(str(self.sdk / "bin") + os.pathsep))
         self.assertIn("No linked game or VPK", self.output.getvalue())
 
+    def test_default_optimization_enabled(self):
+        with patch.object(BUILD.subprocess, "run") as run:
+            self.call("--compile-check")
+        self.assertIn("-DDAYTONA_VITA_RENDER_OPT=ON", run.call_args_list[0].args[0])
+
+    def test_reference_renderer(self):
+        with patch.object(BUILD.subprocess, "run") as run:
+            self.call("--compile-check", "--reference-renderer")
+        self.assertIn("-DDAYTONA_VITA_RENDER_OPT=OFF", run.call_args_list[0].args[0])
+
     def test_success_requires_package(self):
         for name in BUILD.REQUIRED:
             path = self.root / "build/gen" / name
