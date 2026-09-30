@@ -176,15 +176,50 @@ def main():
         return
     configure_and_build(build)
 
+    game = None
     if any(os.path.exists(os.path.join(ROOT, "roms", "daytona93." + e)) for e in ("zip", "7z")):
         say("Recompiling the game to native code (your ROM set, kept in build/)")
-        run([sys.executable, os.path.join("scripts", "recompile.py"), "--build-dir", args.build_dir])
+        r = run([sys.executable, os.path.join("scripts", "recompile.py"), "--build-dir", args.build_dir], check=False)
+        if r.returncode:
+            sys.exit(ROM_REJECTED)
+        game = next((p for p in (os.path.join(build, "daytona" + EXE), os.path.join(build, "Release", "daytona" + EXE))
+                     if os.path.exists(p)), None)
     else:
-        say("No ROM set at roms/daytona93.zip or .7z: tools built, game code not recompiled yet")
+        say("No ROM set: the tools are built, the game is not")
+        print(no_rom_help())
 
     say("Running the tests")
     run(["ctest", "--test-dir", build, "-C", "Release", "--output-on-failure"], check=False)
     say("Done")
+    if game:
+        print("\nThe game is built. Start it with:\n\n    " + os.path.relpath(game, ROOT) + "\n")
+
+
+EXE = ".exe" if WINDOWS else ""
+
+ROM_REJECTED = """
+setup: your ROM set was rejected (the line starting "m2import:" above names
+the first file that is missing or wrong), so the game was not built.
+
+This project needs the daytona93 set: Daytona USA Deluxe '93, as MAME names
+it. Other Daytona sets (daytona, daytonas, daytonat, ...) have different
+program ROMs and cannot be used, whatever the file is called. A daytona93 set
+contains epr-16530a.12, epr-16531a.13, epr-16534a.6 and epr-16535a.7.
+
+Put the right set at roms/daytona93.zip (or .7z) and run setup again.
+See docs/getting-started.md, "Troubleshooting".
+"""
+
+
+def no_rom_help():
+    roms = os.path.join(ROOT, "roms")
+    found = sorted(f for f in os.listdir(roms) if f.lower().endswith((".zip", ".7z"))) if os.path.isdir(roms) else []
+    lines = ["To build the game, put your own daytona93 ROM set (Daytona USA Deluxe '93)",
+             "at roms/daytona93.zip or roms/daytona93.7z, exactly that name, and run setup again."]
+    if found:
+        lines += ["", "Found in roms/, but not under that name: " + ", ".join(found),
+                  "If one of these is the daytona93 set, rename it to daytona93.zip (or .7z)."]
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

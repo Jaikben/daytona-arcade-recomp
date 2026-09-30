@@ -2,6 +2,16 @@
 
 ## Current state
 
+**Setup for players.** `docs/getting-started.md` walks from nothing to
+playing on each OS, with troubleshooting for what went wrong in practice:
+`./setup` for `./setup.sh`, the ROM set under another name (setup silently
+built tools only), a different Daytona set (`daytona`, program ROMs
+`epr-16722a`/`16723a`: `m2import: missing epr-16530a.12`), Start disabled.
+`scripts/setup.py` now says so itself: with no `roms/daytona93.*` it names
+any archives in `roms/`; a rejected set gets an explanation instead of a
+traceback; on success it prints the command that starts the game. README's
+Setup links to the guide.
+
 **macOS (Apple clang, arm64, Metal) builds and plays.** First run on a Mac
 with a real `daytona93` set turned up:
 

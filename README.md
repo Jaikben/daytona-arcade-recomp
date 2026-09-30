@@ -11,15 +11,26 @@ No game data is in this repository. You need your own `daytona93` ROM set
 
 ## Setup
 
-Linux or macOS:
+**New here? Follow [docs/getting-started.md](docs/getting-started.md)**: step
+by step for Windows, macOS and Linux, with fixes for the usual problems.
 
-    ./setup.sh
+In short:
 
-Windows (PowerShell):
+1. Copy your `daytona93` ROM set to `roms/daytona93.zip` (or `.7z`) in the
+   project folder, with exactly that name. Only the `daytona93` set (Daytona
+   USA Deluxe '93) works; other Daytona sets are rejected.
+2. Run setup. Linux or macOS:
 
-    powershell -ExecutionPolicy Bypass -File setup.ps1
+       ./setup.sh
 
-These install the toolchain (C++20 compiler, CMake, Ninja, Python 3, Git;
+   Windows (PowerShell):
+
+       powershell -ExecutionPolicy Bypass -File setup.ps1
+
+3. Run the command setup prints at the end (`build/daytona`, or
+   `build\Release\daytona.exe` on Windows).
+
+Setup scripts install the toolchain (C++20 compiler, CMake, Ninja, Python 3, Git;
 Visual Studio 2022 Build Tools on Windows, Homebrew packages on macOS, your
 distribution's packages on Linux), fetch the pinned dependencies into
 `extern/`, build, and run the tests. Put your ROM set at
