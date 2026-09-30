@@ -79,6 +79,6 @@ NativeSoundEngine::Stats NativeSoundEngine::stats() const {
     const auto &mix = mixer_.stats();
     return {cursor_, sequence.input_bytes, sequence.note_ons, sequence.unsupported,
             invalid_ + sequence.invalid_data + sequence.event_limit_hits + mix.rejected_commands,
-            mix.clipped_samples, mixer_.active_voices()};
+            mix.clipped_samples, mixer_.active_voices(), mix.limited_frames};
 }
 } // namespace snd

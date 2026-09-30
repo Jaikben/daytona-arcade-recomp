@@ -33,6 +33,29 @@ rt::Inputs input_for(unsigned frame, bool attract) {
     return in;
 }
 struct Note { uint64_t frame; unsigned rom, bank, slot, sample; double hz, gain, pan; };
+struct Levels {
+    uint64_t samples = 0, nonzero = 0, overrange = 0, full_scale = 0;
+    double peak = 0, squares = 0, clamped_squares = 0;
+    void add(float sample) {
+        if (!std::isfinite(sample)) throw std::runtime_error("non-finite audio sample");
+        const double value = sample, magnitude = std::abs(value);
+        ++samples;
+        nonzero += value != 0;
+        overrange += magnitude > 1;
+        full_scale += magnitude >= 1;
+        peak = std::max(peak, magnitude);
+        squares += value * value;
+        const double clamped = std::clamp(value, -1., 1.);
+        clamped_squares += clamped * clamped;
+    }
+    double rms() const { return samples ? std::sqrt(squares / double(samples)) : 0; }
+    void report(const char *backend, const char *segment) const {
+        std::printf("levels backend=%s segment=%s samples=%llu nonzero=%llu peak=%.9g rms=%.9g clamped_rms=%.9g overrange=%llu full_scale=%llu\n",
+            backend, segment, (unsigned long long)samples, (unsigned long long)nonzero,
+            peak, rms(), samples ? std::sqrt(clamped_squares / double(samples)) : 0,
+            (unsigned long long)overrange, (unsigned long long)full_scale);
+    }
+};
 struct Oracle : snd::SoundBoard {
     using SoundBoard::SoundBoard;
     std::array<std::array<std::array<uint8_t, 11>, 28>, 2> regs{};
@@ -97,20 +120,30 @@ int main(int argc, char **argv) {
         if (game.sound()) throw std::runtime_error("disabled GameLoop constructed reference sound");
         game.board().video().set_external_3d(true);
         uint64_t rendered = 0, nonzero = 0, fm_nonzero = 0, bytes_total = 0;
+        // This timer includes audit/metering work; it is not a production benchmark.
         double render_cpu = 0, peak = 0;
+        std::array<Levels, 3> reference_levels{}, native_levels{}, fm_levels{};
+        std::array<uint64_t, 3> native_clipped{}, native_limited{};
         bool native_failed = false;
         for (unsigned frame = 0; frame < count; ++frame) {
+            const size_t segment = frame < 1400 ? 1 : 2;
             game.run_frame(input_for(frame, argc > 4));
             const auto bytes = game.board().take_sound_bytes(); bytes_total += bytes.size();
             oracle->send(bytes.data(), bytes.size());
             oracle->advance(1. / rt::GameLoop::kFrameHz);
-            for (float value : oracle->take_fm()) fm_nonzero += value != 0;
-            oracle->take_pcm();
+            for (float value : oracle->take_fm()) {
+                fm_nonzero += value != 0;
+                fm_levels[0].add(value); fm_levels[segment].add(value);
+            }
+            for (float value : oracle->take_pcm()) {
+                reference_levels[0].add(value); reference_levels[segment].add(value);
+            }
             const uint64_t due = uint64_t((frame + 1) * 48000. / rt::GameLoop::kFrameHz);
             sequence.send(bytes.data(), bytes.size());
             sequence.advance(size_t(due - rendered));
             if (!native_failed) try {
                 const auto start = std::clock();
+                const auto stats_before = engine.stats();
                 engine.send(bytes.data(), bytes.size());
                 std::array<float, 2048> output;
                 uint64_t remaining = due - rendered;
@@ -120,12 +153,29 @@ int main(int argc, char **argv) {
                     for (size_t i = 0; i < n * 2; ++i) {
                         if (!std::isfinite(output[i]) || std::abs(output[i]) > 1) throw std::runtime_error("unbounded native sample");
                         nonzero += output[i] != 0; peak = std::max(peak, double(std::abs(output[i])));
+                        native_levels[0].add(output[i]); native_levels[segment].add(output[i]);
                     }
                     remaining -= n;
                 }
+                const auto stats_after = engine.stats();
+                const uint64_t clipped = stats_after.clipped - stats_before.clipped;
+                const uint64_t limited = stats_after.limited_frames - stats_before.limited_frames;
+                native_clipped[0] += clipped; native_clipped[segment] += clipped;
+                native_limited[0] += limited; native_limited[segment] += limited;
                 render_cpu += double(std::clock() - start) / CLOCKS_PER_SEC;
             } catch (const std::exception &e) { std::fprintf(stderr, "native fault at game frame %u: %s\n", frame, e.what()); native_failed = true; }
             rendered = due;
+        }
+        // Rates differ, so RMS is normalized by each backend's sample count.
+        // This is an output-level audit, not waveform or perceived-loudness parity.
+        const char *segments[] = {"total", "before_1400", "from_1400"};
+        for (size_t i = 0; i < reference_levels.size(); ++i) {
+            reference_levels[i].report("reference_pcm", segments[i]);
+            fm_levels[i].report("reference_fm", segments[i]);
+            native_levels[i].report("native", segments[i]);
+            std::printf("level_comparison segment=%s reference_pcm_to_native_rms=%.9g native_mixer_clipped=%llu native_limited_frames=%llu\n",
+                segments[i], native_levels[i].rms() ? reference_levels[i].rms() / native_levels[i].rms() : 0,
+                (unsigned long long)native_clipped[i], (unsigned long long)native_limited[i]);
         }
         dump(prefix + "-reference.csv", oracle->notes); dump(prefix + "-native.csv", notes);
         size_t compared = 0, identity = 0, pitch = 0, gain = 0, pan = 0, reordered = 0;

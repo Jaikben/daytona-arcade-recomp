@@ -1,5 +1,56 @@
 # Vita performance diagnostics
 
+## Calibrated native output (GPU25 / 01.23)
+
+GPU24's 50% boost remained about 8.25 dB below reference RMS. GPU25 sets
+shared native master gain to 1.95 (2.6x GPU24, +8.30 dB before limiting).
+A stereo-linked 0.98-peak limiter has immediate attack and a 50 ms exponential
+recovery time constant. State survives callback boundaries; there are no new
+allocations or lookahead latency. Hard clipping and limiter-active frames have
+separate counters. Reference audio, saved controls, clocks, game timing and
+the quiet logging policy are unchanged.
+
+The same 6,000-frame command replays measured stereo floating-point output
+before frontend volume, using each backend's native sample rate:
+
+| Replay | Reference RMS | GPU24 native RMS | GPU25 native RMS | GPU25 native peak |
+| --- | ---: | ---: | ---: | ---: |
+| Race | 0.184465747 | 0.071283997 | 0.183594874 | 0.980000079 |
+| Attract | 0.080995231 | 0.031339877 | 0.081483683 | 0.607261658 |
+
+GPU25 differs from reference RMS by -0.0411 dB in race and +0.0522 dB in
+attract. Both replays had zero hard clips, invalid/unsupported events and
+native faults; all reference FM samples were zero. Race limiting/recovery
+covered 907,526 of 5,006,592 stereo frames (18.13%); attract needed no limiting.
+Existing experimental event timing/pitch differences remain unchanged.
+These are output-energy measurements, not waveform or perceptual parity.
+
+The separate 6,000-frame health replay with a one-second graphics stall
+rendered 5,054,592 stereo frames, RMS 0.183606, peak 0.980000, and 792,816
+limiter-active/recovering frames. Hard clips, invalid/unsupported events and
+callback allocations were zero; all 4,966 note starts were retained. Synthetic
+tests cover the 2.6x gain below threshold, both peak polarities, stereo linking,
+recovery/reset, exact render-block invariance and allocation-free 64-voice
+rendering. All 19 runnable CTests and ASan/UBSan mixer tests passed (two optional
+Lua tests skipped). Desktop and Vita builds passed; on-device listening and
+limiter performance still require hardware validation.
+
+## Native output level (GPU24 / 01.22)
+
+GPU24 raises native mixer master gain from 0.5 to 0.75 (1.5x amplitude) in
+the shared Vita/desktop code. Reference audio, saved volume/mute controls,
+sequencing, renderer and clocks are unchanged. Routine logging stays off as
+in GPU23; fault reporting is retained.
+
+The same 6,000-frame host replay, including a one-second graphics stall,
+rendered 5,054,592 stereo frames before and after the change. Peak changed
+from 0.358508 to 0.537761; RMS from 0.047524 to 0.071286. Both runs reported
+zero clipped samples, invalid/unsupported commands and callback allocations;
+note and command totals were unchanged. Synthetic signed/stereo/pan/envelope
+checks verify the 1.5x ratio and retain the safety-clamp tests. All 19 runnable
+CTests passed (two optional Lua tests skipped); ASan/UBSan gain tests passed.
+This verifies digital output levels, not perceived loudness on the device.
+
 ## Quiet native GXM build (GPU23 / 01.21)
 
 Startup and periodic diagnostic logging are now off by default for the GXM

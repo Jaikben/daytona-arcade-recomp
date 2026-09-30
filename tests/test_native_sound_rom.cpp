@@ -246,6 +246,9 @@ int main(int argc, char** argv) {
                 sequence.sequence_events == observer_sequence.stats().sequence_events, "native observer event totals differ");
         require(stats.invalid == 0 && observer.invalid == 0 && sequence.event_limit_hits == 0, "invalid native events or bounded parser overflow");
         require(audio_allocations == 0, "native command/render path allocated heap storage");
+        require(stats.clipped == 0, "native output hard-clipped");
+        require(total.peak <= snd::NativeSampleMixer::kPeakCeiling + 0.000001,
+                "native output exceeded peak-protection ceiling");
         if (count >= 1200) require(total.nonzero && total.peak > 0.001, "native audio remained silent");
         if (count > 3000) {
             require(stall.nonzero && stall.rms() > 0.000001, "native audio stopped during graphics stall");
@@ -258,9 +261,10 @@ int main(int argc, char** argv) {
             (unsigned long long)sequence.messages, (unsigned long long)sequence.sequence_events,
             (unsigned long long)sequence.note_ons, (unsigned long long)sequence.note_offs,
             (unsigned long long)sequence.updates);
-        std::printf("health: unsupported=%llu invalid=%llu callback_allocations=%llu clipped=%llu nonzero=%llu peak=%.6f rms=%.6f attract_rms=%.6f race_rms=%.6f max_voices=%u\n",
+        std::printf("health: unsupported=%llu invalid=%llu callback_allocations=%llu clipped=%llu limited_frames=%llu nonzero=%llu peak=%.6f rms=%.6f attract_rms=%.6f race_rms=%.6f max_voices=%u\n",
             (unsigned long long)stats.unsupported, (unsigned long long)stats.invalid,
             (unsigned long long)audio_allocations, (unsigned long long)stats.clipped,
+            (unsigned long long)stats.limited_frames,
             (unsigned long long)total.nonzero, total.peak, total.rms(), attract.rms(), race.rms(), max_voices);
         std::printf("coverage: unique_samples=%u nonengine_notes=%llu engine_notes=%llu engine_updates=%llu source_rate_hz=[%.3f,%.3f] render_calls=%llu avg_ms=%.6f max_ms=%.6f\n",
             observer.samples_used(), (unsigned long long)observer.nonengine_notes,

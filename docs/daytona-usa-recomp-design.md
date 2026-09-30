@@ -223,6 +223,16 @@ It must be labelled experimental until the command/voice behavior and listening
 tests cover the full game. Unsupported commands, invalid data and queue
 overflows must remain visible, not be replaced with invented sounds.
 
+The native output calibration uses master gain 1.95, increased from GPU24's
+0.75 after 6,000-frame attract and race measurements found native RMS about
+8.25 dB below the reference. This is a 2.6x amplitude boost before protection
+and frontend volume. A stereo-linked peak limiter caps peaks at 0.98, with
+immediate attack and a 50 ms exponential recovery time constant. It allocates
+nothing, adds no lookahead latency and keeps state across render blocks.
+Limiter activity is counted separately from hard clipping. The shared change
+does not alter reference audio, command/voice parameters or game timing;
+aggregate output-level calibration is not waveform or perceived-loudness parity.
+
 FM was audited with both 6,000-frame attract and race replays: all 23,178,664
 FM float samples were exactly zero; no channel key-ons or DAC enable occurred.
 Static sound-driver call sites only initialize YM registers and use timer

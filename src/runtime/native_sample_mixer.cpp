@@ -8,6 +8,8 @@ namespace {
 constexpr uint32_t kWindow = 0x100000;
 constexpr double kPhaseScale = 4294967296.0;
 constexpr uint64_t kPhaseOne = uint64_t{1} << 32;
+// 1 - exp(-1 / (48000 * 0.050)); evaluated once, not in the audio callback.
+constexpr float kLimiterRecovery = 0.000416579873f;
 
 bool bounded(float value, float lo, float hi) noexcept {
     return std::isfinite(value) && value >= lo && value <= hi;
@@ -231,6 +233,7 @@ void NativeSampleMixer::stop(unsigned slot) noexcept {
 
 void NativeSampleMixer::all_stop() noexcept {
     for (Voice& v : voices_) v.active = false;
+    limiter_gain_ = 1.0f;
 }
 
 bool NativeSampleMixer::active(unsigned slot) const noexcept {
@@ -247,6 +250,11 @@ bool NativeSampleMixer::set_master_gain(float gain) noexcept {
     if (!bounded(gain, 0, 4)) { ++stats_.rejected_commands; return false; }
     master_gain_ = gain;
     return true;
+}
+
+void NativeSampleMixer::set_peak_limiter(bool enabled) noexcept {
+    peak_limiter_ = enabled;
+    limiter_gain_ = 1.0f;
 }
 
 void NativeSampleMixer::render(float* out, size_t frames) noexcept {
@@ -275,10 +283,25 @@ void NativeSampleMixer::render(float* out, size_t frames) noexcept {
             }
         }
     }
-    for (size_t sample = 0; sample < frames * 2; ++sample) {
-        const float value = out[sample] * master_gain_;
-        if (value < -1.0f || value > 1.0f) ++stats_.clipped_samples;
-        out[sample] = std::clamp(value, -1.0f, 1.0f);
+    for (size_t frame = 0; frame < frames; ++frame) {
+        float left = out[frame * 2] * master_gain_;
+        float right = out[frame * 2 + 1] * master_gain_;
+        if (peak_limiter_) {
+            limiter_gain_ += (1.0f - limiter_gain_) * kLimiterRecovery;
+            // Avoid a float-rounding tail that never returns exactly to unity.
+            if (limiter_gain_ >= 0.9999f) limiter_gain_ = 1.0f;
+            const float peak = std::max(std::fabs(left), std::fabs(right));
+            if (peak > kPeakCeiling)
+                limiter_gain_ = std::min(limiter_gain_, kPeakCeiling / peak);
+            // One gain for both channels preserves the stereo position.
+            left *= limiter_gain_;
+            right *= limiter_gain_;
+            if (limiter_gain_ < 1.0f) ++stats_.limited_frames;
+        }
+        if (left < -1.0f || left > 1.0f) ++stats_.clipped_samples;
+        if (right < -1.0f || right > 1.0f) ++stats_.clipped_samples;
+        out[frame * 2] = std::clamp(left, -1.0f, 1.0f);
+        out[frame * 2 + 1] = std::clamp(right, -1.0f, 1.0f);
     }
     stats_.rendered_frames += frames;
 }

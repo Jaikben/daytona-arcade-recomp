@@ -33,6 +33,25 @@ continues sequencing. Shutdown/reset joins the callback before releasing its
 engine and ROM storage. Queue/engine faults are reported, never silently
 replaced by the reference backend.
 
+## Output level
+
+GPU25 calibrates the shared native mixer's master gain to 1.95, up from
+GPU24's 0.75: 2.6x amplitude (+8.30 dB) before peak protection at the same
+volume setting. The preceding 50% boost was still about 8.25 dB below the
+reference RMS in both 6,000-frame attract and race replays.
+
+A stereo-linked limiter protects loud transients at a 0.98 peak ceiling.
+Both channels receive the same attenuation; recovery has a 50 ms exponential
+time constant, not a 50 ms fixed completion time. It adds no lookahead delay
+or heap allocations and retains state across callback blocks. Limiter-active
+frames are reported separately from hard-clipped samples. This can reshape
+loud attacks, so matching measured RMS is not a claim of identical sound or
+perceived loudness on the device.
+
+This applies to Vita and all desktop frontends. Reference audio, saved
+volume/mute settings, sample pitch, command timing and voice balance are
+unchanged. Routine Vita logging stays off; fault reporting remains enabled.
+
 ## Fidelity and performance limits
 
 The mixer uses interpolated PCM and a short linear ADSR, not the original
@@ -65,6 +84,8 @@ After setup/import/recompilation of the user's ROM set:
 cmake --build build -j2
 ctest --test-dir build --output-on-failure
 bash scripts/test_native_sound_rom.sh build 6000
+bash scripts/test_native_sound_oracle.sh build 6000 build/rom_cache/daytona93 build/native-oracle-race race
+bash scripts/test_native_sound_oracle.sh build 6000 build/rom_cache/daytona93 build/native-oracle-attract attract
 bash scripts/test_vita_sound_pipeline.sh build 6000
 python3 scripts/test_vita_gpu_lifetime.py --sanitize
 python3 scripts/test_vita_renderer.py --sanitize

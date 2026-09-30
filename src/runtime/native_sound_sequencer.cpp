@@ -242,7 +242,7 @@ void NativeSoundSequencer::update_voice(Voice &v, uint16_t pitch, uint8_t level,
     else if (pan & 8) right = (16 - pan) == 7 ? 0 : std::pow(10.0, -0.15 * (16 - pan));
     else if (pan) left = pan == 7 ? 0 : std::pow(10.0, -0.15 * pan);
     // Preserve the table's channel gains using the mixer's equal-power pan;
-    // its documented master gain 0.5 supplies the final sound-board mix gain.
+    // the mixer's native output gain is applied separately from these events.
     v.event.gain = float(0.25 * std::pow(10.0, -0.01875 * level) * std::hypot(left, right));
     v.event.pan = left + right ? float(std::atan2(right, left) * (4.0 / 3.14159265358979323846) - 1.0) : 0.f;
     emit(v, kind);

@@ -162,7 +162,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU23", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU25", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
@@ -202,9 +202,9 @@ int main(int, char **) {
     sceIoMkdir(kDirectory, 0777);
     vita::DiagnosticLog log(kDiagnostics);
     log.begin();
-    log.literal("GPU23: configurable clocks and GXM System24 fast path starting\n");
+    log.literal("GPU25: configurable clocks and GXM System24 fast path starting\n");
     void *heap_probe = std::malloc(1024);
-    if (!heap_probe) { log.fault("GPU23: heap unavailable\n"); sceKernelExitProcess(1); }
+    if (!heap_probe) { log.fault("GPU25: heap unavailable\n"); sceKernelExitProcess(1); }
     std::free(heap_probe);
 
     VitaSettings settings;
@@ -214,7 +214,7 @@ int main(int, char **) {
     const int cpu_clock_result = scePowerSetArmClockFrequency(settings.cpu_clock);
     const int gpu_clock_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
     if (cpu_clock_result < 0 || gpu_clock_result < 0)
-        log.fault("GPU23: clock request failed: cpu=%d gpu=%d\n", cpu_clock_result, gpu_clock_result);
+        log.fault("GPU25: clock request failed: cpu=%d gpu=%d\n", cpu_clock_result, gpu_clock_result);
     auto restore_clocks = [&] {
         if (arm_clock_before > 0) scePowerSetArmClockFrequency(arm_clock_before);
         if (gpu_clock_before > 0) scePowerSetGpuClockFrequency(gpu_clock_before);
@@ -223,41 +223,41 @@ int main(int, char **) {
     const int bus_clock = scePowerGetBusClockFrequency();
     const int gpu_clock = scePowerGetGpuClockFrequency();
     const int xbar_clock = scePowerGetGpuXbarClockFrequency();
-    log.log("GPU23 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
+    log.log("GPU25 clocks: requested_cpu=%d requested_gpu=%d arm=%d bus=%d gpu=%d xbar=%d cpu_before=%d gpu_before=%d set_cpu=%d set_gpu=%d\n",
             settings.cpu_clock, settings.gpu_clock, arm_clock, bus_clock, gpu_clock, xbar_clock,
             arm_clock_before, gpu_clock_before, cpu_clock_result, gpu_clock_result);
-    log.literal("GPU23 stage: SDL timer/audio init begin\n");
+    log.literal("GPU25 stage: SDL timer/audio init begin\n");
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0) {
-        log.fault("GPU23: SDL timer/audio init failed: %s\n", SDL_GetError());
+        log.fault("GPU25: SDL timer/audio init failed: %s\n", SDL_GetError());
         restore_clocks();
         return 1;
     }
-    log.literal("GPU23 stage: SDL init done; vita2d init begin\n");
+    log.literal("GPU25 stage: SDL init done; vita2d init begin\n");
     if (vita2d_init_advanced(8 * 1024 * 1024) < 0) {
-        log.fault("GPU23: vita2d/GXM initialization failed\n");
+        log.fault("GPU25: vita2d/GXM initialization failed\n");
         SDL_Quit();
         restore_clocks();
         return 1;
     }
-    log.literal("GPU23 stage: vita2d init done; framebuffer textures begin\n");
+    log.literal("GPU25 stage: vita2d init done; framebuffer textures begin\n");
     vita2d_set_vblank_wait(1);
     vita2d_set_clear_color(RGBA8(0,0,0,255));
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
 
     vita::GpuFastRenderer gpu;
     if (!gpu.ok()) {
-        log.fault("GPU23: framebuffer texture allocation failed\n");
+        log.fault("GPU25: framebuffer texture allocation failed\n");
         gpu.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
-    log.log("GPU23 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
+    log.log("GPU25 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
     vita::Audio audio;
     vita::NativeAudio<snd::NativeSoundEngine> native_audio;
     bool active_native_audio = false;
-    if (!audio.open()) log.fault("GPU23: audio unavailable: %s\n", SDL_GetError());
+    if (!audio.open()) log.fault("GPU25: audio unavailable: %s\n", SDL_GetError());
     audio.volume(float(settings.volume) / 100.0f);
     audio.mute(settings.mute);
-    log.literal("GPU23 stage: audio done; main loop ready\n");
+    log.literal("GPU25 stage: audio done; main loop ready\n");
 
     std::unique_ptr<rt::GameLoop> game;
     // Destruction order keeps the detached packet, game and audio alive until
@@ -265,11 +265,11 @@ int main(int, char **) {
     rt::GameLoop::SoundPacket active_sound;
     vita::SoundWorker sound_worker;
     sound_worker.open();
-    log.log("GPU23 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
+    log.log("GPU25 sound worker: threaded=%d affinity_result=%d affinity_mask=0x%x\n",
             int(sound_worker.threaded()), sound_worker.affinity_result(), sound_worker.affinity_mask());
     vita::AsyncLog perf_log;
     if constexpr (kDiagnostics) perf_log.open(log, ticks_us);
-    log.log("GPU23 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
+    log.log("GPU25 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
             int(perf_log.threaded()));
     vita::Controls controls;
     vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
@@ -297,7 +297,7 @@ int main(int, char **) {
         catch (const std::exception &e) {
             perf_sound_wait_us += diagnostic_ticks_us() - begin;
             status = e.what();
-            perf_log.sync([&] { log.fault("GPU23 sound runtime: %s\n", e.what()); });
+            perf_log.sync([&] { log.fault("GPU25 sound runtime: %s\n", e.what()); });
             menu = true;
             audio.pause(); native_audio.pause();
             active_sound = {};
@@ -328,16 +328,16 @@ int main(int, char **) {
             gpu_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
         }
         if (cpu_result < 0 || gpu_result < 0)
-            log.fault("GPU23: clock request failed: cpu=%d gpu=%d\n", cpu_result, gpu_result);
+            log.fault("GPU25: clock request failed: cpu=%d gpu=%d\n", cpu_result, gpu_result);
         apply_preferences();
         const bool saved = settings.save();
-        if (!saved) log.fault("GPU23: settings save failed\n");
+        if (!saved) log.fault("GPU25: settings save failed\n");
         char message[160];
         std::snprintf(message, sizeof message, "CPU %d/%d MHz  GPU %d/%d MHz  SETTINGS %s",
                       scePowerGetArmClockFrequency(), settings.cpu_clock,
                       scePowerGetGpuClockFrequency(), settings.gpu_clock, saved ? "SAVED" : "SAVE FAILED");
         status = message;
-        log.log("GPU23 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d native_audio=%d saved=%d\n",
+        log.log("GPU25 settings: requested_cpu=%d requested_gpu=%d actual_cpu=%d actual_gpu=%d set_cpu=%d set_gpu=%d volume=%d mute=%d deadzone=%d invert=%d native_audio=%d saved=%d\n",
                 settings.cpu_clock, settings.gpu_clock, scePowerGetArmClockFrequency(),
                 scePowerGetGpuClockFrequency(), cpu_result, gpu_result, settings.volume,
                 int(settings.mute), settings.deadzone, int(settings.steer_invert), int(settings.native_audio), int(saved));
@@ -349,7 +349,7 @@ int main(int, char **) {
         if (!game) return true;
         const bool a = save_nv("ioboard_eeprom.bin", game->board().io().eeprom);
         const bool b = save_nv("backup_ram.bin", game->board().backup_ram());
-        if (!a || !b) perf_log.sync([&] { log.fault("GPU23: save failed\n"); });
+        if (!a || !b) perf_log.sync([&] { log.fault("GPU25: save failed\n"); });
         return a && b;
     };
     auto apply_mode = [&] {
@@ -379,11 +379,11 @@ int main(int, char **) {
                     throw std::runtime_error("Native audio output unavailable; select Reference audio and reset");
             } else {
                 if (!sound_worker.threaded()) sound_worker.open();
-                if (!audio.open()) perf_log.sync([&] { log.fault("GPU23 reference audio unavailable: %s\n", SDL_GetError()); });
+                if (!audio.open()) perf_log.sync([&] { log.fault("GPU25 reference audio unavailable: %s\n", SDL_GetError()); });
             }
             game = std::make_unique<rt::GameLoop>(std::move(images), !active_native_audio);
             perf_log.sync([&] {
-                log.log("GPU23 audio engine: backend=%s clock=%s reference_sound_board=%d\n",
+                log.log("GPU25 audio engine: backend=%s clock=%s reference_sound_board=%d\n",
                         active_native_audio ? "NATIVE_TEST" : "REFERENCE",
                         active_native_audio ? "AUDIO_DEVICE_48000" : "GAME_FRAME", int(game->sound() != nullptr));
             });
@@ -400,7 +400,7 @@ int main(int, char **) {
         } catch (const std::exception &e) {
             native_audio.close(); audio.pause(); game.reset();
             status = e.what();
-            perf_log.sync([&] { log.fault("GPU23 start: %s\n", e.what()); });
+            perf_log.sync([&] { log.fault("GPU25 start: %s\n", e.what()); });
             return false;
         }
     };
@@ -532,7 +532,7 @@ int main(int, char **) {
                     // still used by the previous job.
                     finish_sound();
                     status = e.what();
-                    perf_log.sync([&] { log.fault("GPU23 runtime: %s\n", e.what()); });
+                    perf_log.sync([&] { log.fault("GPU25 runtime: %s\n", e.what()); });
                     menu = true; audio.pause(); native_audio.close(); active_sound = {}; game.reset(); break;
                 }
             }
@@ -573,7 +573,7 @@ int main(int, char **) {
                 const auto log_stats = perf_log.stats();
                 const auto native_stats = native_audio.stats();
                 const uint64_t log_begin = ticks_us();
-                perf_log.try_log("gpu23: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_enqueue_prev_ms=%.2f log_write_prev_ms=%.2f log_write_peak_ms=%.2f log_drops=%u log_failures=%u sound_frames=%u frame_peak_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x audio=%s native_frames=%u native_last_ms=%.3f native_peak_ms=%.3f native_queue=%u native_overflows=%u native_failed=%u native_unsupported=%u native_invalid=%u native_notes=%u native_voices=%u\n",
+                perf_log.try_log("gpu25: mode=%s menu=%d frames=%u presents=%u window_ms=%.2f log_enqueue_prev_ms=%.2f log_write_prev_ms=%.2f log_write_peak_ms=%.2f log_drops=%u log_failures=%u sound_frames=%u frame_peak_ms=%.2f sim_fps=%.2f run_ms=%.2f core_ms=%.2f geo_ms=%.2f video_ms=%.2f sound_ms=%.2f gpu_submit_ms=%.2f gpu_encode_ms=%.2f gpu_wait_ms=%.2f sound_wait_ms=%.2f audio_worker_queue_ms=%.2f sort_ms=%.2f poly_ms=%.2f tiles_ms=%.2f upload_ms=%.2f cpu_mhz=%d gpu_mhz=%d cpu_raster_ms=%.2f tile_cache_ms=%.2f tile_draw_ms=%.2f compose_ms=%.2f layers=%u tiles=%u chars=%u materials=%u sources=%u builds=%u defers=%u cache_mb=%.2f cache_reserved_mb=%.2f pool_free_kb=%u pool_drops=%u material_drops=%u subdiv_polys=%u vertices=%u tile_uploads=%u cache_resets=%u tile_quads=%u draws=%u/%u clips=%u polys=%u/%u shader_setups=%u state_reuses=%u draw_errors=%u checker_polys=%u textured_checker_polys=%u sys24_ctrl=%04x/%04x audio=%s native_frames=%u native_last_ms=%.3f native_peak_ms=%.3f native_queue=%u native_overflows=%u native_failed=%u native_unsupported=%u native_invalid=%u native_notes=%u native_voices=%u\n",
                         gpu_fast ? "GPU_FAST" : "CPU_EXACT", int(menu), unsigned(perf_frames), unsigned(perf_presents),
                         sec * 1000.0, double(previous_log_us) / 1000.0,
                         double(log_stats.last_write_ticks) / 1000.0, double(log_stats.max_write_ticks) / 1000.0,
@@ -617,6 +617,6 @@ int main(int, char **) {
     vita2d_fini();
     perf_log.close(); // join file I/O before destroying SDL synchronization
     SDL_Quit();
-    log.literal("GPU23: clean exit\n");
+    log.literal("GPU25: clean exit\n");
     return 0;
 }

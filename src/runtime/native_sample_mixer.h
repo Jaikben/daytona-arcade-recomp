@@ -56,6 +56,9 @@ class NativeSampleMixer {
 public:
     static constexpr unsigned kOutputRate = 48000;
     static constexpr unsigned kVoices = 64;
+    // Native-only calibration from reference/native attract and race RMS.
+    static constexpr float kDefaultMasterGain = 1.95f;
+    static constexpr float kPeakCeiling = 0.98f;
     static constexpr uint32_t kHeaderLoop = std::numeric_limits<uint32_t>::max();
     struct Envelope {
         float attack_seconds = 0.002f;
@@ -76,7 +79,8 @@ public:
     };
     struct Stats {
         uint64_t rendered_frames = 0;
-        uint64_t clipped_samples = 0; // interleaved channel samples, before clamp
+        uint64_t clipped_samples = 0; // hard-clamped channel samples after limiting
+        uint64_t limited_frames = 0; // stereo frames attenuated by peak protection
         uint64_t rejected_commands = 0;
     };
 
@@ -94,10 +98,15 @@ public:
     bool active(unsigned slot) const noexcept;
     unsigned active_voices() const noexcept;
     bool set_master_gain(float gain) noexcept;
+    // Enabled by default. Disable only for raw mixer/reference measurements.
+    // Stereo-linked immediate attack, 50 ms exponential recovery; no lookahead.
+    // Toggling or all_stop clears the attenuation state.
+    void set_peak_limiter(bool enabled) noexcept;
     const Stats& stats() const noexcept { return stats_; }
     // Replaces output with stereo float [-1,1]. Linear source interpolation,
     // equal-power pan and linear ADSR are intentionally not chip-bit-exact.
-    // Nominal source range is [-1,1); default master gain is 0.5 for headroom.
+    // Nominal source range is [-1,1); master gain precedes peak protection.
+    // Limiter state persists across render calls; rendering adds no latency.
     void render(float* interleaved_stereo, size_t frames) noexcept;
 
 private:
@@ -120,7 +129,9 @@ private:
                             float target) noexcept;
     static void advance_envelope(Voice& voice) noexcept;
     std::array<Voice, kVoices> voices_{};
-    float master_gain_ = 0.5f;
+    float master_gain_ = kDefaultMasterGain;
+    float limiter_gain_ = 1.0f;
+    bool peak_limiter_ = true;
     Stats stats_{};
 };
 

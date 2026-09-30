@@ -14,6 +14,7 @@ public:
     struct Stats {
         uint64_t frames = 0, bytes = 0, notes = 0, unsupported = 0, invalid = 0, clipped = 0;
         unsigned voices = 0;
+        uint64_t limited_frames = 0;
     };
     NativeSoundEngine(std::vector<uint8_t> program, std::vector<uint8_t> pcm1,
                       std::vector<uint8_t> pcm2);
