@@ -30,6 +30,7 @@ Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
     for (auto &p : pens_) p = rgb(0, 0, 0); // palette_device starts black
     for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
     for (int l = 0; l < 4; l++) pixmap_[l].assign(512 * 512, 0), flags_[l].assign(512 * 512, 0);
+    system24_tile_generations_.resize(4 * 4096);
 #ifdef M2_VITA_RENDER_OPT
     character_copy_.resize(0x80000);
     character_dirty_.resize(0x4000);
@@ -45,9 +46,13 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
     const uint8_t g = uint8_t(le16(colorxlat, (0x4080 >> 1) + (((palcolor >> 5) & 0x1f) << 8)));
     const uint8_t b = uint8_t(le16(colorxlat, (0x8080 >> 1) + (((palcolor >> 10) & 0x1f) << 8)));
     const uint32_t pen = rgb(gamma_[r], gamma_[g], gamma_[b]);
+    if (pens_[offset & 0x1fff] != pen) {
 #ifdef M2_VITA_RENDER_OPT
-    if (pens_[offset & 0x1fff] != pen) layers_dirty_ = true;
+        background_dirty_ = foreground_dirty_ = true;
 #endif
+        system24_source_dirty_ = true;
+        system24_palette_generation_ = system24_texture_generation_ + 1;
+    }
     pens_[offset & 0x1fff] = pen;
 }
 
@@ -64,9 +69,16 @@ void Video::build_layer(int layer) {
 #ifdef M2_VITA_RENDER_OPT
         uint16_t &previous = tile_values_[base + t];
         if (tiles_valid_ && previous == val && !character_dirty_[code]) continue;
+        if (!tiles_valid_) background_dirty_ = foreground_dirty_ = true;
+        else {
+            (previous & 0x8000 ? foreground_dirty_ : background_dirty_) = true;
+            (val & 0x8000 ? foreground_dirty_ : background_dirty_) = true;
+        }
         previous = val;
 #endif
         ++profile_.tiles_rebuilt;
+        system24_source_dirty_ = true;
+        system24_tile_generations_[base + t] = system24_texture_generation_ + 1;
         const uint32_t color = (val >> 7) & 0xff;
         const uint8_t category = (val & 0x8000) ? 1 : 0;
         const uint32_t tx = (t & 63) * 8, ty = (t >> 6) * 8;
@@ -84,28 +96,54 @@ void Video::build_layer(int layer) {
 
 #ifdef M2_VITA_RENDER_OPT
 void Video::update_tile_cache() {
-    const bool chars_changed = !tiles_valid_ ||
-        std::memcmp(char_ram_, character_copy_.data(), character_copy_.size()) != 0;
-    const bool ram_changed = !tiles_valid_ ||
-        std::memcmp(tile_ram_, tile_ram_copy_.data(), tile_ram_copy_.size()) != 0;
+    const bool chars_changed = !tiles_valid_ || (write_tracking_ ? character_memory_touched_ :
+        std::memcmp(char_ram_, character_copy_.data(), character_copy_.size()) != 0);
+    const bool ram_changed = !tiles_valid_ || (write_tracking_ ? tile_memory_touched_ :
+        std::memcmp(tile_ram_, tile_ram_copy_.data(), tile_ram_copy_.size()) != 0);
     if (!chars_changed && !ram_changed) return;
     std::fill(character_dirty_.begin(), character_dirty_.end(), uint8_t(0));
     if (chars_changed) {
-        for (size_t code = 0; code < character_dirty_.size(); ++code) {
-            const size_t offset = code * 32;
-            if (!tiles_valid_ || std::memcmp(char_ram_ + offset, character_copy_.data() + offset, 32) != 0) {
-                std::memcpy(character_copy_.data() + offset, char_ram_ + offset, 32);
-                character_dirty_[code] = 1;
-                ++profile_.characters_changed;
+        constexpr size_t page_bytes = 256;
+        constexpr size_t chars_per_page = page_bytes / 32;
+        for (size_t page = 0; page < character_copy_.size(); page += page_bytes) {
+            if (tiles_valid_ && std::memcmp(char_ram_ + page, character_copy_.data() + page, page_bytes) == 0)
+                continue;
+            const size_t first = page / 32;
+            for (size_t local = 0; local < chars_per_page; ++local) {
+                const size_t code = first + local;
+                const size_t offset = code * 32;
+                if (!tiles_valid_ || std::memcmp(char_ram_ + offset, character_copy_.data() + offset, 32) != 0) {
+                    std::memcpy(character_copy_.data() + offset, char_ram_ + offset, 32);
+                    character_dirty_[code] = 1;
+                    ++profile_.characters_changed;
+                }
             }
         }
     }
+    bool draw_state_changed = !tiles_valid_;
+    if (tiles_valid_ && ram_changed) {
+        auto changed = [&](size_t offset, size_t bytes) {
+            return std::memcmp(tile_ram_ + offset, tile_ram_copy_.data() + offset, bytes) != 0;
+        };
+        // Line-scroll tables, layer control/scroll registers and window masks.
+        draw_state_changed = changed(0x8000, 0x1000) || changed(0xa000, 0x10) || changed(0xc000, 0x2000);
+    }
     for (int layer = 0; layer < 4; ++layer) build_layer(layer);
+    // Normal-mode opaque backgrounds ignore category, whereas split modes
+    // still filter category 0. Changing modes changes uploaded alpha even
+    // when tile and character RAM are unchanged.
+    if (tiles_valid_ && ram_changed &&
+        bool(tile(0x5006) & 0x6000) != bool(le16(tile_ram_copy_.data(), 0x5006) & 0x6000)) {
+        std::fill(system24_tile_generations_.begin() + 2 * 4096,
+                  system24_tile_generations_.end(), system24_texture_generation_ + 1);
+        system24_source_dirty_ = true;
+    }
     // The remaining tile RAM contains scrolling, window masks and line tables.
     // Any change there invalidates composition even when no glyph was rebuilt.
     if (ram_changed) std::memcpy(tile_ram_copy_.data(), tile_ram_, tile_ram_copy_.size());
-    if (!tiles_valid_ || ram_changed || profile_.tiles_rebuilt) layers_dirty_ = true;
+    if (draw_state_changed) background_dirty_ = foreground_dirty_ = true;
     tiles_valid_ = true;
+    tile_memory_touched_ = character_memory_touched_ = false;
 }
 #endif
 
@@ -302,6 +340,12 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
     }
 }
 
+bool Video::system24_gpu_compatible() const {
+    // The Vita GXM compositor supports normal windowing plus all three
+    // System24 split-layer modes. Keep this query for the CPU fallback API.
+    return true;
+}
+
 const std::vector<GeoPoly> &Video::gpu_polys() const {
     static const std::vector<GeoPoly> empty;
     return gpu_polys_ ? *gpu_polys_ : empty;
@@ -315,14 +359,26 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     uint64_t before = ticks();
     // Retain the reference's sticky palette-dirty behavior. palette_w marks
     // cached composition dirty only if the resulting RGB value really changed.
-    if (palette_dirty_)
+    if (palette_dirty_) {
         for (uint32_t i = 0; i < 0x1000; i++) palette_w(i, mem.palram, mem.colorxlat);
+        palette_dirty_ = false;
+    }
 #ifdef M2_VITA_RENDER_OPT
     update_tile_cache();
 #else
     for (int l = 0; l < 4; l++) build_layer(l);
 #endif
+    if (system24_source_dirty_) {
+        ++system24_texture_generation_;
+        system24_source_dirty_ = false;
+    }
     profile_.tile_cache = ticks() - before;
+    if (external_3d_ && system24_gpu_compatible()) {
+        // GXM composes the cached System-24 tile textures around the 3D
+        // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
+        rendered_now_ = false;
+        return;
+    }
     auto copy_trans = [&](const uint32_t *source, size_t stride) {
         for (int y = 0; y < H; ++y)
             for (int x = 0; x < W; ++x)
@@ -331,15 +387,21 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     };
 #ifdef M2_VITA_RENDER_OPT
     before = ticks();
-    if (layers_dirty_) {
+    if (background_dirty_) {
         // All tile writes are replacements, not blends. Drawing the back
         // layers over pen 0 is identical to zero + transparent copy over pen 0.
         std::fill(background_.begin(), background_.end(), pens_[0]);
         for (int layer = 3; layer >= 2; --layer) draw(background_, layer << 1, DRAW_OPAQUE);
         for (int layer = 1; layer >= 0; --layer) draw(background_, layer << 1, 0);
+        background_dirty_ = false;
+        ++background_generation_;
+        profile_.layers_rebuilt = true;
+    }
+    if (foreground_dirty_) {
         std::fill(sys24_.begin(), sys24_.end(), 0u);
         for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
-        layers_dirty_ = false;
+        foreground_dirty_ = false;
+        ++foreground_generation_;
         profile_.layers_rebuilt = true;
     }
     profile_.tile_draw = ticks() - before;

@@ -74,6 +74,12 @@ void GameLoop::probe() {
 }
 
 void GameLoop::run_frame(const Inputs &inputs) {
+    run_frame_deferred_sound(inputs);
+    complete_deferred_sound(execute_deferred_sound());
+}
+
+void GameLoop::run_frame_deferred_sound(const Inputs &inputs) {
+    if (sound_frame_pending_) throw Fatal("previous sound frame must complete before advancing the board");
     profiler_.reset();
     auto frame_sample = profiler_.measure(profiler_.frame.total);
     inputs_ = inputs;
@@ -87,14 +93,31 @@ void GameLoop::run_frame(const Inputs &inputs) {
         }
         gen::run(*env_);
     }
-    // The sound board runs alongside: this frame's command bytes go down the
-    // serial line, and it advances one frame of board time.
+    // Transfer the UART bytes on the owning thread. The sound worker never
+    // touches M2Board, video, i960/TGP state, or the frame profiler.
     if (sound_) {
-        auto sound_sample = profiler_.measure(profiler_.frame.sound);
-        const std::vector<uint8_t> bytes = board_->take_sound_bytes();
-        sound_->send(bytes.data(), bytes.size());
-        sound_->advance(1.0 / kFrameHz);
+        pending_sound_bytes_ = board_->take_sound_bytes();
+        sound_frame_pending_ = true;
     }
+}
+
+uint64_t GameLoop::execute_deferred_sound() {
+    if (!sound_frame_pending_) return 0;
+    const uint64_t begin = sound_profile_clock_ ? sound_profile_clock_() : 0;
+    sound_->send(pending_sound_bytes_.data(), pending_sound_bytes_.size());
+    sound_->advance(1.0 / kFrameHz);
+    const uint64_t end = sound_profile_clock_ ? sound_profile_clock_() : 0;
+    return end >= begin ? end - begin : 0;
+}
+
+void GameLoop::complete_deferred_sound(uint64_t ticks) {
+    if (!sound_frame_pending_) return;
+    pending_sound_bytes_.clear();
+    sound_frame_pending_ = false;
+    profiler_.frame.sound += ticks;
+    // Total represents cumulative work, not elapsed time when overlapped.
+    // Adding the same duration to total and sound keeps core() unchanged.
+    profiler_.frame.total += ticks;
 }
 
 } // namespace rt

@@ -8,8 +8,8 @@
 #include <cstring>
 
 namespace vita {
-// Only converted samples cross the audio thread boundary. All board execution
-// (including SoftFloat) stays on the main thread.
+// The SDL playback callback consumes only converted samples. The optional
+// sound worker finishes before push(); i960/TGP SoftFloat stays on main.
 class Audio {
 public:
     Audio() = default;
@@ -55,6 +55,11 @@ public:
         SDL_UnlockAudioDevice(device_);
         playing_ = false;
     }
+    void volume(float value) {
+        if (device_) SDL_LockAudioDevice(device_);
+        volume_ = std::clamp(value, 0.0f, 1.0f);
+        if (device_) SDL_UnlockAudioDevice(device_);
+    }
     void mute(bool muted) {
         if (device_) SDL_LockAudioDevice(device_);
         muted_ = muted;
@@ -85,7 +90,7 @@ private:
             };
             get(self.fm_, fm); get(self.pcm_, pcm);
             for (int i = 0; i < n; ++i) {
-                float mixed = self.muted_ ? 0.f : fm[i] + pcm[i];
+                float mixed = self.muted_ ? 0.f : (fm[i] + pcm[i]) * self.volume_;
                 if (!std::isfinite(mixed)) mixed = 0.f;
                 out[i] = int16_t(std::clamp(mixed, -1.f, 1.f) * 32767.f);
             }
@@ -96,5 +101,6 @@ private:
     SDL_AudioStream *fm_ = nullptr, *pcm_ = nullptr;
     int rate_ = 48000;
     bool playing_ = false, muted_ = false;
+    float volume_ = 0.8f;
 };
 } // namespace vita

@@ -1,10 +1,12 @@
 #include "gpu_fast.h"
 #include "runtime/raster_texel.h"
+#include "system24_upload.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <psp2/kernel/processmgr.h>
 
 namespace vita {
@@ -27,10 +29,18 @@ inline bool key_less(const rt::GeoPoly &a, std::size_t ai, const rt::GeoPoly &b,
 } // namespace
 
 GpuFastRenderer::GpuFastRenderer() {
-    background_ = vita2d_create_empty_texture_format(rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
-    foreground_ = vita2d_create_empty_texture_format(rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+    background_ = make_texture(layer_memory_, rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
+    foreground_ = make_texture(layer_memory_, rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
     if (background_) vita2d_texture_set_filters(background_, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
     if (foreground_) vita2d_texture_set_filters(foreground_, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+    for (auto &texture : system24_textures_) {
+        texture = make_texture(layer_memory_, 512, 512, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
+        if (!texture) { system24_ok_ = false; continue; }
+        vita2d_texture_set_filters(texture, SCE_GXM_TEXTURE_FILTER_POINT, SCE_GXM_TEXTURE_FILTER_POINT);
+        sceGxmTextureSetUAddrMode(&texture->gxm_tex, SCE_GXM_TEXTURE_ADDR_REPEAT);
+        sceGxmTextureSetVAddrMode(&texture->gxm_tex, SCE_GXM_TEXTURE_ADDR_REPEAT);
+    }
+    materials_.reserve(2048);
     for (int i = 0; i < 256; ++i) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
 }
 
@@ -51,33 +61,78 @@ uint32_t GpuFastRenderer::swap_rb(uint32_t argb) {
     return a | (b << 16) | (g << 8) | r;
 }
 
-void GpuFastRenderer::reset_materials() {
-    // This entry point is only used between scenes. Wait before destroying
-    // textures because GXM consumes draw commands asynchronously.
-    vita2d_wait_rendering_done();
-    for (auto &m : materials_) if (m.texture) vita2d_free_texture(m.texture);
-    for (auto *t : retired_) if (t) vita2d_free_texture(t);
-    materials_.clear();
-    retired_.clear();
-    cached_bytes_ = retired_bytes_ = 0;
+uint16_t GpuFastRenderer::rgba5551(uint32_t rgba) {
+    return uint16_t(((rgba >> 3) & 0x001f) | ((rgba >> 6) & 0x03e0) |
+                    ((rgba >> 9) & 0x7c00) | ((rgba >> 16) & 0x8000));
 }
 
-void GpuFastRenderer::reap_retired() {
-    if (retired_.empty()) return;
-    // Evictions can happen while commands for the old texture are already in
-    // the current GXM scene. Defer the actual free until every submitted draw
-    // has finished. GPU05 freed immediately and could hand GXM stale CDRAM.
+GpuFastRenderer::MaterialKey GpuFastRenderer::material_key(const rt::GeoPoly &poly) {
+    return MaterialKey{uint16_t(poly.texheader[0] & 0x23ff),
+                       uint16_t(poly.texheader[1] & 0x00ff),
+                       uint16_t(poly.texheader[2] & 0x1fff),
+                       uint16_t(poly.texheader[3] & 0xffc0), uint8_t(poly.luma & 0xf0)};
+}
+
+GpuFastRenderer::SourceKey GpuFastRenderer::source_key(const rt::GeoPoly &poly) {
+    return SourceKey{uint16_t(poly.texheader[0] & 0x23ff),
+                     uint16_t(poly.texheader[2] & 0x1fff)};
+}
+
+vita2d_texture *GpuFastRenderer::make_texture(GpuMemoryArena &arena, uint32_t w, uint32_t h,
+                                               SceGxmTextureFormat format, uint32_t bytes_per_pixel) {
+    // Descriptors do not own memory; only the arenas unmap/free it. In particular,
+    // do not use vita2d_free_texture on these zero-initialized descriptors.
+    auto *texture = new (std::nothrow) vita2d_texture{};
+    if (!texture) return nullptr;
+    const size_t stride = size_t((w + 7u) & ~7u) * bytes_per_pixel;
+    void *data = arena.allocate(stride * h, 16);
+    if (!data || sceGxmTextureInitLinear(&texture->gxm_tex, data, format, w, h, 0) < 0) {
+        delete texture;
+        return nullptr;
+    }
+    return texture;
+}
+
+void GpuFastRenderer::clear_cache() {
+    materials_.clear();
+    for (auto &entry : sources_) delete entry.second.texture;
+    sources_.clear();
+    source_memory_.reset();
+    palette_memory_.reset();
+    cached_bytes_ = 0;
+    cache_reset_pending_ = false;
+}
+
+void GpuFastRenderer::reset_materials() {
     vita2d_wait_rendering_done();
-    for (auto *t : retired_) if (t) vita2d_free_texture(t);
-    retired_.clear();
-    retired_bytes_ = 0;
+    clear_cache();
+    background_generation_ = foreground_generation_ = system24_generation_ = UINT64_MAX;
+}
+
+void GpuFastRenderer::prepare_frame() {
+    // libvita2d reuses ONE temporary vertex pool, even with triple buffering.
+    // Finish just before reuse, after CPU simulation has overlapped the old GPU work.
+    // This also protects in-place tile texture uploads.
+    vita2d_wait_rendering_done();
+    pool_drops_ = 0;
+    if (cache_reset_pending_) {
+        clear_cache();
+        ++cache_resets_;
+    }
 }
 
 void GpuFastRenderer::shutdown() {
     if (shutdown_) return;
     reset_materials();
-    if (background_) vita2d_free_texture(background_), background_ = nullptr;
-    if (foreground_) vita2d_free_texture(foreground_), foreground_ = nullptr;
+    delete background_; background_ = nullptr;
+    delete foreground_; foreground_ = nullptr;
+    for (auto &texture : system24_textures_) {
+        delete texture;
+        texture = nullptr;
+    }
+    layer_memory_.shutdown();
+    source_memory_.shutdown();
+    palette_memory_.shutdown();
     shutdown_ = true;
 }
 
@@ -98,11 +153,175 @@ void GpuFastRenderer::upload_layer(vita2d_texture *texture, const std::vector<ui
     }
 }
 
-uint32_t GpuFastRenderer::shade_texel(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint8_t texel) const {
+void GpuFastRenderer::update_system24_textures(const rt::Video &video) {
+    system24_uploaded_tiles_ = 0;
+    if (system24_generation_ == video.system24_texture_generation()) return;
+    for (int layer = 0; layer < 4; ++layer) {
+        vita2d_texture *background = system24_textures_[size_t(layer)];
+        vita2d_texture *foreground = system24_textures_[size_t(layer + 4)];
+        if (!background || !foreground) continue;
+        system24_uploaded_tiles_ += upload_system24_layer(video, layer, system24_generation_,
+            vita2d_texture_get_datap(background), vita2d_texture_get_stride(background),
+            vita2d_texture_get_datap(foreground), vita2d_texture_get_stride(foreground));
+    }
+    system24_generation_ = video.system24_texture_generation();
+}
+
+bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
+    if (!video.system24_gpu_compatible()) return false;
+    if (!foreground) {
+        system24_quads_ = 0;
+        vita2d_draw_rectangle(kOffsetX, 0.0f, kSourceW * kScale, kDisplayH, swap_rb(video.system24_pen(0)));
+    }
+    struct Rect { int x0, x1, y0, y1, h, v; };
+    auto submit = [&](int source_layer, const std::vector<Rect> &rects) {
+        if (rects.empty()) return true;
+        const size_t count = rects.size() * 6u;
+        if (vita2d_pool_free_space() < count * sizeof(vita2d_texture_vertex) + 2048u) {
+            ++pool_drops_;
+            return false;
+        }
+        auto *vertices = static_cast<vita2d_texture_vertex *>(
+            vita2d_pool_memalign(unsigned(count * sizeof(vita2d_texture_vertex)), 4));
+        if (!vertices) { ++pool_drops_; return false; }
+        size_t out = 0;
+        auto vertex = [&](float x, float y, float u, float v) {
+            vertices[out++] = vita2d_texture_vertex{sx(x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
+        };
+        for (const Rect &r : rects) {
+            const float u0 = float(r.x0 + r.h), u1 = float(r.x1 + r.h);
+            const float v0 = float(r.v), v1 = float(r.v + (r.y1 - r.y0));
+            vertex(float(r.x0), float(r.y0), u0, v0); vertex(float(r.x1), float(r.y0), u1, v0);
+            vertex(float(r.x1), float(r.y1), u1, v1); vertex(float(r.x0), float(r.y0), u0, v0);
+            vertex(float(r.x1), float(r.y1), u1, v1); vertex(float(r.x0), float(r.y1), u0, v1);
+        }
+        // libvita2d uses a 16-bit linear index buffer. A pathological window
+        // mask can produce more than 65,536 vertices; keep complete triangles
+        // within the index table without changing their painter order.
+        constexpr size_t max_batch = 65532;
+        for (size_t first = 0; first < count; first += max_batch) {
+            const unsigned batch = unsigned(std::min(max_batch, count - first));
+            vita2d_draw_array_textured(system24_textures_[size_t((foreground ? 4 : 0) + source_layer)],
+                SCE_GXM_PRIMITIVE_TRIANGLES, vertices + first, batch, RGBA8(255,255,255,255));
+        }
+        system24_quads_ += unsigned(rects.size());
+        return true;
+    };
+
+    for (int layer = 3; layer >= 0; --layer) {
+        const uint16_t hreg = video.system24_word(0x5000u + unsigned(layer));
+        const uint16_t vreg = video.system24_word(0x5004u + unsigned(layer));
+        if (vreg & 0x8000) continue;
+        const uint16_t ctrl = video.system24_word(0x5004u + unsigned(layer & 2));
+        const int split_mode = (ctrl >> 13) & 3;
+        const bool line_scroll = (hreg & 0x8000) != 0;
+        const uint32_t line_base = 0x4000u + 0x200u * unsigned(layer);
+
+        if (split_mode) {
+            // In split modes the even layer combines itself with the following
+            // odd layer; the odd draw call is suppressed by the System24 chip.
+            if (layer & 1) continue;
+            std::array<std::vector<Rect>, 2> split_rects;
+            const int source_y = vreg & 511;
+            auto add = [&](int source_layer, int x0, int x1, int y0, int y1, int scroll) {
+                x0 = std::clamp(x0, 0, rt::Video::W);
+                x1 = std::clamp(x1, 0, rt::Video::W);
+                y0 = std::clamp(y0, 0, rt::Video::H);
+                y1 = std::clamp(y1, 0, rt::Video::H);
+                if (x0 < x1 && y0 < y1)
+                    split_rects[size_t(source_layer - layer)].push_back({x0, x1, y0, y1, scroll, source_y + y0});
+            };
+
+            if (split_mode == 1) {
+                const int neg_v = (-int(vreg)) & 0x3ff;
+                const int cut = neg_v & 511;
+                int first_layer = layer;
+                if (!(neg_v & 0x200)) first_layer ^= 1;
+                if (line_scroll) {
+                    for (int y = 0; y < rt::Video::H;) {
+                        const int raw = video.system24_word(line_base + unsigned(y));
+                        const int scroll = (-raw) & 511;
+                        const int source_layer = y >= cut ? first_layer ^ 1 : first_layer;
+                        int y1 = y + 1;
+                        while (y1 < rt::Video::H) {
+                            const int next_raw = video.system24_word(line_base + unsigned(y1));
+                            const int next_layer = y1 >= cut ? first_layer ^ 1 : first_layer;
+                            if (((-next_raw) & 511) != scroll || next_layer != source_layer) break;
+                            ++y1;
+                        }
+                        add(source_layer, 0, rt::Video::W, y, y1, scroll);
+                        y = y1;
+                    }
+                } else {
+                    const int scroll = (-int(hreg)) & 511;
+                    add(first_layer, 0, rt::Video::W, 0, cut, scroll);
+                    add(first_layer ^ 1, 0, rt::Video::W, cut, rt::Video::H, scroll);
+                }
+            } else {
+                if (line_scroll) {
+                    for (int y = 0; y < rt::Video::H; ++y) {
+                        const int raw = video.system24_word(line_base + unsigned(y));
+                        const int cut = raw & 511;
+                        int first_layer = layer;
+                        if (!(raw & 0x200)) first_layer ^= 1;
+                        const int scroll = (-cut) & 511;
+                        add(first_layer, 0, cut, y, y + 1, scroll);
+                        add(first_layer ^ 1, cut, rt::Video::W, y, y + 1, scroll);
+                    }
+                } else {
+                    const int cut = hreg & 511;
+                    int first_layer = layer;
+                    if (!(hreg & 0x200)) first_layer ^= 1;
+                    const int scroll = (-cut) & 511;
+                    add(first_layer, 0, cut, 0, rt::Video::H, scroll);
+                    add(first_layer ^ 1, cut, rt::Video::W, 0, rt::Video::H, scroll);
+                }
+            }
+            if (!submit(layer, split_rects[0]) || !submit(layer + 1, split_rects[1])) return false;
+            continue;
+        }
+
+        const bool win = (layer & 1) != 0;
+        const uint32_t mask_base = layer >= 2 ? 0x6800u : 0x6000u;
+        std::vector<Rect> rects;
+        for (int y = 0; y < rt::Video::H;) {
+            const int h = line_scroll ? ((-int(video.system24_word(line_base + unsigned(y)))) & 511) :
+                                        ((-int(hreg)) & 511);
+            std::array<uint16_t, 4> masks{};
+            for (int w = 0; w < 4; ++w) masks[size_t(w)] = video.system24_word(mask_base + unsigned(y * 4 + w));
+            int y1 = y + 1;
+            while (y1 < rt::Video::H) {
+                const int next_h = line_scroll ? ((-int(video.system24_word(line_base + unsigned(y1)))) & 511) : h;
+                bool same = next_h == h;
+                for (int w = 0; same && w < 4; ++w)
+                    same = video.system24_word(mask_base + unsigned(y1 * 4 + w)) == masks[size_t(w)];
+                if (!same) break;
+                ++y1;
+            }
+            int block = 0;
+            while (block * 8 < rt::Video::W) {
+                auto visible = [&](int b) {
+                    const bool bit = (masks[size_t(b / 16)] & uint16_t(0x8000u >> (b & 15))) != 0;
+                    return bit == win;
+                };
+                while (block * 8 < rt::Video::W && !visible(block)) ++block;
+                const int first = block;
+                while (block * 8 < rt::Video::W && visible(block)) ++block;
+                if (first < block) rects.push_back({first * 8, std::min(block * 8, rt::Video::W),
+                                                    y, y1, h, (vreg & 511) + y});
+            }
+            y = y1;
+        }
+        if (!submit(layer, rects)) return false;
+    }
+    return true;
+}
+
+uint32_t GpuFastRenderer::shade_texel(const rt::GeoPoly &poly, const rt::VideoMem &mem, uint8_t texel, uint8_t material_luma) const {
     const uint32_t lumabase = uint32_t(poly.texheader[1] & 0xff) << 7;
     const uint32_t color_index = ((poly.texheader[3] >> 6) & 0x3ff) + 0x1000;
     const uint32_t color = le16(mem.palram, color_index) & 0x7fff;
-    uint8_t luma = uint8_t(uint32_t(mem.lumaram[(lumabase + (uint32_t(texel) << 3)) * 4]) * poly.luma / 256);
+    uint8_t luma = uint8_t(uint32_t(mem.lumaram[(lumabase + (uint32_t(texel) << 3)) * 4]) * material_luma / 256);
     luma = std::min(luma, uint8_t(0x3f));
     const uint32_t cr = (((color >> 0) & 0x1f) << 8) + luma;
     const uint32_t cg = 0x4000 / 2 + (((color >> 5) & 0x1f) << 8) + luma;
@@ -123,88 +342,113 @@ uint32_t GpuFastRenderer::solid_color(const rt::GeoPoly &poly, const rt::VideoMe
     return RGBA8(r, g, b, 255);
 }
 
-void GpuFastRenderer::evict_for(std::size_t bytes) {
-    while (!materials_.empty() && cached_bytes_ + bytes > kCacheLimit) {
-        auto it = std::min_element(materials_.begin(), materials_.end(), [](const Material &a, const Material &b) {
-            return a.stamp < b.stamp;
-        });
-        cached_bytes_ -= it->bytes;
-        if (it->texture) {
-            retired_.push_back(it->texture);
-            retired_bytes_ += it->bytes;
-            it->texture = nullptr;
-        }
-        materials_.erase(it);
-    }
-}
-
-GpuFastRenderer::Material GpuFastRenderer::build_material(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
-    Material out;
-    out.key = {poly.texheader[0], poly.texheader[1], poly.texheader[2], poly.texheader[3], poly.luma,
-               bool((poly.texheader[0] >> 13) & 1)};
-    out.source_w = 32u << ((poly.texheader[0] >> 0) & 7);
+GpuFastRenderer::Source GpuFastRenderer::build_source(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
+    Source out;
+    out.source_w = 32u << (poly.texheader[0] & 7);
     out.source_h = 32u << ((poly.texheader[0] >> 3) & 7);
     const uint32_t step_x = std::max(1u, (out.source_w + kTextureLimit - 1) / kTextureLimit);
     const uint32_t step_y = std::max(1u, (out.source_h + kTextureLimit - 1) / kTextureLimit);
     out.tex_w = std::max(1u, (out.source_w + step_x - 1) / step_x);
     out.tex_h = std::max(1u, (out.source_h + step_y - 1) / step_y);
-    out.bytes = size_t(out.tex_w) * out.tex_h * 4;
-    evict_for(out.bytes);
-    out.texture = vita2d_create_empty_texture_format(out.tex_w, out.tex_h, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
-    if (!out.texture) return out;
+    out.texture = make_texture(source_memory_, out.tex_w, out.tex_h, SCE_GXM_TEXTURE_FORMAT_P8_ABGR, 1);
+    if (!out.texture) {
+        cache_reset_pending_ = true;
+        ++material_drops_;
+        return out;
+    }
     vita2d_texture_set_filters(out.texture, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
     const bool mirror_x = (poly.texheader[0] >> 8) & 1;
     const bool mirror_y = (poly.texheader[0] >> 9) & 1;
     const bool wrap_x = ((poly.texheader[0] >> 6) & 1) && !mirror_x;
     const bool wrap_y = ((poly.texheader[0] >> 7) & 1) && !mirror_y;
-    sceGxmTextureSetUAddrMode(&out.texture->gxm_tex, mirror_x ? SCE_GXM_TEXTURE_ADDR_MIRROR : (wrap_x ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP));
-    sceGxmTextureSetVAddrMode(&out.texture->gxm_tex, mirror_y ? SCE_GXM_TEXTURE_ADDR_MIRROR : (wrap_y ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP));
+    sceGxmTextureSetUAddrMode(&out.texture->gxm_tex, mirror_x ? SCE_GXM_TEXTURE_ADDR_MIRROR :
+        (wrap_x ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP));
+    sceGxmTextureSetVAddrMode(&out.texture->gxm_tex, mirror_y ? SCE_GXM_TEXTURE_ADDR_MIRROR :
+        (wrap_y ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP));
 
     auto *base = static_cast<uint8_t *>(vita2d_texture_get_datap(out.texture));
     const size_t stride_bytes = vita2d_texture_get_stride(out.texture);
-    if (!base || stride_bytes < size_t(out.tex_w) * sizeof(uint32_t) ||
-        (stride_bytes & (alignof(uint32_t) - 1)) != 0) {
-        vita2d_free_texture(out.texture);
+    if (!base || stride_bytes < out.tex_w) {
+        delete out.texture;
         out.texture = nullptr;
         return out;
     }
-    const uint32_t bx = 32u * ((poly.texheader[2] >> 0) & 0x3f);
+    const uint32_t bx = 32u * (poly.texheader[2] & 0x3f);
     const uint32_t by = 32u * ((poly.texheader[2] >> 6) & 0x1f);
     const uint32_t *sheet = (poly.texheader[2] & 0x1000) ? mem.tex1 : mem.tex0;
-    const bool transparent = out.key.translucent;
     for (uint32_t y = 0; y < out.tex_h; ++y) {
-        auto *row = reinterpret_cast<uint32_t *>(base + size_t(y) * stride_bytes);
+        uint8_t *row = base + size_t(y) * stride_bytes;
         const uint32_t sy0 = std::min(y * step_y, out.source_h - 1);
         for (uint32_t x = 0; x < out.tex_w; ++x) {
             const uint32_t sx0 = std::min(x * step_x, out.source_w - 1);
             const rt::TexelQuad q = rt::read_texel_quad(bx, by, sx0, sx0, sy0, sy0, sheet);
-            const uint8_t index = uint8_t((q.t00 >> 4) & 0x0f);
-            if (transparent && index == 0x0f) row[x] = RGBA8(0, 0, 0, 0);
-            else row[x] = shade_texel(poly, mem, index);
+            row[x] = uint8_t((q.t00 >> 4) & 0x0f);
         }
     }
+    out.bytes = stride_bytes * out.tex_h;
+    return out;
+}
+
+GpuFastRenderer::Source *GpuFastRenderer::source_for(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
+    const SourceKey key = source_key(poly);
+    auto found = sources_.find(key);
+    if (found != sources_.end()) return &found->second;
+    Source source = build_source(poly, mem);
+    if (!source.texture) return nullptr;
+    cached_bytes_ += source.bytes;
+    auto inserted = sources_.emplace(key, std::move(source));
+    return &inserted.first->second;
+}
+
+GpuFastRenderer::Material GpuFastRenderer::build_material(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
+    Material out;
+    out.key = material_key(poly);
+    out.source = source_for(poly, mem);
+    if (!out.source) return out;
+    constexpr std::size_t kPaletteBytes = 1024u;
+    out.palette = static_cast<uint32_t *>(palette_memory_.allocate(kPaletteBytes, 64));
+    if (!out.palette) {
+        cache_reset_pending_ = true;
+        ++material_drops_;
+        return out;
+    }
+    auto *palette = out.palette;
+    std::fill_n(palette, 256, 0u);
+    const bool transparent = (poly.texheader[0] >> 13) & 1;
+    for (uint8_t index = 0; index < 16; ++index)
+        palette[index] = (transparent && index == 0x0f) ? 0u : shade_texel(poly, mem, index, out.key.luma);
+    out.bytes = kPaletteBytes;
     cached_bytes_ += out.bytes;
     return out;
 }
 
 GpuFastRenderer::Material *GpuFastRenderer::material_for(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
-    const MaterialKey key{poly.texheader[0], poly.texheader[1], poly.texheader[2], poly.texheader[3], poly.luma,
-                          bool((poly.texheader[0] >> 13) & 1)};
+    const MaterialKey key = material_key(poly);
     ++stamp_;
-    for (auto &m : materials_) {
-        if (m.key == key) { m.stamp = stamp_; return &m; }
+    auto found = materials_.find(key);
+    if (found != materials_.end()) { found->second.stamp = stamp_; return &found->second; }
+    if (materials_.size() >= kMaterialLimit) {
+        cache_reset_pending_ = true;
+        ++material_drops_;
+        return nullptr;
     }
-    Material m = build_material(poly, mem);
-    if (!m.texture) return nullptr;
-    m.stamp = stamp_;
-    materials_.push_back(std::move(m));
-    return &materials_.back();
+    if (material_builds_ >= kMaterialBuildBudget) { ++material_defers_; return nullptr; }
+    Material material = build_material(poly, mem);
+    if (!material.palette || !material.source) return nullptr;
+    ++material_builds_;
+    material.stamp = stamp_;
+    auto inserted = materials_.emplace(key, std::move(material));
+    return &inserted.first->second;
 }
 
 void GpuFastRenderer::draw_polygons(rt::Video &video) {
     const auto &polys = video.gpu_polys();
     const rt::VideoMem &mem = video.gpu_mem();
-    pool_drops_ = 0;
+    material_drops_ = material_builds_ = material_defers_ = subdivided_polys_ = 0;
+    textured_draws_ = solid_draws_ = clip_changes_ = 0;
+    textured_polys_ = solid_polys_ = 0;
+    shader_setups_ = state_reuses_ = draw_errors_ = 0;
+    submitted_vertices_ = 0;
     min_pool_free_ = vita2d_pool_free_space();
     order_.resize(polys.size());
     for (size_t i = 0; i < order_.size(); ++i) order_[i] = i;
@@ -216,9 +460,60 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
     // which redundantly drew the old clip rectangle before setting the new one.
     vita2d_enable_clipping();
     int last_clip[4] = {-1, -1, -1, -1};
+    // Combine adjacent triangles only: never reorder translucent polygons or
+    // cross a clip/material boundary. Pool allocations remain alive until the
+    // next frame's completion fence.
+    enum class Batch { Empty, Textured, Solid };
+    Batch batch = Batch::Empty, bound_shader = Batch::Empty;
+    SceGxmContext *context = vita2d_get_context();
+    const uint16_t *indices = vita2d_get_linear_indices();
+    Material *batch_material = nullptr;
+    vita2d_texture_vertex *batch_texture_vertices = nullptr;
+    vita2d_color_vertex *batch_color_vertices = nullptr;
+    size_t batch_count = 0;
+    constexpr size_t max_batch = 65532;
+    auto flush = [&] {
+        if (batch == Batch::Empty) return;
+        vita2d_texture view{};
+        if (batch == Batch::Textured) {
+            view = *batch_material->source->texture;
+            sceGxmTextureSetPalette(&view.gxm_tex, batch_material->palette);
+        }
+        if (bound_shader == batch && context && indices) {
+            // The MVP and white tint do not change within this run. GXM keeps
+            // their bindings across draws, so only update the texture/stream.
+            // Invalidate after every vita2d clip draw and on a shader switch.
+            int result = 0;
+            if (batch == Batch::Textured) result = sceGxmSetFragmentTexture(context, 0, &view.gxm_tex);
+            const void *vertices = batch == Batch::Textured ? static_cast<void *>(batch_texture_vertices) :
+                                                              static_cast<void *>(batch_color_vertices);
+            if (result >= 0) result = sceGxmSetVertexStream(context, 0, vertices);
+            if (result >= 0) result = sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES,
+                SCE_GXM_INDEX_FORMAT_U16, indices, unsigned(batch_count));
+            if (result < 0) {
+                ++draw_errors_;
+                bound_shader = Batch::Empty;
+                batch = Batch::Empty;
+                batch_count = 0;
+                return;
+            }
+            ++state_reuses_;
+        } else {
+            if (batch == Batch::Textured)
+                vita2d_draw_array_textured(&view, SCE_GXM_PRIMITIVE_TRIANGLES,
+                    batch_texture_vertices, batch_count, RGBA8(255,255,255,255));
+            else vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES, batch_color_vertices, batch_count);
+            bound_shader = batch;
+            ++shader_setups_;
+        }
+        if (batch == Batch::Textured) ++textured_draws_;
+        else ++solid_draws_;
+        batch = Batch::Empty;
+        batch_count = 0;
+    };
     for (auto oi = order_.rbegin(); oi != order_.rend(); ++oi) {
         const rt::GeoPoly &poly = polys[*oi];
-        if (poly.window > video.gpu_windows() || poly.num_vertices < 3) continue;
+        if (poly.window > video.gpu_windows() || poly.num_vertices < 3 || poly.num_vertices > 8) continue;
         const int renderer = (poly.texheader[0] >> 13) & 3;
         int clip_l = std::max<int>(poly.viewport[0] + video.render_x(), 0);
         int clip_r = std::min<int>(poly.viewport[2] + video.render_x(), rt::Video::W - 1);
@@ -235,38 +530,101 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
                               int(sx(float(clip_r + 1))), int(sy(float(clip_b + 1)))};
         if (gclip[0] != last_clip[0] || gclip[1] != last_clip[1] ||
             gclip[2] != last_clip[2] || gclip[3] != last_clip[3]) {
+            flush();
             vita2d_set_clip_rectangle(gclip[0], gclip[1], gclip[2], gclip[3]);
+            bound_shader = Batch::Empty;
             for (int c = 0; c < 4; ++c) last_clip[c] = gclip[c];
+            ++clip_changes_;
         }
 
-        struct P { float x, y, u, v; } p[8];
+        struct P { float x, y, u, v, q; } p[8];
+        bool valid = true;
         for (int i = 0; i < poly.num_vertices; ++i) {
             const float pz = poly.v[i].p[0] + std::numeric_limits<float>::min();
+            if (!(pz > 0.0f) || !std::isfinite(pz)) { valid = false; break; }
             const float x = float(video.crtc_x() + poly.center[0]) + poly.v[i].x / pz;
             const float y = float((384 - poly.center[1]) + video.crtc_y()) - poly.v[i].y / pz;
             p[i].x = sx(x); p[i].y = sy(y);
             p[i].u = poly.v[i].p[1] / 8.0f;
             p[i].v = poly.v[i].p[2] / 8.0f;
+            p[i].q = 1.0f / pz;
+            if (!std::isfinite(p[i].x) || !std::isfinite(p[i].y) ||
+                !std::isfinite(p[i].u) || !std::isfinite(p[i].v) ||
+                !std::isfinite(p[i].q)) { valid = false; break; }
         }
+        if (!valid) continue;
 
         if (renderer & 2) {
             Material *m = material_for(poly, mem);
             if (!m) continue;
-            const size_t n = size_t(poly.num_vertices - 2) * 3;
+            const Source &source = *m->source;
+            float min_q = p[0].q, max_q = p[0].q;
+            float min_x = p[0].x, max_x = p[0].x, min_y = p[0].y, max_y = p[0].y;
+            for (int j = 1; j < poly.num_vertices; ++j) {
+                min_q = std::min(min_q, p[j].q); max_q = std::max(max_q, p[j].q);
+                min_x = std::min(min_x, p[j].x); max_x = std::max(max_x, p[j].x);
+                min_y = std::min(min_y, p[j].y); max_y = std::max(max_y, p[j].y);
+            }
+            const float q_ratio = min_q > 0.0f ? max_q / min_q : 1.0f;
+            const float span = std::max(max_x - min_x, max_y - min_y);
+            // Two-by-two perspective subdivision removes the road affine warp at
+            // a quarter of GPU09 worst-case vertex multiplication.
+            int subdiv = (q_ratio > 3.0f && span > 320.0f) ? 8 :
+                         (q_ratio > 1.75f && span > 128.0f) ? 4 :
+                         (q_ratio > 1.25f && span > 48.0f) ? 2 : 1;
+            size_t n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
+            if (batch != Batch::Textured || batch_material != m || batch_count + n > max_batch) flush();
+            while (subdiv > 1 && vita2d_pool_free_space() < n * sizeof(vita2d_texture_vertex) + 2048u) {
+                subdiv /= 2;
+                n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
+            }
+            if (subdiv > 1) ++subdivided_polys_;
+            submitted_vertices_ += n;
             auto *verts = static_cast<vita2d_texture_vertex *>(vita2d_pool_memalign(unsigned(n * sizeof(vita2d_texture_vertex)), 4));
             if (!verts) continue;
             size_t v = 0;
-            for (int i = 1; i + 1 < poly.num_vertices; ++i) {
-                for (int j : {0, i, i + 1}) {
-                    verts[v].x = p[j].x; verts[v].y = p[j].y; verts[v].z = 0.5f;
-                    verts[v].u = p[j].u / float(m->source_w);
-                    verts[v].v = p[j].v / float(m->source_h);
-                    ++v;
+            auto emit = [&](const P &a, const P &b, const P &c, int ib, int ic) {
+                const float wb = float(ib) / float(subdiv);
+                const float wc = float(ic) / float(subdiv);
+                const float wa = 1.0f - wb - wc;
+                const float q = wa * a.q + wb * b.q + wc * c.q;
+                vita2d_texture_vertex &dst = verts[v++];
+                dst.x = wa * a.x + wb * b.x + wc * c.x;
+                dst.y = wa * a.y + wb * b.y + wc * c.y;
+                dst.z = 0.5f;
+                dst.u = (wa * a.u * a.q + wb * b.u * b.q + wc * c.u * c.q) / q / float(source.source_w);
+                dst.v = (wa * a.v * a.q + wb * b.v * b.q + wc * c.v * c.q) / q / float(source.source_h);
+                if (!std::isfinite(dst.x) || !std::isfinite(dst.y) ||
+                    !std::isfinite(dst.u) || !std::isfinite(dst.v)) valid = false;
+            };
+            for (int fan = 1; fan + 1 < poly.num_vertices; ++fan) {
+                const P &a = p[0], &b = p[fan], &c = p[fan + 1];
+                for (int row = 0; row < subdiv; ++row) {
+                    for (int col = 0; col < subdiv - row; ++col) {
+                        emit(a, b, c, col, row);
+                        emit(a, b, c, col + 1, row);
+                        emit(a, b, c, col, row + 1);
+                        if (col < subdiv - row - 1) {
+                            emit(a, b, c, col + 1, row);
+                            emit(a, b, c, col + 1, row + 1);
+                            emit(a, b, c, col, row + 1);
+                        }
+                    }
                 }
             }
-            vita2d_draw_array_textured(m->texture, SCE_GXM_PRIMITIVE_TRIANGLES, verts, n, RGBA8(255,255,255,255));
+            if (!valid) { submitted_vertices_ -= n; continue; }
+            if (batch == Batch::Textured && batch_texture_vertices + batch_count != verts) flush();
+            if (batch == Batch::Empty) {
+                batch = Batch::Textured;
+                batch_material = m;
+                batch_texture_vertices = verts;
+            }
+            batch_count += n;
+            ++textured_polys_;
         } else if (!(renderer & 1)) {
             const size_t n = size_t(poly.num_vertices - 2) * 3;
+            if (batch != Batch::Solid || batch_count + n > max_batch) flush();
+            submitted_vertices_ += n;
             auto *verts = static_cast<vita2d_color_vertex *>(vita2d_pool_memalign(unsigned(n * sizeof(vita2d_color_vertex)), 4));
             if (!verts) continue;
             const uint32_t c = solid_color(poly, mem);
@@ -274,9 +632,16 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
             for (int i = 1; i + 1 < poly.num_vertices; ++i) {
                 for (int j : {0, i, i + 1}) verts[v++] = vita2d_color_vertex{p[j].x, p[j].y, 0.5f, c};
             }
-            vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES, verts, n);
+            if (batch == Batch::Solid && batch_color_vertices + batch_count != verts) flush();
+            if (batch == Batch::Empty) {
+                batch = Batch::Solid;
+                batch_color_vertices = verts;
+            }
+            batch_count += n;
+            ++solid_polys_;
         }
     }
+    flush();
     min_pool_free_ = std::min(min_pool_free_, vita2d_pool_free_space());
     vita2d_disable_clipping();
 }
@@ -290,12 +655,24 @@ void GpuFastRenderer::draw_exact(rt::Video &video) {
 
 void GpuFastRenderer::draw(rt::Video &video) {
     const uint64_t begin = sceKernelGetProcessTimeWide();
-    upload_layer(background_, video.background_layer());
-    upload_layer(foreground_, video.foreground_layer());
-    const float scale = kScale;
-    vita2d_draw_texture_scale(background_, kOffsetX, 0.0f, scale, scale);
-    draw_polygons(video);
-    vita2d_draw_texture_scale(foreground_, kOffsetX, 0.0f, scale, scale);
+    if (video.system24_gpu_compatible()) {
+        update_system24_textures(video);
+        draw_system24(video, false);
+        draw_polygons(video);
+        draw_system24(video, true);
+    } else {
+        if (background_generation_ != video.background_generation()) {
+            upload_layer(background_, video.background_layer());
+            background_generation_ = video.background_generation();
+        }
+        if (foreground_generation_ != video.foreground_generation()) {
+            upload_layer(foreground_, video.foreground_layer());
+            foreground_generation_ = video.foreground_generation();
+        }
+        vita2d_draw_texture_scale(background_, kOffsetX, 0.0f, kScale, kScale);
+        draw_polygons(video);
+        vita2d_draw_texture_scale(foreground_, kOffsetX, 0.0f, kScale, kScale);
+    }
     last_gpu_ms_ = double(sceKernelGetProcessTimeWide() - begin) / 1000.0;
 }
 

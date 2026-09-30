@@ -18,8 +18,8 @@ struct Input {
 inline bool menu_chord(uint32_t buttons) {
     return (buttons & (Start | Select)) == (Start | Select);
 }
-inline float axis(uint8_t value) {
-    constexpr float deadzone = 0.12f;
+inline float axis(uint8_t value, float deadzone = 0.12f) {
+    deadzone = std::clamp(deadzone, 0.0f, 0.4f);
     const float x = value < 128 ? (int(value) - 128) / 128.f : (int(value) - 128) / 127.f;
     const float magnitude = std::abs(x);
     if (magnitude <= deadzone) return 0.f;
@@ -33,10 +33,11 @@ public:
         held_ = pad.buttons;
         // The menu chord must not inject a coin or start a race.
         if (menu_chord(pad.buttons)) { set_gear(in); return in; }
-        float steer = axis(pad.lx);
+        float steer = axis(pad.lx, deadzone_);
         if (pad.buttons & (Left | Right))
             steer = float(bool(pad.buttons & Right)) - float(bool(pad.buttons & Left));
-        const float pedal = axis(pad.ry);
+        if (steer_invert_) steer = -steer;
+        const float pedal = axis(pad.ry, deadzone_);
         const float accel = pad.buttons & R ? 1.f : std::max(-pedal, 0.f);
         const float brake = pad.buttons & L ? 1.f : std::max(pedal, 0.f);
         in.steer = uint8_t(std::lround(128.f + 96.f * steer));
@@ -56,6 +57,8 @@ public:
     }
     void latch(uint32_t buttons) { held_ = buttons; }
     int gear() const { return gear_; }
+    void set_deadzone(float value) { deadzone_ = std::clamp(value, 0.0f, 0.4f); }
+    void set_steer_invert(bool value) { steer_invert_ = value; }
 private:
     void set_gear(Input &in) const {
         // Same gearbox encoding as src/app/controls.cpp.
@@ -64,6 +67,8 @@ private:
     }
     uint32_t held_ = 0;
     int gear_ = 1;
+    float deadzone_ = 0.12f;
+    bool steer_invert_ = false;
 };
 
 // Host time only; each simulation step still advances at GameLoop::kFrameHz.

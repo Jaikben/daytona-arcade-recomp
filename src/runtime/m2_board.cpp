@@ -91,6 +91,7 @@ M2Board::M2Board(Images images)
 
     geo_ = std::make_unique<Geo>(img_.polygons, img_.textures, tgp_.buffer_data());
     video_ = std::make_unique<Video>(tile_.data(), chr_.data());
+    video_->enable_write_tracking();
 }
 
 void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror, bool burst) {
@@ -290,6 +291,10 @@ void M2Board::dev_write(uint32_t addr, uint32_t data, uint32_t mask) {
 // what MAME's handlers do on each write.
 void M2Board::ram_written(uint32_t addr, uint32_t data, uint32_t mask) {
     (void)data;
+    if ((addr >= 0x01000000 && addr <= 0x0100ffff) ||
+        (addr >= 0x01110000 && addr <= 0x0111ffff)) video_->tile_memory_w();
+    else if ((addr >= 0x01080000 && addr <= 0x010fffff) ||
+             (addr >= 0x01180000 && addr <= 0x011fffff)) video_->character_memory_w();
     if (addr >= 0x01800000 && addr <= 0x01803fff) {
         for (uint32_t lane = 0; lane < 2; lane++)
             if ((mask >> (16 * lane)) & 0xffff) video_->palette_w(((addr & 0x3fff) >> 1) + lane, palette_.data(), xlat_.data());
@@ -360,7 +365,13 @@ void M2Board::write_byte(uint32_t addr, uint8_t data) {
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
     switch (p.kind) {
-    case Ram: p.base[addr & 0xfff] = data; ram_written(addr & ~3u, uint32_t(data) << sh, 0xffu << sh); return;
+    case Ram: {
+        uint8_t &dst = p.base[addr & 0xfff];
+        const bool changed = dst != data;
+        dst = data;
+        if (changed) ram_written(addr & ~3u, uint32_t(data) << sh, 0xffu << sh);
+        return;
+    }
     case Tex: tex_write(p, addr, uint32_t(data) << sh); return;
     case Dev: dev_write(addr & ~3u, uint32_t(data) << sh, 0xffu << sh); return;
     default: return;
@@ -372,10 +383,12 @@ void M2Board::write_word(uint32_t addr, uint16_t data) {
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
     switch (p.kind) {
-    case Ram:
+    case Ram: {
+        uint16_t old; std::memcpy(&old, p.base + (addr & 0xfff), 2);
         std::memcpy(p.base + (addr & 0xfff), &data, 2);
-        ram_written(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
+        if (old != data) ram_written(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
         return;
+    }
     case Tex: tex_write(p, addr, uint32_t(data) << sh); return;
     case Dev: dev_write(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh); return;
     default: return;
@@ -386,7 +399,12 @@ void M2Board::write_dword(uint32_t addr, uint32_t data) {
     addr &= ~3u;
     const Page &p = page(addr);
     switch (p.kind) {
-    case Ram: std::memcpy(p.base + (addr & 0xfff), &data, 4); ram_written(addr, data, 0xffffffffu); return;
+    case Ram: {
+        uint32_t old; std::memcpy(&old, p.base + (addr & 0xfff), 4);
+        std::memcpy(p.base + (addr & 0xfff), &data, 4);
+        if (old != data) ram_written(addr, data, 0xffffffffu);
+        return;
+    }
     case Tex: tex_write(p, addr, data); return;
     case Dev: dev_write(addr, data, 0xffffffffu); return;
     default: return;

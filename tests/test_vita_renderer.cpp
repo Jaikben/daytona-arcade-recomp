@@ -2,6 +2,8 @@
 // The reference translation units are built without M2_VITA_RENDER_OPT.
 #include "runtime/video.h"
 #include "reference/video.h"
+#include "../platform/vita/system24_upload.h"
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -68,6 +70,8 @@ void compare(const uint32_t *a,const uint32_t *b,size_t n,int frame,const char *
         std::fprintf(stderr,"FAIL: %s case %d pixel %zu actual=%08x expected=%08x\n",kind,frame,i,a[i],b[i]);std::exit(1);
     }
 }
+#include "vita_system24_upload.inc"
+
 void cache_tests() {
     Memory mem;
     std::fill(mem.tile.begin(),mem.tile.end(),0);
@@ -183,6 +187,6 @@ void benchmark() {
 }
 int main(int argc,char **argv) {
     if(argc>1 && std::string(argv[1])=="--bench"){benchmark();return 0;}
-    cache_tests();video_tests(160);raster_tests(640);
+    system24_upload_tests();cache_tests();video_tests(160);raster_tests(640);
     std::puts("All renderer comparisons passed.");
 }

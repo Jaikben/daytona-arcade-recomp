@@ -30,6 +30,9 @@ public:
     // palette_w after the bus has stored the write (palram holds the new value).
     void palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *colorxlat);
     void colorxlat_w(uint32_t offset) { if ((offset & 0xff) == 0x80 / 2) palette_dirty_ = true; }
+    void enable_write_tracking() { write_tracking_ = true; }
+    void tile_memory_w() { tile_memory_touched_ = true; }
+    void character_memory_w() { character_memory_touched_ = true; }
     void xhout_w(uint16_t data) { crtc_x_ = 84 + int16_t(data); render_x_ = crtc_x_; }
     void xvout_w(uint16_t data) { crtc_y_ = 130 + int16_t(data); render_y_ = crtc_y_; }
 
@@ -46,6 +49,27 @@ public:
     bool external_3d() const { return external_3d_; }
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
+    uint64_t background_generation() const { return background_generation_; }
+    uint64_t foreground_generation() const { return foreground_generation_; }
+    const uint16_t *system24_pixels(int layer) const { return pixmap_[layer & 3].data(); }
+    const uint8_t *system24_flags(int layer) const { return flags_[layer & 3].data(); }
+    uint32_t system24_pen(uint32_t index) const { return pens_[index & 0x1fff]; }
+    uint16_t system24_word(uint32_t index) const {
+#ifdef M2_VITA_RENDER_OPT
+        // GXM must use the same tile-register snapshot as screen_update. The
+        // guest can write the live registers again before the host presents.
+        const uint8_t *ram = tiles_valid_ ? tile_ram_copy_.data() : tile_ram_;
+        return uint16_t(ram[index * 2] | ram[index * 2 + 1] << 8);
+#else
+        return tile(index);
+#endif
+    }
+    uint64_t system24_texture_generation() const { return system24_texture_generation_; }
+    uint64_t system24_palette_generation() const { return system24_palette_generation_; }
+    uint64_t system24_tile_generation(int layer, unsigned tile_index) const {
+        return system24_tile_generations_[unsigned(layer & 3) * 4096u + (tile_index & 4095u)];
+    }
+    bool system24_gpu_compatible() const;
     const std::vector<GeoPoly> &gpu_polys() const;
     int gpu_windows() const { return gpu_windows_; }
     const VideoMem &gpu_mem() const { return gpu_mem_; }
@@ -81,7 +105,7 @@ private:
     std::vector<uint8_t> character_copy_, tile_ram_copy_, character_dirty_;
     std::vector<uint16_t> tile_values_;
     std::vector<uint32_t> background_;
-    bool tiles_valid_ = false, layers_dirty_ = true;
+    bool tiles_valid_ = false, background_dirty_ = true, foreground_dirty_ = true;
 #endif
     const uint8_t *tile_ram_, *char_ram_;
     uint32_t pens_[8192];
@@ -92,10 +116,15 @@ private:
     std::vector<uint8_t> flags_[4];
     std::vector<uint32_t> screen_, sys24_;
     std::vector<uint32_t> background_gpu_, foreground_gpu_;
+    uint64_t background_generation_ = 0, foreground_generation_ = 0, system24_texture_generation_ = 0;
+    bool system24_source_dirty_ = true;
+    std::vector<uint64_t> system24_tile_generations_;
+    uint64_t system24_palette_generation_ = 0;
     const std::vector<GeoPoly> *gpu_polys_ = nullptr;
     VideoMem gpu_mem_{};
     int gpu_windows_ = 0;
     bool external_3d_ = false;
+    bool write_tracking_ = false, tile_memory_touched_ = false, character_memory_touched_ = false;
     Raster raster_;
     bool rendered_now_ = false, render_done_ = false;
 };

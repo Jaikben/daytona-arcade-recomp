@@ -29,9 +29,15 @@ public:
     // Run until the next screen is composed. `inputs` are latched by the I/O
     // board at the start of this frame's vblank.
     void run_frame(const Inputs &inputs);
+    // Vita may overlap the independent sound board with GPU submission.
+    // Finish/complete sound before another frame, reading sound/profiling,
+    // or destroying this GameLoop. Only execute runs on the worker.
+    void run_frame_deferred_sound(const Inputs &inputs);
+    uint64_t execute_deferred_sound();
+    void complete_deferred_sound(uint64_t ticks);
 
     // Opt-in profiling in caller-defined host ticks; no SDL dependency here.
-    void set_profile_clock(FrameProfiler::Clock clock) { profiler_.set_clock(clock); }
+    void set_profile_clock(FrameProfiler::Clock clock) { profiler_.set_clock(clock); sound_profile_clock_ = clock; }
     const FrameProfile &last_profile() const { return profiler_.frame; }
 
     const std::vector<uint32_t> &screen() const { return board_->video().screen(); } // 496x384, 0xAARRGGBB
@@ -51,6 +57,9 @@ private:
     std::unique_ptr<Lockstep> ls_;
     std::unique_ptr<gen::Env> env_;
     std::unique_ptr<snd::SoundBoard> sound_;
+    std::vector<uint8_t> pending_sound_bytes_;
+    FrameProfiler::Clock sound_profile_clock_ = nullptr;
+    bool sound_frame_pending_ = false;
     Inputs inputs_;
     bool in_vblank_ = false, frame_done_ = false;
     uint64_t frame_start_ = 0, vblank_start_ = 0, frames_ = 0;
