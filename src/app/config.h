@@ -18,6 +18,7 @@ struct Config {
     bool native_audio = false; // applies on reset; reference remains the default
     // Enhancements (off by default).
     std::string aspect;        // widescreen: "" (original 4:3), "16:10", "16:9", "21:9"
+    bool hud_edges = false;    // with widescreen: lap times, position and maps at the screen edges
     static constexpr double kMaxAspect = 21.0 / 9.0;
     double aspect_ratio() const; // width / height; 0 = original
     Controls controls;

@@ -89,6 +89,8 @@ public:
     // square pixels as displayed) by showing more of the scene at the sides;
     // 0 or anything at most 496:384 is the original screen.
     void set_aspect(double aspect) { board_->set_wide_margin(wide_margin(aspect)); }
+    // With widescreen: the race HUD's side groups at the screen edges.
+    void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {
         const int width = 2 * int(kHeight * aspect / 2 + 0.5);
         return width > kWidth ? (width - kWidth) / 2 : 0;

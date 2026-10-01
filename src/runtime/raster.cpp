@@ -167,6 +167,8 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
 
 void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
                         int clip_miny, int clip_maxy) {
+    // Widescreen: a viewport spanning the screen extends into the side margins.
+    const int wide = margin_ && poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin_ : 0;
     // model2_3d_project
     for (int i = 0; i < poly.num_vertices; i++) {
         GeoVertex &v = poly.v[i];
@@ -174,12 +176,27 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         v.y = float((384 - poly.center[1]) + crtc_y) - (v.y / (v.p[0] + std::numeric_limits<float>::min()));
     }
 
+    // Widescreen, HUD at the edges: an overlay polygon inside a moved group moves with it.
+    if (hud_moves_count_ && poly.z <= kHudOverlayZ) {
+        float x0 = poly.v[0].x, x1 = x0, y0 = poly.v[0].y, y1 = y0;
+        for (int i = 1; i < poly.num_vertices; i++) {
+            x0 = std::min(x0, poly.v[i].x), x1 = std::max(x1, poly.v[i].x);
+            y0 = std::min(y0, poly.v[i].y), y1 = std::max(y1, poly.v[i].y);
+        }
+        const float sx = float(margin_); // projected x includes the margin
+        for (int m = 0; m < hud_moves_count_; m++) {
+            const HudMove &M = hud_moves_[m];
+            if (M.dx && x0 - sx >= M.x0 && x1 - sx <= M.x1 && y0 >= M.y0 && y1 <= M.y1) {
+                for (int i = 0; i < poly.num_vertices; i++) poly.v[i].x += float(M.dx);
+                render_x += M.dx;
+                break;
+            }
+        }
+    }
     // model2_3d_render
     Extra extra;
     const int renderer = (poly.texheader[0] >> 13) & 3;
     // rectangle(minx, maxx, miny, maxy) &= cliprect, in the renderer's offsets
-    // Widescreen: a viewport spanning the screen extends into the side margins.
-    const int wide = margin_ && poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin_ : 0;
     int clip[4] = {std::max(poly.viewport[0] - wide + render_x, clip_minx),
                    std::min(poly.viewport[2] + wide + render_x, clip_maxx),
                    std::max((384 - poly.viewport[3]) + render_y, clip_miny),

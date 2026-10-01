@@ -3,7 +3,7 @@
 // frames go to raw dumps (scripts/rgb2png.py converts them).
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
-//         [--aspect W:H]
+//         [--aspect W:H [--hud-edges]]
 //
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
@@ -123,7 +123,11 @@ int main(int argc, char **argv) {
     std::string dump_dir, inputs_path, wav_path;
     uint64_t every = 0;
     double aspect = 0;
+    bool hud_edges = false;
+    for (int i = 3; i < argc; i++)
+        if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
     for (int i = 3; i + 1 < argc; i += 2) {
+        if (!std::strcmp(argv[i], "--hud-edges")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
@@ -138,6 +142,7 @@ int main(int argc, char **argv) {
         rt::GameLoop game(dir);
         if (aspect > 0) {
             game.set_aspect(aspect);
+            game.set_hud_edges(hud_edges);
             std::printf("m2run: screen %dx%d\n", game.screen_width(), rt::GameLoop::kHeight);
         }
         Script script;

@@ -15,6 +15,7 @@
 #include "runtime/raster.h"
 #include "runtime/video_profile.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -48,6 +49,13 @@ public:
     // 496 wide in the centre. Not available with external 3D (the Vita path).
     void set_wide_margin(int margin);
     int width() const { return W + 2 * margin_; }
+    // With widescreen: the race HUD's side groups (lap times; position,
+    // condition panel, course map) at the screen edges instead of 4:3 centred.
+    void set_hud_edges(bool on) {
+        if (on != hud_edges_) render_done_ = false;
+        hud_edges_ = on;
+        if (!on) { std::fill(hud_shift_, hud_shift_ + 3, 0); set_raster_hud_moves(); }
+    }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
     void set_external_3d(bool enabled) { external_3d_ = enabled; render_done_ = false; }
@@ -130,6 +138,11 @@ private:
     int gpu_windows_ = 0;
     bool external_3d_ = false;
     int margin_ = 0;
+    bool hud_edges_ = false;
+    int hud_shift_[3] = {0, 0, 0};             // this frame's per-group moves
+    void hud_shifts(int shift[3]) const;       // from the front layers in sys24_
+    void set_raster_hud_moves();               // hud_shift_ to the rasterizer
+    void copy_front_hud_to_edges();
     bool write_tracking_ = false, tile_memory_touched_ = false, character_memory_touched_ = false;
     Raster raster_;
     bool rendered_now_ = false, render_done_ = false;

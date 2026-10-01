@@ -13,7 +13,19 @@ the tilemaps centred and each back-layer row carried into the margins (the
 sky's colour, not the backdrop pen). With it off every path is the old one:
 all 11 scenarios give their previous screen hashes. With 16:9 all 11 run to
 the end. Sampled 21:9 race frames show no obvious edge pop-in yet; not
-checked frame by frame. rules.md now lets enhancements change game logic.
+checked frame by frame.
+"HUD at the screen edges" (with widescreen; `m2run --hud-edges`): three
+groups in 496-wide coordinates move out by the margin: lap and lap times
+(x < 125, y < 130), position and condition panel (x >= 352, y < 166),
+course map (x >= 352, 166 <= y < 300). A group moves only while a band of
+8 columns at its cut is empty in its rows, so the scrolling "ROLLING START"
+banner is never torn (the map waits while it passes). Found on the way:
+"40TH/40" reaches x 367 (a cut at 376 blocked the group late in a race);
+the condition panel's box and car are not tilemap but polygons in the main
+3D window at sort z 0x600 (scenery there is above 18000), so overlay
+polygons (z <= 0x0fff) inside a moved group move with it. Off, widescreen
+is unchanged (16:9 race, 3,000 frames: `b65265cc10eca9c5` as at
+`a0474af`); 21:9 with it on: all 11 scenarios run to the end. rules.md now lets enhancements change game logic.
 Measured for draw distance: Daytona leaves the master z clip at 0xff
 (0 polygons culled by distance over a 6,000-frame race); backface 4.2M,
 behind the camera 1.1M, off-screen 1.4M. The limit is in the game's code.

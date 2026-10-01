@@ -16,6 +16,7 @@
 
 #include "runtime/geo.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstddef>
 #include <array>
@@ -55,12 +56,24 @@ public:
     // whose viewport spans the 496-pixel screen may then draw `margin` pixels
     // beyond either side. The layer grows to hold the wider screen.
     void set_wide_margin(int margin);
+    // Widescreen, HUD at the edges: HUD overlay polygons (the game draws them
+    // at a fixed near depth, z 1536; scenery near the HUD is above 18000)
+    // lying wholly inside a moved HUD group's rectangle (496-wide screen
+    // coordinates) move with it: the condition panel's box and car.
+    struct HudMove { int x0 = 0, x1 = 0, y0 = 0, y1 = 0, dx = 0; };
+    static constexpr uint16_t kHudOverlayZ = 0x0fff; // sort z: the smallest exponent (HUD overlays are 0x0600)
+    void set_hud_moves(const HudMove *moves, int count) {
+        hud_moves_count_ = std::min(count, 3);
+        std::copy_n(moves, hud_moves_count_, hud_moves_);
+    }
     uint64_t hash(int minx, int maxx, int miny, int maxy) const; // as the MAME log computes it
 
     struct Extra; // per-polygon shading state (MAME m2_poly_extra_data)
 
 private:
     int stride_ = 512, margin_ = 0;
+    HudMove hud_moves_[3];
+    int hud_moves_count_ = 0;
     std::vector<uint32_t> dest_;
     std::vector<uint8_t> fill_;
     uint8_t gamma_[256];

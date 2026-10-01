@@ -450,6 +450,20 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         std::copy_n(sys24_.data(), std::min(sys24_.size(), foreground_gpu_.size()), foreground_gpu_.data());
         return;
     }
+    // Widescreen, HUD at the edges: the front tilemaps are drawn first, to
+    // decide which HUD groups move; 3D windows inside a moved group go with it.
+    const bool hud_edges = margin_ && hud_edges_;
+    if (hud_edges) {
+        before = ticks();
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+        profile_.tile_draw += ticks() - before;
+        int shift[3];
+        hud_shifts(shift);
+        if (!std::equal(shift, shift + 3, hud_shift_)) render_done_ = false; // the overlay moved: redraw
+        std::copy_n(shift, 3, hud_shift_);
+        set_raster_hud_moves();
+    }
     if (!render_done_ && !polys.empty()) {
         before = ticks();
         raster_.render(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
@@ -462,14 +476,71 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     if (render_done_) copy_trans(raster_.pixels(), size_t(raster_.stride()), width());
     profile_.composite += ticks() - before;
 #ifndef M2_VITA_RENDER_OPT
-    before = ticks();
-    std::fill(sys24_.begin(), sys24_.end(), 0u);
-    for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
-    profile_.tile_draw += ticks() - before;
+    if (!hud_edges) {
+        before = ticks();
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+        profile_.tile_draw += ticks() - before;
+    }
 #endif
     before = ticks();
-    copy_trans(sys24_.data(), W, W, margin_);
+    if (hud_edges) {
+        copy_front_hud_to_edges();
+    } else {
+        copy_trans(sys24_.data(), W, W, margin_);
+    }
     profile_.composite += ticks() - before;
+}
+
+// Widescreen, HUD at the edges: the race HUD's side groups (lap and lap
+// times at the top left; position, condition panel and course map on the
+// right) move out by the margin; the centre (speed, speedometer) stays. The
+// front tilemaps also carry banners that scroll through those areas
+// ("ROLLING START"), so a group moves only while nothing crosses its cut:
+// a band of columns either side of it must be empty in the group's rows.
+// Rows y0..y1, columns x0..x1 (496-wide coordinates). The right side is two
+// groups: a banner crosses the course map's rows, not the position's.
+namespace {
+struct HudGroup { int x0, x1, y0, y1, cut, side; };
+constexpr HudGroup kHudGroups[3] = {{0, 125, 0, 130, 125, -1},    // lap, lap times
+                                    {352, 496, 0, 166, 352, 1},   // position ("40TH" reaches x 367), condition
+                                    {352, 496, 166, 300, 352, 1}}; // course map
+} // namespace
+
+void Video::hud_shifts(int shift[3]) const {
+    constexpr int kBand = 4;
+    for (int g = 0; g < 3; ++g) {
+        const HudGroup &G = kHudGroups[g];
+        bool clear = true;
+        for (int y = G.y0; y < G.y1 && clear; ++y)
+            for (int x = G.cut - kBand; x < G.cut + kBand; ++x)
+                if (sys24_[size_t(y) * W + size_t(x)]) { clear = false; break; }
+        shift[g] = clear ? G.side * margin_ : 0;
+    }
+}
+
+void Video::set_raster_hud_moves() {
+    Raster::HudMove moves[3];
+    for (int g = 0; g < 3; ++g) {
+        const HudGroup &G = kHudGroups[g];
+        moves[g] = {G.x0, G.x1, G.y0, G.y1, hud_shift_[g]};
+    }
+    raster_.set_hud_moves(moves, 3);
+}
+
+void Video::copy_front_hud_to_edges() {
+    const size_t out_w = size_t(width());
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const uint32_t pixel = sys24_[size_t(y) * W + size_t(x)];
+            if (!pixel) continue;
+            int at = margin_ + x;
+            for (int g = 0; g < 3; ++g) {
+                const HudGroup &G = kHudGroups[g];
+                if (y >= G.y0 && y < G.y1 && x >= G.x0 && x < G.x1) at += hud_shift_[g];
+            }
+            screen_[size_t(y) * out_w + size_t(at)] = pixel;
+        }
 }
 
 void Video::set_wide_margin(int margin) {
@@ -480,6 +551,8 @@ void Video::set_wide_margin(int margin) {
     margin = std::max(margin, 0);
     if (margin == margin_) return;
     margin_ = margin;
+    std::fill(hud_shift_, hud_shift_ + 3, 0);
+    set_raster_hud_moves();
     screen_.assign(size_t(width()) * H, 0u);
     raster_.set_wide_margin(margin_);
     render_done_ = false; // redraw the 3D layer at the new width

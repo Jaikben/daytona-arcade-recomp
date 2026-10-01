@@ -179,7 +179,11 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                 cfg_.aspect = aspect_ids[aspect];
                 cfg_.save();
             }
-            ImGui::TextDisabled("Shows more of the scene at the sides; the HUD stays 4:3 in the centre.");
+            ImGui::BeginDisabled(cfg_.aspect.empty());
+            if (ImGui::Checkbox("HUD at the screen edges", &cfg_.hud_edges)) cfg_.save();
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Shows more of the scene at the sides. The HUD stays 4:3 in the centre, or its\n"
+                                "lap times, position and maps move out to the edges.");
 
             ImGui::Spacing();
             ImGui::Separator();
