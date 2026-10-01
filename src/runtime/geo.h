@@ -142,6 +142,7 @@ private:
     bool check_culling(raster_state *raster, uint32_t attr, float min_z, float max_z);
     template <unsigned NumVerts> void model2_3d_process_polygon(raster_state *raster, uint32_t attr);
     void model2_3d_push(raster_state *raster, uint32_t input);
+    void model2_3d_push_point(raster_state *raster, const GeoVertex &point);
     void render_frame_start();
     void geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count);
     void geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count);

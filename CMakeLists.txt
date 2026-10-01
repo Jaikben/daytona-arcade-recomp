@@ -71,6 +71,9 @@ add_library(runtime STATIC
     src/runtime/snd_cpu.cpp
     src/runtime/multipcm.cpp
     src/runtime/sound_board.cpp
+    src/runtime/native_sample_mixer.cpp
+    src/runtime/native_sound_sequencer.cpp
+    src/runtime/native_sound_engine.cpp
 )
 target_include_directories(runtime PUBLIC src)
 # 7z ROM sets: the 7-Zip LZMA SDK's decoder (public-domain files only),
@@ -216,6 +219,34 @@ target_link_libraries(traceinfo PRIVATE trace)
 
 enable_testing()
 
+# ROM-free Vita regressions run the production code against narrow host mocks.
+# They validate CPU data/lifetimes, not GXM rendering or device frame rates.
+add_executable(test_geo_clip tests/test_geo_clip.cpp)
+target_include_directories(test_geo_clip PRIVATE src)
+add_test(NAME geo_clip COMMAND test_geo_clip)
+
+add_executable(test_geo_stream tests/test_geo_stream.cpp)
+target_include_directories(test_geo_stream PRIVATE src)
+add_test(NAME geo_stream COMMAND test_geo_stream)
+
+add_executable(test_vita_gpu_memory tests/test_vita_gpu_memory.cpp)
+target_include_directories(test_vita_gpu_memory PRIVATE tests/vita_gpu_shim platform/vita)
+add_test(NAME vita_gpu_memory COMMAND test_vita_gpu_memory)
+
+add_executable(test_vita_gpu_lifetime tests/test_vita_gpu_lifetime.cpp
+    src/runtime/video.cpp src/runtime/raster.cpp)
+target_include_directories(test_vita_gpu_lifetime PRIVATE tests/vita_gpu_shim src)
+target_compile_definitions(test_vita_gpu_lifetime PRIVATE M2_VITA_RENDER_OPT=1)
+add_test(NAME vita_gpu_lifetime COMMAND test_vita_gpu_lifetime)
+
+add_executable(test_vita_tessellation tests/test_vita_tessellation.cpp)
+target_include_directories(test_vita_tessellation PRIVATE tests/vita_gpu_shim platform/vita)
+add_test(NAME vita_tessellation COMMAND test_vita_tessellation)
+
+add_executable(test_vita_polygon_order tests/test_vita_polygon_order.cpp)
+target_include_directories(test_vita_polygon_order PRIVATE platform/vita src)
+add_test(NAME vita_polygon_order COMMAND test_vita_polygon_order)
+
 add_executable(test_decode tests/test_decode.cpp)
 target_link_libraries(test_decode PRIVATE i960)
 add_test(NAME decode COMMAND test_decode)
@@ -229,6 +260,46 @@ target_link_libraries(test_fp PRIVATE i960)
 find_package(Threads REQUIRED)
 target_link_libraries(test_fp PRIVATE Threads::Threads)
 add_test(NAME fp COMMAND test_fp)
+
+add_executable(test_native_sample_mixer tests/test_native_sample_mixer.cpp src/runtime/native_sample_mixer.cpp)
+target_include_directories(test_native_sample_mixer PRIVATE src/runtime)
+add_test(NAME native_sample_mixer COMMAND test_native_sample_mixer)
+
+add_executable(test_native_sound_sequencer tests/test_native_sound_sequencer.cpp src/runtime/native_sound_sequencer.cpp)
+target_include_directories(test_native_sound_sequencer PRIVATE src)
+add_test(NAME native_sound_sequencer COMMAND test_native_sound_sequencer)
+
+add_executable(test_vita_native_audio tests/test_vita_native_audio.cpp)
+target_include_directories(test_vita_native_audio PRIVATE tests/vita_audio_shim)
+target_link_libraries(test_vita_native_audio PRIVATE Threads::Threads)
+add_test(NAME vita_native_audio COMMAND test_vita_native_audio)
+
+if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/include/SDL3/SDL_audio.h)
+    add_executable(test_app_native_audio tests/test_app_native_audio.cpp)
+    target_include_directories(test_app_native_audio PRIVATE extern/sdl3/include)
+    target_link_libraries(test_app_native_audio PRIVATE Threads::Threads)
+    add_test(NAME app_native_audio COMMAND test_app_native_audio)
+endif()
+
+add_executable(test_vita_sound_worker tests/test_vita_sound_worker.cpp)
+target_include_directories(test_vita_sound_worker PRIVATE tests/vita_audio_shim)
+target_link_libraries(test_vita_sound_worker PRIVATE Threads::Threads)
+add_test(NAME vita_sound_worker COMMAND test_vita_sound_worker)
+
+add_executable(test_vita_audio_worker tests/test_vita_audio_worker.cpp)
+target_include_directories(test_vita_audio_worker PRIVATE tests/vita_audio_shim)
+target_link_libraries(test_vita_audio_worker PRIVATE Threads::Threads)
+add_test(NAME vita_audio_worker COMMAND test_vita_audio_worker)
+
+add_executable(test_vita_async_log tests/test_vita_async_log.cpp)
+target_include_directories(test_vita_async_log PRIVATE tests/vita_log_shim)
+target_link_libraries(test_vita_async_log PRIVATE Threads::Threads)
+add_test(NAME vita_async_log COMMAND test_vita_async_log)
+set_tests_properties(vita_async_log PROPERTIES TIMEOUT 20)
+
+add_executable(test_vita_log tests/test_vita_log.cpp)
+target_include_directories(test_vita_log PRIVATE tests/vita_log_shim)
+add_test(NAME vita_log COMMAND test_vita_log)
 
 # Measurement, not a test: where MAME's double FP disagrees with the model.
 add_executable(fp_vs_mame tests/fp_vs_mame.cpp)

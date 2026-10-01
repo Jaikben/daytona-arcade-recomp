@@ -177,6 +177,8 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             }
             ImGui::SameLine();
             if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
+            if (ImGui::Checkbox("Native audio (experimental; applies on reset)", &cfg_.native_audio)) cfg_.save();
+            ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
 
             ImGui::Spacing();
             ImGui::Separator();

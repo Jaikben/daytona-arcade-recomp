@@ -142,8 +142,19 @@ inline uint16_t Geo::float_to_zval(float floatval, int32_t z_adjust)
 		return 0xffff; // above 14 is too large
 }
 
+static inline bool polygon_inside_plane(const GeoVertex *v, int32_t count, const Geo::plane &clip_plane)
+{
+    for (int32_t i = 0; i < count; ++i)
+        if (!(dot_product(v[i], clip_plane.normal) >= clip_plane.distance))
+            return false;
+    return true;
+}
+
 static int32_t clip_polygon(GeoVertex *v, int32_t num_vertices, GeoVertex *vout, Geo::plane clip_plane)
 {
+	if (num_vertices <= 0)
+		return 0;
+
 	int32_t outcount = 0;
 
 	const GeoVertex *cur = v;
@@ -154,7 +165,9 @@ static int32_t clip_polygon(GeoVertex *v, int32_t num_vertices, GeoVertex *vout,
 
 	for (int32_t i = 0; i < num_vertices; i++)
 	{
-		const int32_t nextvert = (i + 1) % num_vertices;
+		// Cortex-A9 has no integer divide instruction. This wrap is exactly
+		// equivalent to modulo for this bounded vertex loop.
+		const int32_t nextvert = i + 1 == num_vertices ? 0 : i + 1;
 
 		/* if the current point is inside the plane, add it */
 		if (curin)
@@ -340,7 +353,8 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (cull == false)
 	{
 		int32_t clipped_verts;
-		GeoVertex verts_in[8], verts_out[8];
+		GeoVertex vertices[2][8];
+		GeoVertex *verts_in = vertices[0], *verts_out = vertices[1];
 
 		for (int i = 0; i < NumVerts; i++)
 			verts_in[i] = object.v[i];
@@ -348,11 +362,15 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		clipped_verts = NumVerts;
 
 		/* do clipping */
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 4 && clipped_verts; i++)
 		{
-			clipped_verts = clip_polygon(verts_in, clipped_verts, verts_out, raster->clip_plane[raster->center_sel][i]);
-			for (int j = 0; j < clipped_verts; j++)
-				verts_in[j] = verts_out[j];
+			const auto &clip_plane = raster->clip_plane[raster->center_sel][i];
+			// Most polygons are wholly inside a plane. Preserve the same dot
+			// comparisons while avoiding the edge walk and vertex copies.
+			if (polygon_inside_plane(verts_in, clipped_verts, clip_plane))
+				continue;
+			clipped_verts = clip_polygon(verts_in, clipped_verts, verts_out, clip_plane);
+			std::swap(verts_in, verts_out);
 		}
 
 		if (clipped_verts > 2)
@@ -393,7 +411,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 			poly->num_vertices = clipped_verts;
 
 			for (int i = 0; i < clipped_verts; i++)
-				poly->v[i] = verts_out[i];
+				poly->v[i] = verts_in[i];
 
 			// (MAME links it into a per-z bucket here; the display list keeps
 			// the order added, from which the bucket order follows.)
@@ -669,6 +687,31 @@ void Geo::model2_3d_push(raster_state *raster, uint32_t input)
 /***********************************************************************************************/
 
 
+inline void Geo::model2_3d_push_point(raster_state *raster, const GeoVertex &point)
+{
+    const uint32_t x = f2u(point.x) >> 8;
+    const uint32_t y = f2u(point.y) >> 8;
+    const uint32_t z = f2u(point.pz) >> 8;
+    const uint32_t index = raster->command_index;
+    // These slots contain a whole point. Only its final word can complete a
+    // polygon, so the X/Y words need no repeated command-decoder dispatch.
+    if (raster->cur_command == 1 &&
+        (index == 2 || index == 5 || index == 11 ||
+         (index == 14 && (raster->command_buffer[8] & 1))))
+    {
+        if (record_pushes) { pushed.push_back(x); pushed.push_back(y); }
+        raster->command_buffer[index] = x;
+        raster->command_buffer[index + 1] = y;
+        raster->command_index = index + 2;
+    }
+    else
+    {
+        model2_3d_push(raster, x);
+        model2_3d_push(raster, y);
+    }
+    model2_3d_push(raster, z);
+}
+
 /* Parse Polygons: Normals Present, No Specular case */
 void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 {
@@ -688,9 +731,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
 	point.x = u2f(*input++);
@@ -704,9 +745,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* loop through the following links */
 	for (i = 0; i < count; i++)
@@ -777,9 +816,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
-			model2_3d_push(raster, f2u(point.x) >> 8);
-			model2_3d_push(raster, f2u(point.y) >> 8);
-			model2_3d_push(raster, f2u(point.pz) >> 8);
+			model2_3d_push_point(raster, point);
 
 			/* if it's a quad, push one more point */
 			if (attr & 1)
@@ -796,9 +833,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				apply_focus(geo, &point);
 
 				/* push to the 3d rasterizer */
-				model2_3d_push(raster, f2u(point.x) >> 8);
-				model2_3d_push(raster, f2u(point.y) >> 8);
-				model2_3d_push(raster, f2u(point.pz) >> 8);
+				model2_3d_push_point(raster, point);
 			}
 			else /* triangle */
 			{
@@ -835,9 +870,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
 	point.x = u2f(*input++);
@@ -851,9 +884,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* loop through the following links */
 	for (i = 0; i < count; i++)
@@ -933,9 +964,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
-			model2_3d_push(raster, f2u(point.x) >> 8);
-			model2_3d_push(raster, f2u(point.y) >> 8);
-			model2_3d_push(raster, f2u(point.pz) >> 8);
+			model2_3d_push_point(raster, point);
 
 			/* if it's a quad, push one more point */
 			if (attr & 1)
@@ -952,9 +981,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 				apply_focus(geo, &point);
 
 				/* push to the 3d rasterizer */
-				model2_3d_push(raster, f2u(point.x) >> 8);
-				model2_3d_push(raster, f2u(point.y) >> 8);
-				model2_3d_push(raster, f2u(point.pz) >> 8);
+				model2_3d_push_point(raster, point);
 			}
 			else /* triangle */
 			{
@@ -994,9 +1021,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
 	point.x = u2f(*input++);
@@ -1013,9 +1038,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* loop through the following links */
 	for (i = 0; i < count; i++)
@@ -1090,9 +1113,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
-			model2_3d_push(raster, f2u(point.x) >> 8);
-			model2_3d_push(raster, f2u(point.y) >> 8);
-			model2_3d_push(raster, f2u(point.pz) >> 8);
+			model2_3d_push_point(raster, point);
 
 			/* if it's a quad, push one more point */
 			if (attr & 1)
@@ -1112,9 +1133,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				apply_focus(geo, &point);
 
 				/* push to the 3d rasterizer */
-				model2_3d_push(raster, f2u(point.x) >> 8);
-				model2_3d_push(raster, f2u(point.y) >> 8);
-				model2_3d_push(raster, f2u(point.pz) >> 8);
+				model2_3d_push_point(raster, point);
 			}
 			else
 			{
@@ -1184,9 +1203,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
 	point.x = u2f(*input++);
@@ -1203,9 +1220,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	apply_focus(geo, &point);
 
 	/* push it to the 3d rasterizer */
-	model2_3d_push(raster, f2u(point.x) >> 8);
-	model2_3d_push(raster, f2u(point.y) >> 8);
-	model2_3d_push(raster, f2u(point.pz) >> 8);
+	model2_3d_push_point(raster, point);
 
 	/* loop through the following links */
 	for (i = 0; i < count; i++)
@@ -1289,9 +1304,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
-			model2_3d_push(raster, f2u(point.x) >> 8);
-			model2_3d_push(raster, f2u(point.y) >> 8);
-			model2_3d_push(raster, f2u(point.pz) >> 8);
+			model2_3d_push_point(raster, point);
 
 			/* if it's a quad, push one more point */
 			if (attr & 1)
@@ -1311,9 +1324,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 				apply_focus(geo, &point);
 
 				/* push to the 3d rasterizer */
-				model2_3d_push(raster, f2u(point.x) >> 8);
-				model2_3d_push(raster, f2u(point.y) >> 8);
-				model2_3d_push(raster, f2u(point.pz) >> 8);
+				model2_3d_push_point(raster, point);
 			}
 			else
 			{

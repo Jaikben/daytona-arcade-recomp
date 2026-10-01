@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace rt {
 
@@ -24,10 +25,19 @@ inline uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000u | (
 } // namespace
 
 Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
-    : tile_ram_(tile_ram), char_ram_(char_ram), screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)) {
+    : tile_ram_(tile_ram), char_ram_(char_ram), screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
+      background_gpu_(size_t(W) * H), foreground_gpu_(size_t(W) * H) {
     for (auto &p : pens_) p = rgb(0, 0, 0); // palette_device starts black
     for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
     for (int l = 0; l < 4; l++) pixmap_[l].assign(512 * 512, 0), flags_[l].assign(512 * 512, 0);
+    system24_tile_generations_.resize(4 * 4096);
+#ifdef M2_VITA_RENDER_OPT
+    character_copy_.resize(0x80000);
+    character_dirty_.resize(0x4000);
+    tile_ram_copy_.resize(0x10000);
+    tile_values_.resize(4 * 4096);
+    background_.resize(size_t(W) * (H + 4));
+#endif
 }
 
 void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *colorxlat) {
@@ -35,7 +45,15 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
     const uint8_t r = uint8_t(le16(colorxlat, (0x0080 >> 1) + (((palcolor >> 0) & 0x1f) << 8)));
     const uint8_t g = uint8_t(le16(colorxlat, (0x4080 >> 1) + (((palcolor >> 5) & 0x1f) << 8)));
     const uint8_t b = uint8_t(le16(colorxlat, (0x8080 >> 1) + (((palcolor >> 10) & 0x1f) << 8)));
-    pens_[offset & 0x1fff] = rgb(gamma_[r], gamma_[g], gamma_[b]);
+    const uint32_t pen = rgb(gamma_[r], gamma_[g], gamma_[b]);
+    if (pens_[offset & 0x1fff] != pen) {
+#ifdef M2_VITA_RENDER_OPT
+        background_dirty_ = foreground_dirty_ = true;
+#endif
+        system24_source_dirty_ = true;
+        system24_palette_generation_ = system24_texture_generation_ + 1;
+    }
+    pens_[offset & 0x1fff] = pen;
 }
 
 // segaic24 tile_info + MAME tilemap pixmap: 64x64 tiles (TILEMAP_SCAN_ROWS)
@@ -48,6 +66,19 @@ void Video::build_layer(int layer) {
     for (uint32_t t = 0; t < 64 * 64; t++) {
         const uint16_t val = tile(t | base);
         const uint32_t code = val & 0x3fff;
+#ifdef M2_VITA_RENDER_OPT
+        uint16_t &previous = tile_values_[base + t];
+        if (tiles_valid_ && previous == val && !character_dirty_[code]) continue;
+        if (!tiles_valid_) background_dirty_ = foreground_dirty_ = true;
+        else {
+            (previous & 0x8000 ? foreground_dirty_ : background_dirty_) = true;
+            (val & 0x8000 ? foreground_dirty_ : background_dirty_) = true;
+        }
+        previous = val;
+#endif
+        ++profile_.tiles_rebuilt;
+        system24_source_dirty_ = true;
+        system24_tile_generations_[base + t] = system24_texture_generation_ + 1;
         const uint32_t color = (val >> 7) & 0xff;
         const uint8_t category = (val & 0x8000) ? 1 : 0;
         const uint32_t tx = (t & 63) * 8, ty = (t >> 6) * 8;
@@ -62,6 +93,59 @@ void Video::build_layer(int layer) {
             }
     }
 }
+
+#ifdef M2_VITA_RENDER_OPT
+void Video::update_tile_cache() {
+    const bool chars_changed = !tiles_valid_ || (write_tracking_ ? character_memory_touched_ :
+        std::memcmp(char_ram_, character_copy_.data(), character_copy_.size()) != 0);
+    const bool ram_changed = !tiles_valid_ || (write_tracking_ ? tile_memory_touched_ :
+        std::memcmp(tile_ram_, tile_ram_copy_.data(), tile_ram_copy_.size()) != 0);
+    if (!chars_changed && !ram_changed) return;
+    std::fill(character_dirty_.begin(), character_dirty_.end(), uint8_t(0));
+    if (chars_changed) {
+        constexpr size_t page_bytes = 256;
+        constexpr size_t chars_per_page = page_bytes / 32;
+        for (size_t page = 0; page < character_copy_.size(); page += page_bytes) {
+            if (tiles_valid_ && std::memcmp(char_ram_ + page, character_copy_.data() + page, page_bytes) == 0)
+                continue;
+            const size_t first = page / 32;
+            for (size_t local = 0; local < chars_per_page; ++local) {
+                const size_t code = first + local;
+                const size_t offset = code * 32;
+                if (!tiles_valid_ || std::memcmp(char_ram_ + offset, character_copy_.data() + offset, 32) != 0) {
+                    std::memcpy(character_copy_.data() + offset, char_ram_ + offset, 32);
+                    character_dirty_[code] = 1;
+                    ++profile_.characters_changed;
+                }
+            }
+        }
+    }
+    bool draw_state_changed = !tiles_valid_;
+    if (tiles_valid_ && ram_changed) {
+        auto changed = [&](size_t offset, size_t bytes) {
+            return std::memcmp(tile_ram_ + offset, tile_ram_copy_.data() + offset, bytes) != 0;
+        };
+        // Line-scroll tables, layer control/scroll registers and window masks.
+        draw_state_changed = changed(0x8000, 0x1000) || changed(0xa000, 0x10) || changed(0xc000, 0x2000);
+    }
+    for (int layer = 0; layer < 4; ++layer) build_layer(layer);
+    // Normal-mode opaque backgrounds ignore category, whereas split modes
+    // still filter category 0. Changing modes changes uploaded alpha even
+    // when tile and character RAM are unchanged.
+    if (tiles_valid_ && ram_changed &&
+        bool(tile(0x5006) & 0x6000) != bool(le16(tile_ram_copy_.data(), 0x5006) & 0x6000)) {
+        std::fill(system24_tile_generations_.begin() + 2 * 4096,
+                  system24_tile_generations_.end(), system24_texture_generation_ + 1);
+        system24_source_dirty_ = true;
+    }
+    // The remaining tile RAM contains scrolling, window masks and line tables.
+    // Any change there invalidates composition even when no glyph was rebuilt.
+    if (ram_changed) std::memcpy(tile_ram_copy_.data(), tile_ram_, tile_ram_copy_.size());
+    if (draw_state_changed) background_dirty_ = foreground_dirty_ = true;
+    tiles_valid_ = true;
+    tile_memory_touched_ = character_memory_touched_ = false;
+}
+#endif
 
 // segaic24 draw_rect, rgb32 version (model 1/2): copy a rectangle of the
 // layer's pixmap to the bitmap through the 8-pixel window mask.
@@ -256,37 +340,122 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
     }
 }
 
-void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem) {
-    // if the scroll colour table was written, refresh the palette (MAME never clears the flag)
-    if (palette_dirty_)
-        for (uint32_t i = 0; i < 0x1000; i++) palette_w(i, mem.palram, mem.colorxlat);
+bool Video::system24_gpu_compatible() const {
+    // The Vita GXM compositor supports normal windowing plus all three
+    // System24 split-layer modes. Keep this query for the CPU fallback API.
+    return true;
+}
 
+const std::vector<GeoPoly> &Video::gpu_polys() const {
+    static const std::vector<GeoPoly> empty;
+    return gpu_polys_ ? *gpu_polys_ : empty;
+}
+
+void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem) {
+    gpu_polys_ = &polys;
+    gpu_windows_ = windows;
+    gpu_mem_ = mem;
+    profile_ = {};
+    uint64_t before = ticks();
+    // Retain the reference's sticky palette-dirty behavior. palette_w marks
+    // cached composition dirty only if the resulting RGB value really changed.
+    if (palette_dirty_) {
+        for (uint32_t i = 0; i < 0x1000; i++) palette_w(i, mem.palram, mem.colorxlat);
+        palette_dirty_ = false;
+    }
+#ifdef M2_VITA_RENDER_OPT
+    update_tile_cache();
+#else
     for (int l = 0; l < 4; l++) build_layer(l);
+#endif
+    if (system24_source_dirty_) {
+        ++system24_texture_generation_;
+        system24_source_dirty_ = false;
+    }
+    profile_.tile_cache = ticks() - before;
+    if (external_3d_ && system24_gpu_compatible()) {
+        // GXM composes the cached System-24 tile textures around the 3D
+        // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
+        rendered_now_ = false;
+        return;
+    }
+    auto copy_trans = [&](const uint32_t *source, size_t stride) {
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                if (const uint32_t pixel = source[size_t(y) * stride + size_t(x)])
+                    screen_[size_t(y) * W + size_t(x)] = pixel;
+    };
+#ifdef M2_VITA_RENDER_OPT
+    before = ticks();
+    if (background_dirty_) {
+        // All tile writes are replacements, not blends. Drawing the back
+        // layers over pen 0 is identical to zero + transparent copy over pen 0.
+        std::fill(background_.begin(), background_.end(), pens_[0]);
+        for (int layer = 3; layer >= 2; --layer) draw(background_, layer << 1, DRAW_OPAQUE);
+        for (int layer = 1; layer >= 0; --layer) draw(background_, layer << 1, 0);
+        background_dirty_ = false;
+        ++background_generation_;
+        profile_.layers_rebuilt = true;
+    }
+    if (foreground_dirty_) {
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+        foreground_dirty_ = false;
+        ++foreground_generation_;
+        profile_.layers_rebuilt = true;
+    }
+    profile_.tile_draw = ticks() - before;
+    before = ticks();
+    std::copy_n(background_.data(), screen_.size(), screen_.data());
+    profile_.composite += ticks() - before;
+#else
+    before = ticks();
     std::fill(screen_.begin(), screen_.end(), pens_[0]);
     std::fill(sys24_.begin(), sys24_.end(), 0u);
-    for (int layer = 3; layer >= 2; layer--) draw(sys24_, layer << 1, DRAW_OPAQUE);
-    for (int layer = 1; layer >= 0; layer--) draw(sys24_, layer << 1, 0);
-    auto copy_trans = [&](const uint32_t *src, size_t stride) {
-        for (int y = 0; y < H; y++)
-            for (int x = 0; x < W; x++)
-                if (const uint32_t p = src[size_t(y) * stride + size_t(x)]) screen_[size_t(y) * W + size_t(x)] = p;
-    };
+    for (int layer = 3; layer >= 2; --layer) draw(sys24_, layer << 1, DRAW_OPAQUE);
+    for (int layer = 1; layer >= 0; --layer) draw(sys24_, layer << 1, 0);
+    profile_.tile_draw += ticks() - before;
+    profile_.layers_rebuilt = true;
+    before = ticks();
     copy_trans(sys24_.data(), W);
-
-    // render_polygons
+    profile_.composite += ticks() - before;
+#endif
     rendered_now_ = false;
-    if (render_done_) {
-        copy_trans(raster_.pixels(), 512);
-    } else if (!polys.empty()) {
+    if (external_3d_) {
+        // Save the exact two System-24 layers separately. The Vita frontend
+        // draws background -> GPU 3D -> foreground. No CPU polygon pixels are
+        // produced in this mode, so raster_ms should remain zero.
+        std::copy_n(screen_.data(), screen_.size(), background_gpu_.data());
+#ifndef M2_VITA_RENDER_OPT
+        // Reference path has not drawn the post-3D tile pass yet.
+        before = ticks();
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+        profile_.tile_draw += ticks() - before;
+#endif
+        std::fill(foreground_gpu_.begin(), foreground_gpu_.end(), 0u);
+        std::copy_n(sys24_.data(), std::min(sys24_.size(), foreground_gpu_.size()), foreground_gpu_.data());
+        return;
+    }
+    if (!render_done_ && !polys.empty()) {
+        before = ticks();
         raster_.render(polys, windows, mem, crtc_x_, crtc_y_, render_x_, render_y_, 0, W - 1, 0, H - 1);
-        copy_trans(raster_.pixels(), 512);
+        profile_.raster = ticks() - before;
         render_done_ = true;
         rendered_now_ = true;
     }
-
+    before = ticks();
+    if (render_done_) copy_trans(raster_.pixels(), 512);
+    profile_.composite += ticks() - before;
+#ifndef M2_VITA_RENDER_OPT
+    before = ticks();
     std::fill(sys24_.begin(), sys24_.end(), 0u);
-    for (int layer = 3; layer >= 0; layer--) draw(sys24_, (layer << 1) | 1, 0);
+    for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+    profile_.tile_draw += ticks() - before;
+#endif
+    before = ticks();
     copy_trans(sys24_.data(), W);
+    profile_.composite += ticks() - before;
 }
 
 uint64_t Video::screen_hash() const {
