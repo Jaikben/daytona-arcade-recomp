@@ -86,5 +86,26 @@ int main() {
     CHECK(clock.advance(-1) == 0);
     CHECK(clock.advance(std::numeric_limits<double>::infinity()) == 0);
     CHECK(clock.advance(std::numeric_limits<double>::quiet_NaN()) == 0);
+    // Alternating expensive presentation and cheap skipped-frame work must
+    // not throw away board/audio time. 37 ms pairs remain below four frames.
+    const double hz = 16000000.0 / (656.0 * 424.0);
+    vita::FrameClock retained(hz, 1, true), discarded(hz, 1);
+    int recovered = 0, lost = 0;
+    for (int i = 0; i < 1000; ++i) {
+        recovered += retained.advance(.035);
+        recovered += retained.advance(.002);
+        lost += discarded.advance(.035);
+        lost += discarded.advance(.002);
+        // Drain retained work exactly as subsequent frontend iterations do.
+        for (int j = 0; j < 4; ++j) recovered += retained.advance(0);
+    }
+    CHECK(recovered == int(37 * hz));
+    CHECK(lost < recovered);
+    std::printf("Pacing: %d retained versus %d discarded steps in 37 seconds\n", recovered, lost);
+    retained.reset(); CHECK(retained.advance(0) == 0);
+    CHECK(retained.advance(20) == 1);
+    int debt = 0;
+    for (int i = 0; i < 10; ++i) debt += retained.advance(0);
+    CHECK(debt <= 3); // overload remains bounded
     std::puts("Vita input and timing tests passed (all 256 axis values, 4096 button combinations, 100 seconds of pacing)");
 }

@@ -290,7 +290,9 @@ int main(int, char **) {
     log.log("GPU25 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
             int(perf_log.threaded()));
     vita::Controls controls;
-    vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
+    // One step per iteration keeps the live geometry and displayed frame aligned.
+    // Retain bounded debt so cheap skipped frames recover a slow presentation.
+    vita::FrameClock clock(rt::GameLoop::kFrameHz, 1, true);
     bool running = true, menu = true, options = false, wait_release = true, gpu_fast = true;
     int selection = 0;
     uint32_t previous_buttons = 0;

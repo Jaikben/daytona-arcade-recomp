@@ -2,6 +2,69 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Vita audio pacing follow-up (2026-10-01)
+
+Hardware report: audio stutters with draw-mode selection. A deterministic
+37-second alternating 35 ms / 2 ms host-timing test exposes the one-step
+clock discarding whole-frame debt:1114 board/audio steps instead of2128.
+Vita GPU frontend now retains at most four frames of debt, still executing
+only one board frame per loop. Cheap skipped frames can recover that debt;
+no multi-step live-geometry submission or renderer changes are introduced.
+Pause/reset clears debt; sustained overload remains bounded. Other frontends
+keep the existing FrameClock policy. Audio dispatch stays outside draw gating.
+
+The design document Audio section requires device-clocked native playback.
+That backend already has it and is unchanged. This finding explains reference
+sample starvation and late main-board commands, not proven native callback
+underruns. Do not claim this reproduces or resolves every hardware crackle;
+if native music still stutters, capture callback timing and active engine on
+the device next rather than increasing latency or changing audio fidelity.
+
+Validation: regression recovers2128 steps, bounded overload/reset tests pass;
+20 CTest passes,2 optional Lua skips; public VitaSDK cross-build passes.
+Package:build/daytona-vita-audio-pacing.vpk. Hardware listening remains pending.
+Main and PSP branches unchanged; no remote push.
+
+
+## Vita draw modes from updated main (2026-10-01)
+
+Merged origin/main931504e05f4cd471a207c78b275f48e6ce77cc4c into the Vita branch.
+Upstream calls frame-skip presets Double Buffered / Single Buffered / Every
+Third Frame. They mean draw every1/2/3board frames, NOT physical buffer counts.
+The earlier uncommitted buffer-library drafts were moved to ignored
+build/paused-buffer-drafts; they are not compiled or shipped. The installed
+libvita2d, framebuffer ring and VSync remain unchanged.
+
+Vita Options exposes those three modes, persists draw_mode0..2 (default0),
+clamps loaded values and applies on resume. GPU submission/clear/swap is gated
+by the same pre-step board frame counter used by M2Board::vblank_end.
+No stale live geometry is redrawn on skipped frames: retain the last displayed
+frame instead. The clock is capped to one board step per frontend iteration.
+Board execution, input and reference/native audio dispatch stay outside the
+presentation gate. Menu drawing remains available; zero-step iterations avoid
+duplicate scene submission and retain the existing idle delay. SIM FPS label
+makes clear the counter measures simulation, not presentation cadence.
+The polygon renderer and perspective vertices are unchanged from Wide2.
+
+Validation:20CTest passes,2optional Lua skips. Draw cadence tests sweep invalid
+and valid modes over600board frames (600/300/200draws). Public VitaSDK build
+and VPK archive checks pass. Three6000frame race_basic headless replays show
+identical196665345i960,223429779TGP,12050interrupts,3636sound-command bytes,
+and7843660868000instructions. Host times35.18/19.45/14.24seconds are not Vita
+FPS. Last-picture hashes differ as expected because skipped modes retain an
+earlier frame:ad67233983ea8808 /04b9cd7b8fe2cdda /0504a052c927e9ff.
+
+Artifact: build/daytona-vita-draw-modes.vpk
+SHA256c02ffa1702a682062c991cbf569dabafcbe8bd22d055540254fd6281fc8833b1.
+Menu title DRAW MODES. LoggingOFF. No hardware result yet.
+Main and PSP branches untouched; only the local Vita branch is updated.
+Next: compare simulation pace, audio and displayed motion across presets on
+real Vita. Lower draw frequency can reduce render cost but also makes motion
+less smooth; do not advertise these presets as actual buffer-count changes.
+
+
+## Wide2: merge GitHub main and Vita options (2026-10-01)
+
 Rebased mobile again onto origin/main 10c85cb before completing touch input.
 Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
 Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
