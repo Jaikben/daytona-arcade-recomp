@@ -62,6 +62,12 @@ public:
     // coordinates) move with it: the condition panel's box and car.
     struct HudMove { int x0 = 0, x1 = 0, y0 = 0, y1 = 0, dx = 0; };
     static constexpr uint16_t kHudOverlayZ = 0x0fff; // sort z: the smallest exponent (HUD overlays are 0x0600)
+    // Whether the race HUD is on screen: its condition panel's box, one
+    // checker-shaded overlay polygon (texheader 0x8000, sort z <= kHudOverlayZ)
+    // about 77x82 pixels at x 385..462, y 67..149 (496-wide coordinates).
+    // Without it nothing is moved: car close-ups, attract and ranking screens
+    // put near polygons and 2D text in the HUD's areas too.
+    bool race_hud_visible(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) const;
     void set_hud_moves(const HudMove *moves, int count) {
         hud_moves_count_ = std::min(count, 3);
         std::copy_n(moves, hud_moves_count_, hud_moves_);

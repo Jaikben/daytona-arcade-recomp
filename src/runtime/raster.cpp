@@ -165,6 +165,22 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
 
+bool Raster::race_hud_visible(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) const {
+    for (const GeoPoly &poly : polys) {
+        if (poly.z > kHudOverlayZ || poly.texheader[0] != 0x8000 || poly.num_vertices < 3) continue;
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+        for (int i = 0; i < poly.num_vertices; i++) { // as model2_3d_project
+            const GeoVertex &v = poly.v[i];
+            const float z = v.p[0] + std::numeric_limits<float>::min();
+            const float x = float(crtc_x + poly.center[0]) + v.x / z - float(margin_);
+            const float y = float((384 - poly.center[1]) + crtc_y) - v.y / z;
+            x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
+        }
+        if (x0 >= 375 && x1 <= 472 && y0 >= 57 && y1 <= 159 && x1 - x0 >= 60 && y1 - y0 >= 60) return true;
+    }
+    return false;
+}
+
 void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int render_y, int clip_minx, int clip_maxx,
                         int clip_miny, int clip_maxy) {
     // Widescreen: a viewport spanning the screen extends into the side margins.

@@ -460,7 +460,9 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         std::fill(sys24_.begin(), sys24_.end(), 0u);
         for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
         profile_.tile_draw += ticks() - before;
-        if (!hud_on_) { hud_on_ = true; set_raster_hud_moves(); render_done_ = false; }
+        // Only while the race HUD is on screen (its condition panel's box).
+        const bool race_hud = raster_.race_hud_visible(polys, crtc_x_ + margin_, crtc_y_);
+        if (race_hud != hud_on_) { hud_on_ = race_hud; set_raster_hud_moves(); render_done_ = false; }
     }
     if (!render_done_ && !polys.empty()) {
         before = ticks();
@@ -482,7 +484,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     }
 #endif
     before = ticks();
-    if (hud_edges) {
+    if (hud_edges && hud_on_) {
         copy_front_hud_to_edges();
     } else {
         copy_trans(sys24_.data(), W, W, margin_);

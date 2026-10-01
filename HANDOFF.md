@@ -91,7 +91,15 @@ Measured after, frames 2585-3200 every 5th: the course map is at the edge
 in all but the first (HUD not yet drawn). "40TH/40" reaches x 367. The
 condition panel's box and car are polygons in the main 3D window at sort z
 0x600 (scenery there is above 18000); overlay polygons (z <= 0x0fff) inside
-a group move with it. The side margins are the sky's plain colour (the back
+a group move with it, but only while the race HUD is on screen: a tester
+saw the car's door come off in an attract close-up, because the car's own
+near polygons (and the ranking screen's 2D markers) sat in the HUD's
+right-hand area and were moved. Now nothing moves unless the frame has the
+condition panel's box (one checker-shaded overlay polygon, texheader
+0x8000, sort z <= 0x0fff, ~77x82 at x 385..462, y 67..149;
+Raster::race_hud_visible). Measured after: 240 attract frames at 16:9
+identical with the option on and off; the race HUD still moves, and the
+map stays at the edge through the rolling start. The side margins are the sky's plain colour (the back
 layers' top-left pixel); carrying each row's edge out smeared the sky
 picture's clouds and mountains. Off: all scenario hashes unchanged; 21:9
 with it on: all scenarios run to the end. rules.md now lets enhancements change game logic.
