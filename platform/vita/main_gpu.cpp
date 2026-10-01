@@ -173,7 +173,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - RECOVERY 1", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - PACING RECOVERY", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
@@ -290,9 +290,7 @@ int main(int, char **) {
     log.log("GPU25 periodic log worker: threaded=%d; unavailable worker drops periodic records only\n",
             int(perf_log.threaded()));
     vita::Controls controls;
-    // One step per iteration keeps the live geometry and displayed frame aligned.
-    // Retain bounded debt so cheap skipped frames recover a slow presentation.
-    vita::FrameClock clock(rt::GameLoop::kFrameHz, 1, true);
+    vita::FrameClock clock(rt::GameLoop::kFrameHz, 1);
     bool running = true, menu = true, options = false, wait_release = true, gpu_fast = true;
     int selection = 0;
     uint32_t previous_buttons = 0;

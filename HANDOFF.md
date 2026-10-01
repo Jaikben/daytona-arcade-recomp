@@ -2,6 +2,28 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Vita pre-draw-mode pacing recovery (2026-10-01)
+
+Hardware feedback after9790e57: game and audio still lag since draw modes.
+The synthetic debt test did not establish the cause of native audio stutter.
+Back out the Vita draw-mode UI, config loading and presentation gate, and the
+follow-up retained-debt clock. main_gpu.cpp is identical to6a6fdc8 apart from
+the PACING RECOVERY menu title; controls and input tests match that baseline.
+This restores the previous VSync-paced presentation on every frontend loop,
+not just when a board frame is due. Saved draw_mode values are ignored and
+removed on the next settings save; other preferences are preserved.
+Shared main frame-skip support remains merged but defaults to zero and is
+not enabled by Vita. Native audio remains device-clocked per the design
+document Audio section; neither audio backend nor GPU geometry was changed.
+Do not re-propose frame skipping as physical single/double buffering.
+
+Validation: source comparison to6a6fdc8,20 CTest passes,2 optional Lua skips,
+VitaSDK cross-build and VPK archive validation. Installable recovery package:
+build/daytona-vita-pacing-recovery.vpk. Hardware playback remains unverified;
+this is a controlled rollback, not a claim of a measured hardware speedup.
+Main and PSP branches untouched. No remote push.
+
+
 ## Vita audio pacing follow-up (2026-10-01)
 
 Hardware report: audio stutters with draw-mode selection. A deterministic
