@@ -126,6 +126,11 @@ sides. In a race the sky at the sides is plain blue; tick **Stretch tile
 background (Experimental)** to stretch the game's own sky picture across
 the whole screen instead. All apply straight away, even mid-race.
 
+**Draw mode** (on the Game tab): **Double buffered** draws every frame, as
+the arcade game does. **Single buffered** draws every second frame and
+**Every third frame** every third: much less work for slower machines. The
+game itself still runs at full speed; only the picture updates less often.
+
 **Draw distance** (optional): the slider under **Enhancements** sets how far
 ahead trees, rocks and buildings are drawn. **Default** is the game's own.
 **Shorter** and **Shortest** draw less and run faster, which helps slower

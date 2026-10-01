@@ -81,6 +81,11 @@ public:
     Video &video() { return *video_; }
     // Widescreen (enhancement): pixels added to each side; 0 = the original screen.
     void set_wide_margin(int pixels);
+    // Draw mode (enhancement): draw the screen every (1 + skip)th frame; the
+    // frames between keep the last picture. 0 = every frame, as the game does
+    // (double buffered, a new 3D picture each frame); 1 = every 2nd; 2 = every
+    // 3rd. The game logic and the geometrizer still run every frame.
+    void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 2 ? 2 : skip; }
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
     // Bytes sent to the sound board since the last take.
@@ -119,6 +124,7 @@ private:
     std::unique_ptr<Video> video_;
     IoBoard io_;
     Cpu *cpu_ = nullptr;
+    int frame_skip_ = 0;
     Lockstep *ls_ = nullptr;
 
     uint32_t intreq_ = 0, intena_ = 0;

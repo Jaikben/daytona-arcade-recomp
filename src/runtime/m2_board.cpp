@@ -143,6 +143,10 @@ void M2Board::set_wide_margin(int pixels) {
 }
 
 void M2Board::vblank_end() {
+    if (frame_skip_ && frame_ % uint64_t(frame_skip_ + 1) != 0) { // draw mode: keep the last picture
+        ++frame_;
+        return;
+    }
     VideoMem m;
     m.palram = palette_.data();
     m.colorxlat = xlat_.data();

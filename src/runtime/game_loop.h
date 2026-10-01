@@ -99,6 +99,8 @@ public:
     }
     // With widescreen, in 3D scenes: the tile backdrop stretched across the width (else plain sky margins).
     void set_stretch_backdrop(bool on) { board_->video().set_stretch_backdrop(on); }
+    // Draw mode (enhancement): 0 every frame (the game's), 1 every 2nd, 2 every 3rd.
+    void set_frame_skip(int skip) { board_->set_frame_skip(skip); }
     // With widescreen: the race HUD's side groups at the screen edges.
     void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {

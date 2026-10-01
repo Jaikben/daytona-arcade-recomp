@@ -3,7 +3,7 @@
 // frames go to raw dumps (scripts/rgb2png.py converts them).
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
-//         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N]
+//         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N] [--frame-skip N]
 //
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
@@ -123,6 +123,7 @@ int main(int argc, char **argv) {
     std::string dump_dir, inputs_path, wav_path;
     uint64_t every = 0;
     double aspect = 0;
+    int frame_skip = 0;
     bool hud_edges = false, stretch_backdrop = false;
     for (int i = 3; i < argc; i++) {
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
@@ -135,6 +136,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
+        else if (!std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--aspect")) {
             double w = 0, h = 0;
             if (std::sscanf(argv[i + 1], "%lf:%lf", &w, &h) == 2 && h > 0) aspect = w / h;
@@ -143,6 +145,7 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
+        game.set_frame_skip(frame_skip);
         if (aspect > 0) {
             game.set_aspect(aspect);
             game.set_hud_edges(hud_edges);

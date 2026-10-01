@@ -2,6 +2,18 @@
 
 ## Current state
 
+**Draw mode (frame skip).** Measured first: Daytona runs the board in 60 Hz
+mode and the geometrizer starts a new frame every vblank (3,000 of 3,000
+race frames drew a new 3D picture), i.e. double buffered. Launcher > Game >
+Draw mode: Double buffered (every frame, the default), Single buffered
+(every 2nd), Every third frame (every 3rd); `m2run --frame-skip 0|1|2`.
+M2Board::vblank_end skips screen_update on the frames between (3D raster,
+tilemaps, composition), keeping the last picture; the geometrizer still
+parses every frame (the game reads its polygon count). Measured race_basic:
+identical i960 (196,665,345), TGP (223,429,779) instruction, interrupt
+(12,050) and sound byte (3,636) counts in all three; 190, 332, 442 frames/s
+headless on this Mac. Default hash unchanged.
+
 **Skip launcher.** Launcher > Game > "Skip launcher" (saved): start-up goes
 straight into the game, as `--autostart` does, when the ROM set checks out;
 otherwise the launcher shows with the reason. Esc still opens it. Checked:
