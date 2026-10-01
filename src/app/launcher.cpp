@@ -168,6 +168,21 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
 
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::TextUnformatted("Enhancements");
+            static const char *aspects[] = {"Original (4:3)", "16:10", "16:9", "21:9"};
+            static const char *aspect_ids[] = {"", "16:10", "16:9", "21:9"};
+            int aspect = 0;
+            for (int i = 0; i < 4; i++)
+                if (cfg_.aspect == aspect_ids[i]) aspect = i;
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::Combo("Widescreen", &aspect, aspects, 4)) {
+                cfg_.aspect = aspect_ids[aspect];
+                cfg_.save();
+            }
+            ImGui::TextDisabled("Shows more of the scene at the sides; the HUD stays 4:3 in the centre.");
+
+            ImGui::Spacing();
+            ImGui::Separator();
             ImGui::TextUnformatted("Audio");
             ImGui::SetNextItemWidth(200);
             int vol = int(cfg_.volume * 100.0f + 0.5f);

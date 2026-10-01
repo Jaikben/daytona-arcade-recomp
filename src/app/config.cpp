@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 
@@ -26,6 +27,7 @@ void Config::load() {
         if (k == "rom") rom_path = v;
         else if (k == "gpu") gpu = v;
         else if (k == "fullscreen") fullscreen = v == "1";
+        else if (k == "aspect") aspect = v;
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
         else if (k == "native_audio") native_audio = v == "1";
@@ -46,6 +48,7 @@ void Config::save() const {
     f << "rom=" << rom_path << "\n";
     f << "gpu=" << gpu << "\n";
     f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
+    f << "aspect=" << aspect << "\n";
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";
     f << "native_audio=" << (native_audio ? 1 : 0) << "\n";
@@ -56,6 +59,12 @@ void Config::save() const {
         f << action_key(Action(a)) << ".key=" << (b.key == SDL_SCANCODE_UNKNOWN ? "" : SDL_GetScancodeName(b.key)) << "\n";
         f << action_key(Action(a)) << ".pad=" << b.pad.save() << "\n";
     }
+}
+
+double Config::aspect_ratio() const {
+    double w = 0, h = 0;
+    if (std::sscanf(aspect.c_str(), "%lf:%lf", &w, &h) != 2 || w <= 0 || h <= 0) return 0;
+    return std::min(w / h, kMaxAspect);
 }
 
 } // namespace app

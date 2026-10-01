@@ -49,12 +49,18 @@ public:
     void render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y, int render_x,
                 int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy);
 
-    const uint32_t *pixels() const { return dest_.data(); } // 512x512, 0x00RRGGBB
+    const uint32_t *pixels() const { return dest_.data(); } // stride() x 512, 0x00RRGGBB
+    int stride() const { return stride_; }                   // 512, wider for widescreen
+    // Widescreen (enhancement, 0 = off): callers shift x by `margin`; a polygon
+    // whose viewport spans the 496-pixel screen may then draw `margin` pixels
+    // beyond either side. The layer grows to hold the wider screen.
+    void set_wide_margin(int margin);
     uint64_t hash(int minx, int maxx, int miny, int maxy) const; // as the MAME log computes it
 
     struct Extra; // per-polygon shading state (MAME m2_poly_extra_data)
 
 private:
+    int stride_ = 512, margin_ = 0;
     std::vector<uint32_t> dest_;
     std::vector<uint8_t> fill_;
     uint8_t gamma_[256];

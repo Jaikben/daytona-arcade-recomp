@@ -129,8 +129,13 @@ public:
 
     int windows() const { return raster_.cur_window; } // after parse: the last window used
     void zclip_w(uint32_t data) { raster_.master_z_clip = uint8_t(data); } // model2_3d_zclip_w
+    // Widescreen (enhancement, 0 = off): a full-width viewport's left and right
+    // clip planes move out by this many pixels, so polygons beyond the 4:3
+    // edges survive for the wider screen. Applies from the next window command.
+    void set_wide_margin(int pixels) { wide_margin_ = pixels; }
 
 private:
+    int wide_margin_ = 0;
     std::vector<uint32_t> polygon_rom_;
     std::vector<uint16_t> texture_rom_;
     uint32_t *buffer_;

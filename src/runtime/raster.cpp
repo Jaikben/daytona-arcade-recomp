@@ -116,11 +116,21 @@ Raster::Raster() : dest_(512 * 512), fill_(512 * 512) {
     }
 }
 
+void Raster::set_wide_margin(int margin) {
+    margin_ = std::max(margin, 0);
+    const int stride = std::max(512, 496 + 2 * margin_);
+    if (stride != stride_) {
+        stride_ = stride;
+        dest_.assign(size_t(stride_) * 512, 0u);
+        fill_.assign(size_t(stride_) * 512, u8(0));
+    }
+}
+
 uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
     uint64_t h = 0xcbf29ce484222325ULL;
     for (int y = miny; y <= maxy; y++)
         for (int x = minx; x <= maxx; x++) {
-            const u32 px = dest_[size_t(y) * 512 + size_t(x)];
+            const u32 px = dest_[size_t(y) * size_t(stride_) + size_t(x)];
             for (int b = 0; b < 4; b++) {
                 h ^= (px >> (8 * b)) & 0xff;
                 h *= 0x100000001b3ULL;
@@ -168,7 +178,10 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
     Extra extra;
     const int renderer = (poly.texheader[0] >> 13) & 3;
     // rectangle(minx, maxx, miny, maxy) &= cliprect, in the renderer's offsets
-    int clip[4] = {std::max(poly.viewport[0] + render_x, clip_minx), std::min(poly.viewport[2] + render_x, clip_maxx),
+    // Widescreen: a viewport spanning the screen extends into the side margins.
+    const int wide = margin_ && poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin_ : 0;
+    int clip[4] = {std::max(poly.viewport[0] - wide + render_x, clip_minx),
+                   std::min(poly.viewport[2] + wide + render_x, clip_maxx),
                    std::max((384 - poly.viewport[3]) + render_y, clip_miny),
                    std::min((384 - poly.viewport[1]) + render_y, clip_maxy)};
 
@@ -248,7 +261,7 @@ void Raster::scanline(int renderer, int32_t y, int32_t x0, int32_t x1, const flo
     // A completely filled span cannot contribute any pixel. Test four bytes
     // at a time with memcpy (valid for unaligned pointers); partial spans keep
     // the original per-pixel FP additions, including additions over occlusion.
-    const u8 *filled = fill_.data() + size_t(y) * 512 + size_t(x0);
+    const u8 *filled = fill_.data() + size_t(y) * size_t(stride_) + size_t(x0);
     int remaining = x1 - x0;
     bool covered = true;
     while (remaining >= 4) {
@@ -403,8 +416,8 @@ void Raster::render_polygon(const int *clip, int renderer, const Extra &o, const
 template <bool Translucent>
 void Raster::draw_scanline_solid(int32_t y, int32_t x0, int32_t x1, const float *, const float *, const Extra &o) {
     if (Translucent) return; // nothing to render
-    u32 *const p = &dest_[size_t(y) * 512];
-    u8 *const fill = &fill_[size_t(y) * 512];
+    u32 *const p = &dest_[size_t(y) * size_t(stride_)];
+    u8 *const fill = &fill_[size_t(y) * size_t(stride_)];
     const u8 luma = o.luma >> 2;
     const u32 color = le16(mem_->palram, o.colorbase + 0x1000) & 0xffff;
     const u32 tr = gamma_[le16(mem_->colorxlat, 0x0000 / 2 + (((color >> 0) & 0x1f) << 8) + luma) & 0xff];
@@ -512,8 +525,8 @@ void Raster::draw_scanline_tex(int32_t y, int32_t x0, int32_t x1, const float *s
 
 template <bool Translucent, bool Cached>
 void Raster::draw_tex_span(int32_t y, int32_t x0, int32_t x1, const float *start, const float *dpdx, const Extra &o) {
-    u32 *const p = &dest_[size_t(y) * 512];
-    u8 *const fill = &fill_[size_t(y) * 512];
+    u32 *const p = &dest_[size_t(y) * size_t(stride_)];
+    u8 *const fill = &fill_[size_t(y) * size_t(stride_)];
     float ooz = start[0], uoz = start[1], voz = start[2];
     float dooz = dpdx[0], duoz = dpdx[1], dvoz = dpdx[2];
 #ifdef M2_VITA_RENDER_OPT

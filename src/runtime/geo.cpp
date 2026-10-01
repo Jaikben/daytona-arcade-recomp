@@ -589,6 +589,12 @@ void Geo::model2_3d_push(raster_state *raster, uint32_t input)
 					// calculate clipping planes
 					float left_plane = float(raster->center[i][0] - raster->viewport[0]);
 					float right_plane = float(raster->viewport[2] - raster->center[i][0]);
+					// Widescreen: a viewport spanning the screen opens out at both sides.
+					if (wide_margin_ && raster->viewport[0] <= 0 && raster->viewport[2] >= 495)
+					{
+						left_plane += float(wide_margin_);
+						right_plane += float(wide_margin_);
+					}
 					float top_plane = float(raster->viewport[3] - raster->center[i][1]);
 					float bottom_plane = float(raster->center[i][1] - raster->viewport[1]);
 

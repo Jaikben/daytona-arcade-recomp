@@ -82,8 +82,17 @@ public:
     void set_profile_clock(FrameProfiler::Clock clock) { profiler_.set_clock(clock); sound_profile_clock_ = clock; }
     const FrameProfile &last_profile() const { return profiler_.frame; }
 
-    const std::vector<uint32_t> &screen() const { return board_->video().screen(); } // 496x384, 0xAARRGGBB
-    static constexpr int kWidth = Video::W, kHeight = Video::H;
+    const std::vector<uint32_t> &screen() const { return board_->video().screen(); } // screen_width() x 384, 0xAARRGGBB
+    static constexpr int kWidth = Video::W, kHeight = Video::H; // the original screen
+    int screen_width() const { return board_->video().width(); }
+    // Widescreen (enhancement): the screen widened to `aspect` (width / height,
+    // square pixels as displayed) by showing more of the scene at the sides;
+    // 0 or anything at most 496:384 is the original screen.
+    void set_aspect(double aspect) { board_->set_wide_margin(wide_margin(aspect)); }
+    static int wide_margin(double aspect) {
+        const int width = 2 * int(kHeight * aspect / 2 + 0.5);
+        return width > kWidth ? (width - kWidth) / 2 : 0;
+    }
     M2Board &board() { return *board_; }
     snd::SoundBoard *sound() { return sound_.get(); } // null without the sound ROMs
     static constexpr double kFrameHz = 16000000.0 / (656.0 * 424.0); // the board's video timing

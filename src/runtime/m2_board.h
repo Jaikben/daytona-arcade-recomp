@@ -79,6 +79,8 @@ public:
     uint64_t frame() const { return frame_; }
 
     Video &video() { return *video_; }
+    // Widescreen (enhancement): pixels added to each side; 0 = the original screen.
+    void set_wide_margin(int pixels);
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
     // Bytes sent to the sound board since the last take.

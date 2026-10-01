@@ -42,7 +42,12 @@ public:
     // (drawn from `polys` once per geometrizer frame, then reused), 2D front
     // layers. Output: 496x384, 0xAARRGGBB.
     void screen_update(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem);
-    const std::vector<uint32_t> &screen() const { return screen_; }
+    const std::vector<uint32_t> &screen() const { return screen_; } // width() x H
+    // Widescreen (enhancement, 0 = off): the screen grows by `margin` pixels on
+    // each side. The 3D layer fills it; the tilemap layers (HUD, text) stay
+    // 496 wide in the centre. Not available with external 3D (the Vita path).
+    void set_wide_margin(int margin);
+    int width() const { return W + 2 * margin_; }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
     void set_external_3d(bool enabled) { external_3d_ = enabled; render_done_ = false; }
@@ -124,6 +129,7 @@ private:
     VideoMem gpu_mem_{};
     int gpu_windows_ = 0;
     bool external_3d_ = false;
+    int margin_ = 0;
     bool write_tracking_ = false, tile_memory_touched_ = false, character_memory_touched_ = false;
     Raster raster_;
     bool rendered_now_ = false, render_done_ = false;

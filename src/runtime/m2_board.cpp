@@ -137,6 +137,11 @@ void M2Board::vblank_start() {
     }
 }
 
+void M2Board::set_wide_margin(int pixels) {
+    geo_->set_wide_margin(pixels);
+    video_->set_wide_margin(pixels);
+}
+
 void M2Board::vblank_end() {
     VideoMem m;
     m.palram = palette_.data();

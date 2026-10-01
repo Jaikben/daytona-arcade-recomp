@@ -16,6 +16,10 @@ struct Config {
     float volume = 0.8f;      // 0..1
     bool mute = false;
     bool native_audio = false; // applies on reset; reference remains the default
+    // Enhancements (off by default).
+    std::string aspect;        // widescreen: "" (original 4:3), "16:10", "16:9", "21:9"
+    static constexpr double kMaxAspect = 21.0 / 9.0;
+    double aspect_ratio() const; // width / height; 0 = original
     Controls controls;
 
     Config() { controls.set_defaults(); }

@@ -53,7 +53,9 @@ opens first:
 
 - **Game**: choose your `daytona93` ROM set, `.zip` or `.7z` (Browse, or type the path); every file
   is checked against the ROM set this build was recompiled from. Graphics API
-  (automatic, Vulkan, Direct3D 12, Metal) and fullscreen. Start.
+  (automatic, Vulkan, Direct3D 12, Metal) and fullscreen. Enhancements
+  (off by default): widescreen 16:10, 16:9 or 21:9, which shows more of the
+  scene at the sides with the HUD kept 4:3 in the centre. Start.
 - **Controls**: bind every arcade control to a key and a gamepad button or
   axis (click, then press). Triggers and sticks are analogue: the accelerator
   and brake follow trigger travel, steering follows the stick. Live meters,

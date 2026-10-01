@@ -379,11 +379,13 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         rendered_now_ = false;
         return;
     }
-    auto copy_trans = [&](const uint32_t *source, size_t stride) {
+    // Non-zero pixels of a `width`-wide source onto the screen at column `at`.
+    const size_t out_w = size_t(width());
+    auto copy_trans = [&](const uint32_t *source, size_t stride, int width = W, int at = 0) {
         for (int y = 0; y < H; ++y)
-            for (int x = 0; x < W; ++x)
+            for (int x = 0; x < width; ++x)
                 if (const uint32_t pixel = source[size_t(y) * stride + size_t(x)])
-                    screen_[size_t(y) * W + size_t(x)] = pixel;
+                    screen_[size_t(y) * out_w + size_t(at + x)] = pixel;
     };
 #ifdef M2_VITA_RENDER_OPT
     before = ticks();
@@ -417,7 +419,18 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     profile_.tile_draw += ticks() - before;
     profile_.layers_rebuilt = true;
     before = ticks();
-    copy_trans(sys24_.data(), W);
+    copy_trans(sys24_.data(), W, W, margin_);
+    if (margin_) {
+        // Widescreen: the back tilemaps (the sky's gradient) are only 496
+        // wide. Carry each row's edge colours out into the side margins, under
+        // the 3D layer, instead of leaving the backdrop pen there.
+        const size_t out_w = size_t(width());
+        for (int y = 0; y < H; ++y) {
+            uint32_t *row = &screen_[size_t(y) * out_w];
+            std::fill(row, row + margin_, row[margin_]);
+            std::fill(row + margin_ + W, row + out_w, row[margin_ + W - 1]);
+        }
+    }
     profile_.composite += ticks() - before;
 #endif
     rendered_now_ = false;
@@ -439,13 +452,14 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     }
     if (!render_done_ && !polys.empty()) {
         before = ticks();
-        raster_.render(polys, windows, mem, crtc_x_, crtc_y_, render_x_, render_y_, 0, W - 1, 0, H - 1);
+        raster_.render(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
+                       width() - 1, 0, H - 1);
         profile_.raster = ticks() - before;
         render_done_ = true;
         rendered_now_ = true;
     }
     before = ticks();
-    if (render_done_) copy_trans(raster_.pixels(), 512);
+    if (render_done_) copy_trans(raster_.pixels(), size_t(raster_.stride()), width());
     profile_.composite += ticks() - before;
 #ifndef M2_VITA_RENDER_OPT
     before = ticks();
@@ -454,8 +468,21 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     profile_.tile_draw += ticks() - before;
 #endif
     before = ticks();
-    copy_trans(sys24_.data(), W);
+    copy_trans(sys24_.data(), W, W, margin_);
     profile_.composite += ticks() - before;
+}
+
+void Video::set_wide_margin(int margin) {
+#ifdef M2_VITA_RENDER_OPT
+    margin = 0; // the Vita compositor draws the 496-wide layers itself
+#endif
+    if (external_3d_) margin = 0;
+    margin = std::max(margin, 0);
+    if (margin == margin_) return;
+    margin_ = margin;
+    screen_.assign(size_t(width()) * H, 0u);
+    raster_.set_wide_margin(margin_);
+    render_done_ = false; // redraw the 3D layer at the new width
 }
 
 uint64_t Video::screen_hash() const {

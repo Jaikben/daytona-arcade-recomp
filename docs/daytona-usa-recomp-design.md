@@ -182,10 +182,13 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 
 **Enhancements (all off by default)**
 
+With every enhancement off the build is the game as MAME runs it; parity checks run that way. When on, an enhancement may change game logic (rules.md, changed 1 Oct 2026: previously "never change game logic", which ruled out widening the game's own culling).
+
 | Option | Approach | Risk |
 | --- | --- | --- |
 | Internal resolution | Render 3D at N× or window size | Low |
-| Widescreen | Widen projection in TGP HLE viewport; HUD stays 4:3 centred | Culling pops at screen edges |
+| Widescreen | **Done** (launcher: 16:10, 16:9, 21:9). Same focal length, viewport widened: the geometrizer's side clip planes and the rasterizer's clip move out by a margin for full-width viewports, the 3D layer is drawn margin-shifted into a wider buffer, tilemaps (HUD, text) stay 496 wide in the centre, and each row of the back layers is carried out into the margins | Objects the game itself culls to its 4:3 view can pop in at the edges; measured at 21:9 over a race: none obvious in sampled frames |
+| Draw distance | The hardware's distance cull is not the limit: Daytona leaves the geometrizer's master z clip disabled (0xff; 0 polygons culled by it over a 6,000-frame race). What the game sends is decided in its own i960 code; extending it means overriding that code's limit when the option is on (rules.md: enhancements may change game logic) | To be located; the game may rely on the limit for speed or hide it with fog |
 | Texture filtering | Bilinear/anisotropic on atlases | Low; atlas padding needed |
 | High frame rate | Interpolate display lists between frames | High; logic stays at native rate |
 | MSAA | Standard multisample target | Low |

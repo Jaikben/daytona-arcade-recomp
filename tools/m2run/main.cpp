@@ -3,7 +3,10 @@
 // frames go to raw dumps (scripts/rgb2png.py converts them).
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
+//         [--aspect W:H]
 //
+// --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
+// are then wider than 496 (the width is printed).
 // --wav writes the sound board's output (YM3438 + both MultiPCMs, mixed at
 // 48 kHz, 16-bit stereo).
 //
@@ -111,22 +114,32 @@ void write_wav(const std::string &path, const std::vector<float> &mix, uint32_t 
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: m2run IMAGES_DIR FRAMES [--inputs FILE] [--dump DIR --every N] [--wav FILE]\n");
+        std::fprintf(stderr, "usage: m2run IMAGES_DIR FRAMES [--inputs FILE] [--dump DIR --every N] [--wav FILE] "
+                             "[--aspect W:H]\n");
         return 2;
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
     std::string dump_dir, inputs_path, wav_path;
     uint64_t every = 0;
+    double aspect = 0;
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--aspect")) {
+            double w = 0, h = 0;
+            if (std::sscanf(argv[i + 1], "%lf:%lf", &w, &h) == 2 && h > 0) aspect = w / h;
+        }
     }
 
     try {
         rt::GameLoop game(dir);
+        if (aspect > 0) {
+            game.set_aspect(aspect);
+            std::printf("m2run: screen %dx%d\n", game.screen_width(), rt::GameLoop::kHeight);
+        }
         Script script;
         if (!inputs_path.empty()) script.load(inputs_path);
         const auto t0 = std::chrono::steady_clock::now();

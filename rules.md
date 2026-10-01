@@ -125,9 +125,11 @@ legal problem, or hours re-deriving something already established.
   recompile's seeds.
 - **TGP results returned to the i960 must be bit-identical to MAME's.** Game
   logic depends on them.
-- **Enhancements are off by default and never change game logic or its
-  timing.** Logic runs at native rate; hardware sort order is reproduced first,
-  z-buffering is a toggle.
+- **Enhancements are off by default, and may change game logic when on.**
+  Widescreen or a longer draw distance can need the game's own culling
+  changed. With every enhancement off the build is the game as MAME runs it,
+  and all parity and lockstep checks run that way. Logic runs at native rate;
+  hardware sort order is reproduced first, z-buffering is a toggle.
 - **One shader path.** No per-platform shader forks.
 - **Ghidra output is for humans.** Names and jump-table targets go into
   `seeds.toml`; decompiled pseudo-C is never compiled in and never committed.

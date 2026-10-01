@@ -2,6 +2,22 @@
 
 ## Current state
 
+**Widescreen (enhancement, off by default).** Launcher > Enhancements >
+Widescreen: Original (4:3), 16:10 (614x384), 16:9 (682x384), 21:9
+(896x384); `m2run --aspect 16:9` for headless dumps. More of the scene at
+the sides, same focal length, nothing stretched: `Geo::set_wide_margin`
+opens a full-width viewport's left/right clip planes by the margin,
+`Raster` draws into a wider layer (stride >= 496 + 2 x margin) with the
+clip widened for full-width viewports, `Video` composes at `width()` with
+the tilemaps centred and each back-layer row carried into the margins (the
+sky's colour, not the backdrop pen). With it off every path is the old one:
+all 11 scenarios give their previous screen hashes. With 16:9 all 11 run to
+the end. Sampled 21:9 race frames show no obvious edge pop-in yet; not
+checked frame by frame. rules.md now lets enhancements change game logic.
+Measured for draw distance: Daytona leaves the master z clip at 0xff
+(0 polygons culled by distance over a 6,000-frame race); backface 4.2M,
+behind the camera 1.1M, off-screen 1.4M. The limit is in the game's code.
+
 **Windows: Clang by default; MSVC fixed.** MSVC failed on SoftFloat: the
 CMake used SoftFloat's `build/Linux-x86_64-GCC/platform.h` everywhere, whose
 `opts-GCC.h` needs `__int128`, `__builtin_clz` and GNU inline (C4235, C4013).
@@ -332,13 +348,17 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Run `daytona` on Windows (Direct3D 12 and Vulkan) and fix whatever MSVC
+1. Draw distance (enhancement): find where the i960 code limits which
+   track sections and objects it sends, and override it when the option is
+   on. Then the game's own 4:3 object culling, if widescreen shows pop-in.
+2. Run `daytona` on Windows (Direct3D 12 and Vulkan) and fix whatever MSVC
    rejects. macOS (Metal) is done (Current state).
    Harvest the states `seed_scan.py` found in MAME (which state the windowed
    game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep them.
-2. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
+3. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
    SPIR-V, DXIL and MSL), measured against the CPU reference.
-3. Wheel support and control remapping; widescreen and resolution options.
+4. Wheel support and control remapping; resolution options (widescreen is
+   done).
 
 ## Open decisions
 

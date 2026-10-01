@@ -150,6 +150,8 @@ int main(int argc, char **argv) {
     else std::fprintf(stderr, "daytona: no audio output (%s)\n", SDL_GetError());
 
     constexpr int W = rt::GameLoop::kWidth, H = rt::GameLoop::kHeight;
+    const int kMaxW = W + 2 * rt::GameLoop::wide_margin(app::Config::kMaxAspect);
+    int screen_w = W; // this frame's width: W, or wider with widescreen
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
                                           SDL_WINDOW_RESIZABLE | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (!window) return fail("SDL_CreateWindow");
@@ -182,14 +184,14 @@ int main(int argc, char **argv) {
     ti.type = SDL_GPU_TEXTURETYPE_2D;
     ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM; // the screen's 0xAARRGGBB words, little-endian
     ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ti.width = W;
+    ti.width = kMaxW; // the widest screen (widescreen); each frame uses its own width
     ti.height = H;
     ti.layer_count_or_depth = 1;
     ti.num_levels = 1;
     SDL_GPUTexture *screen = SDL_CreateGPUTexture(dev, &ti);
     SDL_GPUTransferBufferCreateInfo tbi{};
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size = W * H * 4;
+    tbi.size = Uint32(kMaxW) * H * 4;
     SDL_GPUTransferBuffer *upload = SDL_CreateGPUTransferBuffer(dev, &tbi);
     if (!screen || !upload) return fail("SDL_CreateGPUTexture");
 
@@ -298,6 +300,7 @@ int main(int argc, char **argv) {
         pending = std::min(pending + double(now - last), frame_ns * 4);
         last = now;
         if (game && !in_launcher) {
+            game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             while (pending >= frame_ns) {
                 game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), pad));
                 if (native_active) {
@@ -325,14 +328,16 @@ int main(int argc, char **argv) {
         if (!cmd) return fail("SDL_AcquireGPUCommandBuffer");
         if (new_frame) {
             void *p = SDL_MapGPUTransferBuffer(dev, upload, true);
-            std::memcpy(p, game->screen().data(), size_t(W) * H * 4);
+            screen_w = game->screen_width();
+            std::memcpy(p, game->screen().data(), size_t(screen_w) * H * 4);
             SDL_UnmapGPUTransferBuffer(dev, upload);
             SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
             SDL_GPUTextureTransferInfo src{};
             src.transfer_buffer = upload;
+            src.pixels_per_row = Uint32(screen_w);
             SDL_GPUTextureRegion dst{};
             dst.texture = screen;
-            dst.w = W;
+            dst.w = Uint32(screen_w);
             dst.h = H;
             dst.d = 1;
             SDL_UploadToGPUTexture(copy, &src, &dst, true);
@@ -364,12 +369,12 @@ int main(int argc, char **argv) {
         Uint32 sw = 0, sh = 0;
         if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window, &swap, &sw, &sh)) return fail("swapchain");
         if (swap) {
-            if (have_frame) { // the game's screen, 4:3 letterboxed
-                const double scale = std::min(double(sw) / W, double(sh) / H);
-                const Uint32 dw = Uint32(W * scale), dh = Uint32(H * scale);
+            if (have_frame) { // the game's screen at its own shape, letterboxed
+                const double scale = std::min(double(sw) / screen_w, double(sh) / H);
+                const Uint32 dw = Uint32(screen_w * scale), dh = Uint32(H * scale);
                 SDL_GPUBlitInfo blit{};
                 blit.source.texture = screen;
-                blit.source.w = W;
+                blit.source.w = Uint32(screen_w);
                 blit.source.h = H;
                 blit.destination.texture = swap;
                 blit.destination.x = (sw - dw) / 2;
