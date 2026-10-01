@@ -14,6 +14,14 @@ generated code compiled (`m2run`, `m2native` built); the final build step
 still failed. Likely cause, not yet confirmed on Windows: `daytona` is a
 WIN32 (GUI) executable and `main.cpp` did not include `SDL3/SDL_main.h`,
 so nothing provided `WinMain`. Now included (no effect on macOS/Linux).
+The tester's next output showed the real failure: MSVC building SDL itself,
+`yuv_rgb_internal.h` C2099 "initializer is not a constant". Our directory-
+wide `/fp:strict` reached SDL, and under it MSVC will not fold C float
+constants in static initializers. SDL now gets an empty COMPILE_OPTIONS
+(ours keep /fp:strict). CI never built SDL (it was only added with
+generated game code); SDL, ImGui and the app objects (`daytona_app`) now
+build whenever extern/sdl3 exists, so CI compiles them on every OS; only
+linking `daytona` still needs a ROM set.
 
 **Widescreen (enhancement, off by default).** Launcher > Enhancements >
 Widescreen: Original (4:3), 16:10 (614x384), 16:9 (682x384), 21:9

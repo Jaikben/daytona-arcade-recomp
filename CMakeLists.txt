@@ -153,6 +153,39 @@ target_include_directories(m68k PUBLIC src)
 add_executable(m2sndrecomp tools/m2sndrecomp/main.cpp)
 target_link_libraries(m2sndrecomp PRIVATE m68k)
 
+# The windowed app: SDL3 (window, input, SDL_GPU: Vulkan, Direct3D 12, Metal),
+# fetched by scripts/setup.py into extern/sdl3, Dear ImGui for the launcher,
+# and the app's own code. Built whenever SDL is there, ROM set or not, so CI
+# compiles all of it; the daytona executable itself also needs the generated
+# game code (below).
+if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
+    if(NOT TARGET SDL3::SDL3-static)
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+        set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        # SDL builds with its own flags, not ours: MSVC's /fp:strict (our FP
+        # rule, for our code) rejects SDL's float constant tables (C2099).
+        get_directory_property(M2_COMPILE_OPTIONS COMPILE_OPTIONS)
+        set_directory_properties(PROPERTIES COMPILE_OPTIONS "")
+        add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
+        set_directory_properties(PROPERTIES COMPILE_OPTIONS "${M2_COMPILE_OPTIONS}")
+    endif()
+    # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
+    set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
+    add_library(imgui STATIC
+        ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/imgui_demo.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp)
+    target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR})
+    target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
+    if(NOT MSVC)
+        target_compile_options(imgui PRIVATE -w)
+    endif()
+    add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp)
+    target_link_libraries(daytona_app PRIVATE runtime imgui SDL3::SDL3-static)
+endif()
+
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
 # committed). scripts/recompile.sh generates it and re-runs CMake.
 set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/daytona93)
@@ -166,29 +199,9 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     add_executable(m2run tools/m2run/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2run PRIVATE runtime)
 
-    # The game in a window: SDL3 (window, input, SDL_GPU: Vulkan, Direct3D 12,
-    # Metal). SDL is fetched by scripts/setup.py into extern/sdl3.
-    if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
-        if(NOT TARGET SDL3::SDL3-static)
-            set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-            set(SDL_STATIC ON CACHE BOOL "" FORCE)
-            set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-            set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-            add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
-        endif()
-        # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
-        set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
-        add_library(imgui STATIC
-            ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
-            ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/imgui_demo.cpp
-            ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp)
-        target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR})
-        target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
-        if(NOT MSVC)
-            target_compile_options(imgui PRIVATE -w)
-        endif()
-        add_executable(daytona WIN32 src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp
-                       ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+    # The game in a window (needs the app objects below).
+    if(TARGET daytona_app)
+        add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
         target_link_libraries(daytona PRIVATE runtime imgui SDL3::SDL3-static)
     else()
         message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
