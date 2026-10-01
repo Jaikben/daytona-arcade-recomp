@@ -58,6 +58,25 @@ int main() {
         CHECK(controls.gear() >= 1 && controls.gear() <= 4);
         if (vita::menu_chord(buttons)) CHECK(in.in0 == 0xff);
     }
+    for (int curve = -1; curve <= 3; ++curve) {
+        vita::Controls curved;
+        curved.set_steer_curve(curve);
+        int previous = 0;
+        for (int v = 0; v < 256; ++v) {
+            const int steer = curved.sample({0, uint8_t(v), 128}).steer;
+            CHECK(steer >= previous && steer >= 32 && steer <= 224);
+            previous = steer;
+        }
+        CHECK(curved.sample({0, 0, 128}).steer == 32);
+        CHECK(curved.sample({0, 128, 128}).steer == 128);
+        CHECK(curved.sample({0, 255, 128}).steer == 224);
+        CHECK(curved.sample({vita::Left, 255, 128}).steer == 32);
+        CHECK(curved.sample({vita::Right, 0, 128}).steer == 224);
+        const int right = curved.sample({0, 192, 128}).steer;
+        CHECK(right <= (curve <= 0 ? 171 : curve == 1 ? 147 : 136));
+        curved.set_steer_invert(true);
+        CHECK(curved.sample({0, 192, 128}).steer == 256 - right);
+    }
     vita::FrameClock clock(16000000.0 / (656.0 * 424.0));
     int frames = 0;
     for (int i = 0; i < 6000; ++i) frames += clock.advance(1.0 / 60.0);

@@ -20,6 +20,8 @@
 #undef private
 #include "../platform/vita/gpu_fast.cpp"
 
+extern "C" { float _vita2d_ortho_matrix[16] = {}; }
+
 namespace mock {
 void require(bool condition, const char *message) {
     if (!condition) { std::fprintf(stderr, "Contract failure: %s\n", message); throw std::runtime_error(message); }
@@ -36,6 +38,8 @@ int next_uid = 1;
 bool scene = false;
 void reset_graphics_state();
 std::vector<float> ordered_x;
+std::array<float, 16> bound_wvp{};
+std::vector<uint32_t> rectangles;
 std::vector<const void *> ordered_palettes;
 #include "vita_gpu_capture.inc"
 
@@ -158,15 +162,22 @@ void *vita2d_pool_memalign(unsigned bytes, unsigned alignment) {
     mock::pool_used += bytes;
     return out;
 }
-void vita2d_draw_rectangle(float, float, float, float, uint32_t) {}
+void vita2d_draw_rectangle(float, float, float, float, uint32_t color) { mock::rectangles.push_back(color); }
 void mock_draw_array_textured(const vita2d_texture *texture, int,
                                 const vita2d_texture_vertex *vertices, unsigned count, uint32_t tint) {
     mock::require(count <= 65532 && count % 3 == 0, "draw exceeds the 16-bit libvita2d triangle index table");
     mock::textured_vertices += count;
+    std::vector<vita2d_texture_vertex> projected(vertices, vertices + count);
+    if (mock::bound_wvp[11] == 1.0f) {
+        for (auto &v : projected) {
+            v.x = (v.x / v.z + 1.0f) * 480.0f;
+            v.y = (1.0f - v.y / v.z) * 272.0f;
+        }
+    }
     if (mock::capture_draws) mock::captured_draws.push_back({true, texture->gxm_tex,
-        {vertices, vertices + count}, {}, tint, mock::clip_rectangle});
+        projected, {}, tint, mock::clip_rectangle});
     for (unsigned i = 0; i < count; ++i) {
-        mock::ordered_x.push_back(vertices[i].x);
+        mock::ordered_x.push_back(projected[i].x);
         mock::ordered_palettes.push_back(texture->gxm_tex.palette);
     }
     for (unsigned i = 0; i < count; ++i)
@@ -319,6 +330,11 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
         return mock::draws - draws;
     };
     mock::require(run() == 1, "valid textured triangle did not submit");
+    polys[0].v[0] = {-200, -150, {1, 0, 0}};
+    polys[0].v[1] = {200, -150, {1, 256, 0}};
+    polys[0].v[2] = {0, 15000, {100, 128, 256}};
+    mock::require(run() == 1 && renderer.submitted_vertices() == 3,
+                  "long-depth triangle still uses subdivision");
     for (unsigned mode = 0; mode < 10; ++mode) {
         polys[0] = polygon();
         const float inf = std::numeric_limits<float>::infinity();
@@ -338,7 +354,7 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
             polys[0].v[0].p[1] = std::numeric_limits<float>::max();
             break;
         }
-        mock::require(run() == 0, "invalid polygon reached a GPU draw");
+        mock::require(run() == (mode == 9 ? 1u : 0u), "invalid polygon handling");
     }
     polys[0] = polygon();
     for (int margin : {0, 59, 93, 200, 0}) {
@@ -366,6 +382,14 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
     polys = {panel};
     video.frame_start(); video.screen_update(polys, 0, images.mem);
     mock::require(video.hud_at_edges_active(), "race panel enables HUD relocation");
+    const uint64_t stable_hud = video.foreground_generation();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == stable_hud, "unchanged wide HUD reuploaded");
+    tile_ram[0xa000] = 8; // Background-only scroll, foreground remains blank.
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == stable_hud, "background scroll reuploaded unchanged HUD");
+    mock::require(video.system24_gpu_compatible(), "wide background fell back to CPU");
+    mock::require(_vita2d_ortho_matrix[11] == 0, "perspective leaked into UI matrix");
     auto projected = panel;
     for (int i = 0; i < 4; ++i) {
         projected.v[i].x += 93; projected.v[i].y = -projected.v[i].y;
@@ -378,6 +402,40 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
     mock::require(run() == 1, "valid solid triangle did not submit");
     polys[0].v[0].x = std::numeric_limits<float>::quiet_NaN();
     mock::require(run() == 0, "invalid solid polygon reached a GPU draw");
+}
+void test_wide_sky(vita::GpuFastRenderer &renderer) {
+    Images images;
+    for (size_t i = 0; i < images.palette.size(); ++i) images.palette[i] = uint8_t(i * 17);
+    for (size_t i = 0; i < images.xlat.size(); i += 2) images.xlat[i] = uint8_t((i / 2) * 13);
+    std::vector<uint8_t> tiles(0x10000), chars(0x80000);
+    for (size_t i = 0; i < chars.size(); ++i) chars[i] = uint8_t(i * 31 + 7);
+    auto word = [&](unsigned at, uint16_t v) { tiles[at*2]=uint8_t(v); tiles[at*2+1]=uint8_t(v>>8); };
+    for (unsigned i = 0; i < 0x4000; ++i) word(i, uint16_t(i * 37));
+    for (unsigned mode = 0; mode < 4; ++mode) for (unsigned scroll = 0; scroll < 2; ++scroll) {
+        for (unsigned layer = 0; layer < 4; ++layer) {
+            word(0x5000 + layer, uint16_t(13 * layer + (scroll ? 0x8000 : 0)));
+            word(0x5004 + layer, uint16_t((mode << 13) | (67 * layer)));
+            for (unsigned y = 0; y < 384; ++y) word(0x4000 + layer*0x200 + y, uint16_t(y+19));
+        }
+        rt::Video gpu(tiles.data(), chars.data()), cpu(tiles.data(), chars.data());
+        gpu.set_external_3d(true);
+        gpu.set_wide_margin(93); cpu.set_wide_margin(93);
+        gpu.screen_update({}, 0, images.mem); cpu.screen_update({}, 0, images.mem);
+        renderer.prepare_frame();
+        renderer.system24_generation_ = UINT64_MAX;
+        renderer.update_system24_textures(gpu);
+        renderer.layout(gpu);
+        mock::rectangles.clear(); mock::start_scene();
+        mock::require(renderer.draw_system24(gpu, false), "wide sky submission");
+        mock::end_scene(); renderer.prepare_frame();
+        const uint32_t pixel = cpu.screen()[0];
+        const uint32_t expected = (pixel & 0xff00ff00u) | ((pixel & 255u) << 16) | ((pixel >> 16) & 255u);
+        mock::require(mock::rectangles.size() == 3 && mock::rectangles[1] == expected &&
+                      mock::rectangles[2] == expected, "wide sky differs from CPU top-left composition");
+    }
+    // Later tests call draw_polygons directly using original layout.
+    rt::Video original(tiles.data(), chars.data()); renderer.layout(original);
+    std::puts("Wide sky: all four split modes with normal/line scroll match CPU colour");
 }
 #include "vita_gpu_batch_limit.inc"
 #include "vita_gpu_batch_state.inc"
@@ -392,6 +450,7 @@ int main() {
         test_cache(renderer, images);
         test_vertices(renderer, images);
         test_system24_batch_limit(renderer, images);
+        test_wide_sky(renderer);
         test_polygon_batch_state(renderer, images);
         test_checker_pixels(renderer);
         test_checker_state(renderer);

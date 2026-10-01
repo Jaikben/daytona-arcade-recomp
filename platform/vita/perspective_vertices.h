@@ -7,6 +7,22 @@ namespace vita {
 
 struct PerspectivePoint { float x, y, u, v, q; };
 
+// Encode homogeneous positions for the existing libvita2d WVP shader.
+// clip.w = depth gives GPU perspective interpolation without microtriangles.
+inline bool perspective_vertex(vita2d_texture_vertex &out, const PerspectivePoint &p,
+                               float source_w, float source_h) {
+    if (!(p.q > 0) || !(source_w > 0) || !(source_h > 0)) return false;
+    const float depth = 1.0f / p.q;
+    out = {(p.x / 480.0f - 1.0f) * depth,
+           (1.0f - p.y / 272.0f) * depth, depth,
+           p.u / source_w, p.v / source_h};
+    return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z) &&
+           std::isfinite(out.u) && std::isfinite(out.v);
+}
+inline constexpr float perspective_matrix[16] = {
+    1,0,0,0, 0,1,0,0, 0,0,0.5f,1, 0,0,0,0
+};
+
 // Preserve GPU18's interpolation and triangle order. A tessellated triangle
 // repeats its lattice points up to six times; calculate each point only once
 // in cached CPU memory before copying it into the GPU's vertex pool.

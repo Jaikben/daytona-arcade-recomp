@@ -38,3 +38,41 @@ SDK import stubs. No proprietary Sony SDK, firmware binary, font, or shader
 is added. The small menu glyphs and portable SoftFloat configuration are
 project-owned code. The specialization and floating-point policy are
 unchanged from the shared build.
+
+## libvita2d (GPU-fast frontend)
+
+Upstream: https://github.com/xerpi/libvita2d (MIT).
+Source inspected at a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed:
+libvita2d/shader/texture_v.cg and libvita2d/source/vita2d_texture.c.
+No library source changes or copied shader code. The installed VitaSDK archive
+is supplied externally; its precise source commit is not recorded by this
+installation. Validated archive SHA-256:
+6960641df92c51d15d45cca1eaffd0bb1b18cda024b0940fdd59b8fe9a8dabf2.
+
+The perspective adapter temporarily replaces exported _vita2d_ortho_matrix,
+which the draw API copies into a fresh WVP uniform buffer. It restores the
+matrix before UI, tile or stencil draws; upgrades must retain this contract
+or provide an equivalent public matrix setter. Existing shader binaries are
+linked from the public homebrew package; no proprietary compiler is used.
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Sergi Granell (xerpi), xerpi.g.12@gmail.com
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

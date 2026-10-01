@@ -48,6 +48,8 @@ public:
             }
         }
         float steer = axis(pad.lx, deadzone_);
+        if (steer_curve_ == 1) steer *= std::abs(steer);
+        else if (steer_curve_ == 2) steer = steer * steer * steer;
         if (pad.buttons & (Left | Right))
             steer = float(bool(pad.buttons & Right)) - float(bool(pad.buttons & Left));
         if (steer_invert_) steer = -steer;
@@ -73,6 +75,7 @@ public:
     void latch(uint32_t buttons) { held_ = buttons; if (buttons & Select) select_used_ = true; }
     int gear() const { return gear_; }
     void set_deadzone(float value) { deadzone_ = std::clamp(value, 0.0f, 0.4f); }
+    void set_steer_curve(int value) { steer_curve_ = std::clamp(value, 0, 2); }
     void set_steer_invert(bool value) { steer_invert_ = value; }
 private:
     void set_gear(Input &in) const {
@@ -81,7 +84,7 @@ private:
         in.in1 = uint8_t((in.in1 & ~0x70) | (codes[gear_] << 4));
     }
     uint32_t held_ = 0;
-    int gear_ = 1;
+    int gear_ = 1, steer_curve_ = 0;
     float deadzone_ = 0.12f;
     bool steer_invert_ = false, select_used_ = false;
 };

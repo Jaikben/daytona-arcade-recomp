@@ -573,7 +573,6 @@ M2_PIXEL_TEMPLATE void Video::draw(std::vector<M2_PIXEL> &bitmap, int layer, int
 }
 
 bool Video::system24_gpu_compatible() const {
-    if (margin_) return false; // Wide HUD uses the shared per-item compositor.
     // The Vita GXM compositor supports normal windowing plus all three
     // System24 split-layer modes. Keep this query for the CPU fallback API.
     return true;
@@ -727,6 +726,39 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     // (Not the Dreamcast: its PVR renderer uploads the two layers this
     // function composes below, the screen and sys24.)
     if (external_3d_ && !desktop_ && system24_gpu_compatible()) {
+        const bool previous_hud = hud_on_;
+        hud_on_ = margin_ && hud_edges_ && raster_.race_hud_visible(polys, crtc_x_ + margin_, crtc_y_);
+        set_raster_hud_moves();
+        if (hud_on_) {
+#ifdef M2_VITA_RENDER_OPT
+            const bool rebuild = foreground_dirty_ || !previous_hud;
+#else
+            const bool rebuild = true;
+#endif
+            if (rebuild) {
+                before = ticks();
+                std::fill(sys24_.begin(), sys24_.end(), 0u);
+                for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+                profile_.tile_draw += ticks() - before;
+                before = ticks();
+                // Background scroll invalidates tile draw state too. Do not
+                // repeat HUD dilation/flood-fill or upload when its pixels
+                // did not change. Compare pixels, not a collision-prone hash.
+                if (!previous_hud || gpu_hud_margin_ != margin_ || gpu_hud_source_ != sys24_) {
+                    std::fill(screen_.begin(), screen_.end(), 0u);
+                    copy_front_hud_to_edges();
+                    foreground_gpu_ = screen_;
+                    gpu_hud_source_ = sys24_;
+                    gpu_hud_margin_ = margin_;
+                    ++foreground_generation_;
+                }
+                profile_.composite += ticks() - before;
+                profile_.layers_rebuilt = true;
+#ifdef M2_VITA_RENDER_OPT
+                foreground_dirty_ = false;
+#endif
+            }
+        }
         // GXM composes the cached System-24 tile textures around the 3D
         // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
         rendered_now_ = false;
@@ -1084,6 +1116,9 @@ void Video::set_wide_margin(int margin) {
 #endif
     if (margin == margin_) return;
     margin_ = margin;
+#ifdef M2_VITA_RENDER_OPT
+    foreground_dirty_ = true;
+#endif
     set_raster_hud_moves();
     screen_.assign(size_t(width()) * H, 0u);
     background_gpu_.assign(screen_.size(), 0u);

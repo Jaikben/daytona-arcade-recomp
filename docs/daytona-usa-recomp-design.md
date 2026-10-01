@@ -182,9 +182,16 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 
 **Vita GXM presentation enhancements.** The Vita branch exposes the same
 aspect, scenery-distance and per-item HUD policies in its options. The original
-mode retains GPU System24 composition. Wide modes use widened CPU-composed
-background/foreground layers around GPU polygons, sharing the CPU rasterizer's
-HUD polygon offset decision and race-HUD detection. Fixed896x384 layer textures
+and wide modes retain GPU System24 background composition. Centred foregrounds
+also stay on the GPU. Edge HUDs alone use CPU grouping, sharing the rasterizer's
+HUD polygon offset decision and race-HUD detection; unchanged foreground pixels
+reuse the grouped layer and its upload. The sky margin samples the composited
+top-left pixel through the same GPU tile rectangles.
+Textured polygons use homogeneous positions and the existing libvita2d WVP
+shader for perspective-correct interpolation instead of affine subdivision.
+Painter order, stencil clipping and screen-anchored solid checker remain intact.
+The scoped matrix adapter uses libvita2d's exported ortho matrix; it must be
+revalidated on library upgrades. No new shader compiler or shader fork is used. Fixed896x384 layer textures
 cover up to21:9; panel fitting preserves aspect on960x544. The layer arena grows
 from10 to12MiB (32MiB total GPU arenas), without per-frame GPU allocations.
 These options are not a promise of full-speed hardware performance.

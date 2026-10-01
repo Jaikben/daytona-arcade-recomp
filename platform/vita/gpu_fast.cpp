@@ -10,6 +10,10 @@
 #include <new>
 #include <psp2/kernel/processmgr.h>
 
+// Exported by the linked public libvita2d. It is copied to a new uniform
+// buffer on each full shader setup. Restore before any clip, tile or UI draw.
+extern "C" { extern float _vita2d_ortho_matrix[16]; }
+
 namespace vita {
 namespace {
 constexpr float kDisplayW = 960.0f;
@@ -188,9 +192,10 @@ void GpuFastRenderer::update_system24_textures(const rt::Video &video) {
 
 bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
     if (!video.system24_gpu_compatible()) return false;
+    uint32_t sky = swap_rb(video.system24_pen(0));
     if (!foreground) {
         system24_quads_ = 0;
-        vita2d_draw_rectangle(kOffsetX, 0.0f, kSourceW * kScale, kDisplayH, swap_rb(video.system24_pen(0)));
+        vita2d_draw_rectangle(sx(0), sy(0), kSourceW * scale_, kSourceH * scale_, sky);
     }
     struct Rect { int x0, x1, y0, y1, h, v; };
     auto submit = [&](int source_layer, const std::vector<Rect> &rects) {
@@ -208,6 +213,16 @@ bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
             vertices[out++] = vita2d_texture_vertex{sx(x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
         };
         for (const Rect &r : rects) {
+            // The CPU wide compositor uses the composited top-left sky pixel.
+            // Reuse these exact window/split/scroll rectangles to sample it.
+            if (!foreground && r.x0 == 0 && r.y0 == 0) {
+                const auto *texture = system24_textures_[size_t(source_layer)];
+                const auto *row = reinterpret_cast<const uint32_t *>(
+                    static_cast<const uint8_t *>(vita2d_texture_get_datap(texture)) +
+                    size_t(r.v & 511) * vita2d_texture_get_stride(texture));
+                const uint32_t pixel = row[r.h & 511];
+                if (pixel >> 24) sky = pixel;
+            }
             const float u0 = float(r.x0 + r.h), u1 = float(r.x1 + r.h);
             const float v0 = float(r.v), v1 = float(r.v + (r.y1 - r.y0));
             vertex(float(r.x0), float(r.y0), u0, v0); vertex(float(r.x1), float(r.y0), u1, v0);
@@ -332,6 +347,11 @@ bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
             y = y1;
         }
         if (!submit(layer, rects)) return false;
+    }
+    if (!foreground && video.wide_margin()) {
+        const float margin = float(video.wide_margin());
+        vita2d_draw_rectangle(sx(-margin), sy(0), margin * scale_, kSourceH * scale_, sky);
+        vita2d_draw_rectangle(sx(kSourceW), sy(0), margin * scale_, kSourceH * scale_, sky);
     }
     return true;
 }
@@ -504,6 +524,14 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
     constexpr size_t max_batch = 65532;
     auto flush = [&] {
         if (batch == Batch::Empty) return;
+        struct MatrixScope {
+            float saved[16];
+            explicit MatrixScope(bool perspective) {
+                std::memcpy(saved, _vita2d_ortho_matrix, sizeof saved);
+                if (perspective) std::memcpy(_vita2d_ortho_matrix, perspective_matrix, sizeof saved);
+            }
+            ~MatrixScope() { std::memcpy(_vita2d_ortho_matrix, saved, sizeof saved); }
+        } matrix_scope(batch == Batch::Textured);
         const vita2d_texture *view = batch == Batch::Textured ? &batch_material->view :
                                      batch == Batch::Checker ? checker_texture_ : nullptr;
         // Checker tint is per batch. Always bind it through the full API;
@@ -601,35 +629,19 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
             Material *m = material_for(poly, mem);
             if (!m) continue;
             const Source &source = *m->source;
-            float min_q = p[0].q, max_q = p[0].q;
-            float min_x = p[0].x, max_x = p[0].x, min_y = p[0].y, max_y = p[0].y;
-            for (int j = 1; j < poly.num_vertices; ++j) {
-                min_q = std::min(min_q, p[j].q); max_q = std::max(max_q, p[j].q);
-                min_x = std::min(min_x, p[j].x); max_x = std::max(max_x, p[j].x);
-                min_y = std::min(min_y, p[j].y); max_y = std::max(max_y, p[j].y);
-            }
-            const float q_ratio = min_q > 0.0f ? max_q / min_q : 1.0f;
-            const float span = std::max(max_x - min_x, max_y - min_y);
-            // Two-by-two perspective subdivision removes the road affine warp at
-            // a quarter of GPU09 worst-case vertex multiplication.
-            int subdiv = (q_ratio > 3.0f && span > 320.0f) ? 8 :
-                         (q_ratio > 1.75f && span > 128.0f) ? 4 :
-                         (q_ratio > 1.25f && span > 48.0f) ? 2 : 1;
-            size_t n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
+            const size_t n = size_t(poly.num_vertices - 2) * 3u;
             if (batch != Batch::Textured || batch_material != m || batch_count + n > max_batch) flush();
-            while (subdiv > 1 && vita2d_pool_free_space() < n * sizeof(vita2d_texture_vertex) + 2048u) {
-                subdiv /= 2;
-                n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
+            if (vita2d_pool_free_space() < n * sizeof(vita2d_texture_vertex) + 2048u) {
+                ++pool_drops_; continue;
             }
-            if (subdiv > 1) ++subdivided_polys_;
             submitted_vertices_ += n;
             auto *verts = static_cast<vita2d_texture_vertex *>(vita2d_pool_memalign(unsigned(n * sizeof(vita2d_texture_vertex)), 4));
-            if (!verts) continue;
-            for (int fan = 1; fan + 1 < poly.num_vertices; ++fan) {
-                auto *triangle = verts + size_t(fan - 1) * 3u * size_t(subdiv * subdiv);
-                if (!emit_perspective_triangle(triangle, p[0], p[fan], p[fan + 1],
-                        subdiv, float(source.source_w), float(source.source_h))) valid = false;
-            }
+            if (!verts) { submitted_vertices_ -= n; ++pool_drops_; continue; }
+            size_t next = 0;
+            for (int fan = 1; fan + 1 < poly.num_vertices; ++fan)
+                for (int j : {0, fan, fan + 1})
+                    if (!perspective_vertex(verts[next++], p[j],
+                            float(source.source_w), float(source.source_h))) valid = false;
             if (!valid) { submitted_vertices_ -= n; continue; }
             if (batch == Batch::Textured && batch_texture_vertices + batch_count != verts) flush();
             if (batch == Batch::Empty) {
@@ -709,7 +721,13 @@ void GpuFastRenderer::draw(rt::Video &video) {
         const uint64_t background = sceKernelGetProcessTimeWide();
         draw_polygons(video);
         const uint64_t polygons = sceKernelGetProcessTimeWide();
-        draw_system24(video, true);
+        if (video.hud_at_edges_active()) {
+            if (foreground_generation_ != video.foreground_generation()) {
+                upload_layer(foreground_, video.foreground_layer());
+                foreground_generation_ = video.foreground_generation();
+            }
+            draw_layer(foreground_, video);
+        } else draw_system24(video, true);
         const uint64_t foreground = sceKernelGetProcessTimeWide();
         last_upload_us_ = uploaded - begin;
         last_polygon_us_ = polygons - background;

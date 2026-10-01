@@ -191,9 +191,11 @@ letterboxed vertically. The road window is unchanged by scenery distance.
 
 HUD relocation shares the desktop per-item rules and only activates when
 the race HUD is visible. Scenery stays put and crossing banners stay whole.
-Original mode retains the fast GXM tile compositor. Wide modes compose tile
-layers on the CPU and upload them around GXM polygons; wide HUD and further
-draw distance can reduce frame rate. The layer arena is12MiB instead of10MiB,
+Original and wide modes retain the fast GXM background compositor. Centred
+foregrounds also use GXM; only active edge HUDs need CPU grouping. Unchanged HUD
+pixels reuse the grouped layer and upload. Further draw distance still adds work.
+Textured geometry now uses hardware perspective interpolation rather than
+affine triangle subdivision; this change needs visual confirmation on hardware. The layer arena is12MiB instead of10MiB,
 making the three GPU arenas32MiB total.
 
 Hold Select and press Triangle for cabinet Test (enter/confirm).
@@ -207,3 +209,10 @@ coins or operate view buttons. The bindings are listed in Options.
 Draw distance requires generated code with seeds/daytona93_hooks.txt:
 regenerate with scripts/recompile.py before building. Merely linking the
 enhancement runtime cannot add a missing hook to old generated code.
+
+## Steering curves
+
+Options → Steering Curve selects Linear (default), Soft (signed square) or
+Extra Soft (cubic). Curves apply after the stick deadzone and before inversion;
+full lock and D-pad steering remain unchanged. Soft settings give finer control
+around centre. The choice is saved as steer_curve=0/1/2 in vita.cfg.

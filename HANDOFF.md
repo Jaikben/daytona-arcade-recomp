@@ -60,6 +60,64 @@ This follows the design document's Platform layer & build and ROM handling
 sections: the shared runtime/renderer is unchanged. See the mobile handoff
 for build validation and device-test status.
 
+## Vita perspective, widescreen cost and steering curves (2026-10-01)
+
+Work remains on psvita-native-frontend; main and PSP branches untouched.
+The Rendering/Enhancements design governs: presentation changes only, native
+board timing unchanged, original aspect and linear steering remain defaults.
+
+Road texture warp: previous affine subdivision used1/4/16/64 times as many
+triangles depending on depth/span, then reduced precision under pool pressure.
+Replaced it with homogeneous positions and the existing libvita2d WVP shader:
+clip.w=depth, clip.z=0.5*depth, ordinary UVs. This gives perspective interpolation
+with three vertices per source triangle. Painter order, stencil clips, tint,
+solid/checker paths and fence ownership are preserved. Matrix changes are scoped
+to textured batches and restored on all exits. No custom shader/compiler.
+The exported libvita2d matrix is an internal ABI dependency documented with
+upstream source revision and installed archive hash in platform/vita/THIRD_PARTY.md.
+Recheck it when updating that library. Physical GPU output is not yet verified.
+
+Widescreen had forced every tile layer through CPU composition and full uploads.
+GXM now composes background tiles at the selected aspect, and foreground tiles
+when centred. Sky margin colour is sampled through the same tile rectangles,
+preserving split/window/scroll semantics. Active edge HUD alone uses shared CPU
+grouping; unchanged source pixels reuse the grouped layer/upload even when
+background scroll dirties drawing state. Pixel comparison, not a hash; extra
+HUD source snapshot is about0.74MiB. Further distance still adds geometry.
+
+Options adds persistent Linear/Soft/Extra Soft steering (linear, signed square,
+cubic) after deadzone and before inversion. D-pad and full lock are unchanged.
+Existing Test/Service mappings remain. Diagnostic logging staysOFF.
+
+Validation:
+- Host build and20CTest passes;2optional Lua tests skipped.
+-5151 perspective sample comparisons and matrix projection/depth checks.
+- Actual renderer submits3vertices for a depth100:1, wide triangle; no subdivision.
+- All256stick positions across curves, monotonicity, endpoints/invert/D-pad tests.
+- Final standalone renderer contracts pass, including eight sky comparisons
+  (four split modes x normal/line scroll) against CPU top-left composition,
+  unchanged-HUD upload reuse and matrix restoration.
+- ASan/UBSan renderer contracts pass including sky comparison; final later test
+  fixture enlarges the long-depth triangle, with the ordinary contracts rerun.
+-6000frame16:9/edge-HUD/default-distance host replay:196665345i960,
+  223429779TGP,3636sound-command bytes, hash9047513777edfaae, unchanged.
+  42.27seconds on this host is not a Vita performance measurement.
+- Public VitaSDK cross-build and VPK archive validation pass. Package:
+  build/daytona-vita-perspective-curves.vpk
+  SHA25666f209118967cb3c0beb55453d54a0f4dfb5b88c1bfda1b09bd683e2656aee87.
+  Previous package retained at
+  build/vita-enhancements/daytona_vita-before-perspective.vpk.
+
+What not to re-propose: more affine subdivision to hide road warp costs both CPU
+and vertex pool and remains approximate. Do not restore blanket CPU wide mode.
+The former extreme-UV test rejected a finite polygon only because CPU u*q
+overflowed; homogeneous submission keeps it finite, and its expectation was
+updated. Host Ninja reported a truncated log and rebuilt fully on a subsequent
+invocation; builds were sequential in each directory and completed successfully.
+Next: confirm road lines, HUD/sky/clip transitions and frame pacing on real Vita.
+No device FPS, crash-free-runtime or visually-fixed claim from these host tests.
+
+
 ## Vita GXM presentation options and cabinet binds (2026-10-01)
 
 Switched to psvita-native-frontend and fast-forwarded to origin/bc02bb0 first.
