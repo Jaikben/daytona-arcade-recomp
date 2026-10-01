@@ -4,11 +4,17 @@
 #endif
 #include "gpu_memory.h"
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 
 namespace {
-alignas(262144) unsigned char storage[524288];
+// A 256 KiB-aligned block, like the Vita's. Aligned at run time: Windows
+// compilers cap alignas at 8 KiB (C2345, clang-cl likewise).
+constexpr std::uintptr_t kBlockAlign = 262144;
+unsigned char raw_storage[524288 + kBlockAlign];
+unsigned char *const storage = reinterpret_cast<unsigned char *>(
+    (reinterpret_cast<std::uintptr_t>(raw_storage) + kBlockAlign - 1) & ~(kBlockAlign - 1));
 int alloc_calls, free_calls, map_calls, unmap_calls;
 int failure_stage;
 std::size_t allocated_size;

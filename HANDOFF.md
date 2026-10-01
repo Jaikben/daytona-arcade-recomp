@@ -16,6 +16,11 @@ present, MSVC otherwise (`M2_COMPILER=clang|msvc` forces one), and
 reconfigures a build directory set up for the other.
 `.github/workflows/windows.yml` builds and tests both, without a ROM set.
 Not yet run on a Windows PC here; a tester reports Clang + Ninja builds.
+First CI run: SoftFloat compiled under both; both then stopped on
+`tests/test_vita_gpu_memory.cpp`, `alignas(262144)` (C2345; clang-cl: 8192
+bytes at most on Windows). That buffer is now aligned at run time, and the
+nine Vita host tests are opt-in (`-DM2_VITA_TESTS=ON`, 21 tests) instead of
+part of every desktop build (12 tests).
 
 **PS Vita frontend merged (PR #3, `c3007c6`).** Desktop unchanged by it,
 measured: all 11 scripted scenarios and 3,000 frames of attract give the
