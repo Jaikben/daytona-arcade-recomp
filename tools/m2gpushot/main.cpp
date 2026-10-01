@@ -4,6 +4,11 @@
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
 //             [--aspect W:H [--hud-edges] [--stretch-backdrop]]
+//   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...]
+//
+// --bench draws every frame through the GPU, with no readback, and reports
+// the time in the game (logic, geometrizer, CPU tilemap layers), in the
+// renderer on the CPU (vertices, uploads) and waiting for the GPU.
 //
 // SDL_GPU without a window: an offscreen texture is drawn and read back.
 
@@ -13,6 +18,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <chrono>
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
@@ -29,13 +35,15 @@ int main(int argc, char **argv) {
     std::string dump_dir, inputs_path;
     uint64_t every = 0;
     double aspect = 0;
-    bool hud_edges = false, stretch = false;
+    bool hud_edges = false, stretch = false, bench = false;
     for (int i = 3; i < argc; i++) {
+        if (!std::strcmp(argv[i], "--bench")) bench = true;
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
-        if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop")) { i--; continue; }
+        if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
+            !std::strcmp(argv[i], "--bench")) { i--; continue; }
         if (!std::strcmp(argv[i], "--aspect")) {
             double a = 0, b = 0;
             if (std::sscanf(argv[i + 1], "%lf:%lf", &a, &b) == 2 && b > 0) aspect = a / b;
@@ -44,8 +52,8 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
     }
-    if (dump_dir.empty() || !every) {
-        std::fprintf(stderr, "m2gpushot: --dump DIR and --every N are needed\n");
+    if (!bench && (dump_dir.empty() || !every)) {
+        std::fprintf(stderr, "m2gpushot: --dump DIR and --every N (or --bench) are needed\n");
         return 2;
     }
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -92,6 +100,38 @@ int main(int argc, char **argv) {
         game.set_stretch_backdrop(stretch);
         tools::Script script;
         if (!inputs_path.empty()) script.load(inputs_path);
+        if (bench) {
+            using clk = std::chrono::steady_clock;
+            double t_game = 0, t_cpu = 0, t_wait = 0;
+            SDL_GPUFence *last = nullptr;
+            const auto t0 = clk::now();
+            for (uint64_t f = 0; f < frames; f++) {
+                const auto a = clk::now();
+                game.run_frame(script.at(game.board().frame()));
+                const auto b = clk::now();
+                if (last) { // one frame in flight, as a window would have
+                    SDL_WaitForGPUFences(dev, true, &last, 1);
+                    SDL_ReleaseGPUFence(dev, last);
+                }
+                const auto c = clk::now();
+                SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+                gpu.render(cmd, target, W, H, game.board().video());
+                last = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+                const auto d = clk::now();
+                t_game += std::chrono::duration<double>(b - a).count();
+                t_wait += std::chrono::duration<double>(c - b).count();
+                t_cpu += std::chrono::duration<double>(d - c).count();
+            }
+            if (last) SDL_WaitForGPUFences(dev, true, &last, 1), SDL_ReleaseGPUFence(dev, last);
+            const double total = std::chrono::duration<double>(clk::now() - t0).count();
+            std::printf("m2gpushot: %" PRIu64 " frames in %.2f s (%.0f frames/s); per frame: game %.2f ms, "
+                        "renderer CPU %.2f ms, waiting for the GPU %.2f ms\n",
+                        frames, total, double(frames) / total, t_game * 1e3 / double(frames),
+                        t_cpu * 1e3 / double(frames), t_wait * 1e3 / double(frames));
+            gpu.shutdown();
+            SDL_DestroyGPUDevice(dev);
+            return 0;
+        }
         for (uint64_t f = 0; f < frames; f++) {
             game.run_frame(script.at(game.board().frame()));
             if (game.board().frame() % every) continue;

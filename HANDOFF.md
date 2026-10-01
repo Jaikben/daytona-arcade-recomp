@@ -2,6 +2,16 @@
 
 ## Current state
 
+**Hardware renderer speed (`m2gpushot --bench`).** race_basic, 6,000 frames,
+headless on this Mac (Metal): software 189 frames/s (5.3 ms a frame) at 4:3
+and 188 at 16:9; hardware 324 (3.1 ms) and 347. Hardware frame at 4:3: game
+2.20 ms (logic, geometrizer, CPU tilemap layers), renderer on the CPU 0.72 ms
+(vertices, uploads, a 4 MB texture RAM compare, the colour table), waiting
+for the GPU 0.17 ms. From the draw-mode figures (every third frame drawn:
+442 frames/s), logic is about 0.75 ms, the CPU tilemap layers about 1.45 ms
+and the CPU 3D rasterizer about 3 ms a frame. Next costs, in order: tilemaps
+on the GPU; texture RAM tracked by writes instead of compared.
+
 **Hardware renderer, widescreen and a mip-level fix.** Hardware mode keeps
 widescreen: Video's external-3D mode with CPU layers no longer drops the
 margin (only the Vita path does); both layers are width() wide, the
