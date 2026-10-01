@@ -375,7 +375,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         system24_source_dirty_ = false;
     }
     profile_.tile_cache = ticks() - before;
-    if (external_3d_ && system24_gpu_compatible()) {
+    if (external_3d_ && !cpu_layers_ && system24_gpu_compatible()) {
         // GXM composes the cached System-24 tile textures around the 3D
         // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
         rendered_now_ = false;

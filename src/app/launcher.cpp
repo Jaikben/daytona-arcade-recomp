@@ -161,6 +161,15 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                 cfg_.gpu = api_ids[api];
                 cfg_.save();
             }
+            static const char *renderers[] = {"Software (exact)", "Hardware (Experimental)"};
+            int rd = cfg_.renderer == "hardware" ? 1 : 0;
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::Combo("Renderer", &rd, renderers, 2)) {
+                cfg_.renderer = rd ? "hardware" : "software";
+                cfg_.save();
+            }
+            ImGui::TextDisabled("Software draws the 3D on the CPU, as the arcade board. Hardware uses the GPU:\n"
+                                "in development, geometry and flat colours only, no widescreen yet.");
             if (ImGui::Checkbox("Fullscreen", &cfg_.fullscreen)) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();

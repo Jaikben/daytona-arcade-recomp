@@ -12,6 +12,7 @@ namespace app {
 struct Config {
     std::string rom_path;
     std::string gpu;          // "" (automatic), vulkan, direct3d12, metal
+    std::string renderer = "software"; // the 3D: software (CPU, exact) or hardware (SDL_GPU)
     bool fullscreen = false;
     bool skip_launcher = false; // start the game straight away (as --autostart); Esc still opens the launcher
     float volume = 0.8f;      // 0..1

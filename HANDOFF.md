@@ -2,6 +2,25 @@
 
 ## Current state
 
+**Hardware renderer, stage 1 (geometry).** Launcher > Game > Renderer:
+Software (exact; default) or Hardware (Experimental). `src/app/gpu/`:
+`m2.hlsl` (one source) -> `scripts/build_shaders.py` (DXC v1.9.2609 to
+SPIR-V and DXIL, SPIRV-Cross to MSL; Docker when the tools are not
+installed) -> `shaders_gen.h` (committed; builds need no shader tools).
+GpuRenderer draws the 3D in the rasterizer's order (window, then z, newest
+first), projected as model2_3d_project, each polygon a fan from vertex 0,
+clipped to its window by scissor; a depth buffer with depth = draw order
+and LESS reproduces "first polygon to fill a pixel wins" (the rasterizer's
+fill buffer). Colour: the solid renderer's palette/luma/gamma; textures are
+stage 2 (the Vita GPU path is a reference only: a tester saw small road
+geometry/orientation errors there). Video's external-3D mode gained
+`cpu_layers` (the CPU still draws the tilemap layers for it; the Vita path
+does not). No widescreen in hardware mode yet. `m2gpushot` renders frames
+offscreen through it for comparison with m2run's (tools/common/
+input_script.h shared). Checked on Metal: the game runs (710 frames in
+15 s), and a race frame's geometry, HUD and backdrop line up with the
+software renderer's. Not yet run on Vulkan or Direct3D 12.
+
 **Draw mode (frame skip).** Measured first: Daytona runs the board in 60 Hz
 mode and the geometrizer starts a new frame every vblank (3,000 of 3,000
 race frames drew a new 3D picture), i.e. double buffered. Launcher > Game >

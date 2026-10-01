@@ -37,3 +37,15 @@ Fetch with `scripts/fetch_mame.sh`, which checks out exactly the commit above.
 The Model 2 MiSTer core (https://github.com/alphanu1/sega-model2-mister,
 GPL-3.0-or-later, read at `591e148e87d27e03d50cbf7318bf0b1d1328c4bf`) is read as
 a reference only. Nothing is lifted from it; the project licence is undecided.
+
+## Shader compilers (tools only)
+
+The hardware renderer's shaders (`src/app/gpu/m2.hlsl`, our own) are compiled
+by `scripts/build_shaders.py` into `src/app/gpu/shaders_gen.h`. Neither tool
+is part of the game or linked into it.
+
+| Tool | Version | Licence | Used for |
+| --- | --- | --- | --- |
+| [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler) | v1.9.2609 (`linux_dxc_2026_09_28`) | University of Illinois/NCSA | HLSL to SPIR-V and DXIL |
+| [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | Ubuntu 24.04's package | Apache-2.0 | SPIR-V to MSL |
+

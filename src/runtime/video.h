@@ -62,7 +62,17 @@ public:
     }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
-    void set_external_3d(bool enabled) { external_3d_ = enabled; render_done_ = false; }
+    // cpu_layers: the desktop hardware renderer, which takes the tilemap
+    // layers as CPU bitmaps (background_layer, foreground_layer); without it
+    // (Vita) the host draws the tiles itself. External 3D has no widescreen
+    // margins yet.
+    void set_external_3d(bool enabled, bool cpu_layers = false) {
+        if (enabled == external_3d_ && cpu_layers == cpu_layers_) return;
+        if (enabled && margin_) set_wide_margin(0);
+        external_3d_ = enabled;
+        cpu_layers_ = cpu_layers;
+        render_done_ = false;
+    }
     bool external_3d() const { return external_3d_; }
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
@@ -140,7 +150,7 @@ private:
     const std::vector<GeoPoly> *gpu_polys_ = nullptr;
     VideoMem gpu_mem_{};
     int gpu_windows_ = 0;
-    bool external_3d_ = false;
+    bool external_3d_ = false, cpu_layers_ = false;
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching

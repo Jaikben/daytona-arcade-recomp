@@ -26,6 +26,7 @@ void Config::load() {
         const std::string k = line.substr(0, eq), v = line.substr(eq + 1);
         if (k == "rom") rom_path = v;
         else if (k == "gpu") gpu = v;
+        else if (k == "renderer") renderer = v == "hardware" ? v : "software";
         else if (k == "fullscreen") fullscreen = v == "1";
         else if (k == "skip_launcher") skip_launcher = v == "1";
         else if (k == "aspect") aspect = v;
@@ -52,6 +53,7 @@ void Config::save() const {
     f << "# Daytona USA launcher settings\n";
     f << "rom=" << rom_path << "\n";
     f << "gpu=" << gpu << "\n";
+    f << "renderer=" << renderer << "\n";
     f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
     f << "skip_launcher=" << (skip_launcher ? 1 : 0) << "\n";
     f << "aspect=" << aspect << "\n";

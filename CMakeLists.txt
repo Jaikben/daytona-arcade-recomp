@@ -183,8 +183,12 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     if(NOT MSVC)
         target_compile_options(imgui PRIVATE -w)
     endif()
+    # The hardware renderer (SDL_GPU), shared by the app and m2gpushot.
+    add_library(gpurender STATIC src/app/gpu/gpu_renderer.cpp)
+    target_include_directories(gpurender PUBLIC src)
+    target_link_libraries(gpurender PUBLIC runtime SDL3::SDL3-static)
     add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp)
-    target_link_libraries(daytona_app PRIVATE runtime imgui SDL3::SDL3-static)
+    target_link_libraries(daytona_app PRIVATE runtime imgui gpurender SDL3::SDL3-static)
 endif()
 
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
@@ -203,7 +207,10 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # The game in a window (needs the app objects below).
     if(TARGET daytona_app)
         add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
-        target_link_libraries(daytona PRIVATE runtime imgui SDL3::SDL3-static)
+        target_link_libraries(daytona PRIVATE runtime imgui gpurender SDL3::SDL3-static)
+        # Headless frames through the hardware renderer, to compare with m2run's.
+        add_executable(m2gpushot tools/m2gpushot/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+        target_link_libraries(m2gpushot PRIVATE runtime gpurender)
     else()
         message(STATUS "extern/sdl3 not found: skipping the windowed game (run scripts/setup.py)")
     endif()

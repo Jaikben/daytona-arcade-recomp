@@ -14,6 +14,7 @@
 // toggles fullscreen. Controls are set in the launcher and saved.
 
 #include "app/config.h"
+#include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
 #include "app/native_audio.h"
 #include "runtime/native_sound_engine.h"
@@ -182,10 +183,16 @@ int main(int argc, char **argv) {
     ii.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(dev, window);
     ImGui_ImplSDLGPU3_Init(&ii);
 
+    // Hardware renderer (launcher > Renderer): the 3D on the GPU. If it cannot
+    // start here, the software renderer is used and the launcher says why.
+    app::GpuRenderer gpu;
+    if (!gpu.init(dev, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM))
+        std::fprintf(stderr, "daytona: hardware renderer unavailable: %s\n", gpu.error().c_str());
+
     SDL_GPUTextureCreateInfo ti{};
     ti.type = SDL_GPU_TEXTURETYPE_2D;
     ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM; // the screen's 0xAARRGGBB words, little-endian
-    ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET; // the hardware renderer draws into it
     ti.width = kMaxW; // the widest screen (widescreen); each frame uses its own width
     ti.height = H;
     ti.layer_count_or_depth = 1;
@@ -307,6 +314,7 @@ int main(int argc, char **argv) {
             game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             game->set_hud_edges(cfg.hud_edges);
             game->set_frame_skip(cfg.draw_mode);
+            game->board().video().set_external_3d(cfg.renderer == "hardware" && gpu.ok(), true);
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             while (pending >= frame_ns) {
@@ -334,6 +342,12 @@ int main(int argc, char **argv) {
 
         SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
         if (!cmd) return fail("SDL_AcquireGPUCommandBuffer");
+        const bool hardware = game && game->board().video().external_3d();
+        if (new_frame && hardware) {
+            screen_w = W; // no widescreen in the hardware renderer yet
+            gpu.render(cmd, screen, W, H, game->board().video());
+            new_frame = false;
+        }
         if (new_frame) {
             void *p = SDL_MapGPUTransferBuffer(dev, upload, true);
             screen_w = game->screen_width();
@@ -420,6 +434,7 @@ int main(int argc, char **argv) {
     native_audio.close();
     audio.close();
     SDL_WaitForGPUIdle(dev);
+    gpu.shutdown();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
