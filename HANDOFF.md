@@ -2,6 +2,23 @@
 
 ## Current state
 
+**Hardware renderer, widescreen and a mip-level fix.** Hardware mode keeps
+widescreen: Video's external-3D mode with CPU layers no longer drops the
+margin (only the Vita path does); both layers are width() wide, the
+backdrop's margins filled as in software mode with the 3D coverage taken
+from Raster::coverage_estimate (the polygons on an 8x8-pixel grid; no CPU 3D
+layer exists here) and the front layer's HUD moved to the edges; the GPU
+projects with the margin, widens full-width windows into it, and moves the
+condition panel's quads by Video::gpu_hud_shift (same box and z as the
+software path). Fix found while comparing: the rasterizer's max mip level is
+30 - countl_zero(min(w, h)) = log2(min) - 1; stage 2 used log2(min), so a
+fading circuit-select map (texlod -321, mml 1132) took level 7 not 6 and
+came out coloured instead of grey. Measured after (race_basic, Metal,
+m2gpushot vs m2run, every 650 frames to 5200): 89.7-100% identical,
+94.4-100% within 8 levels; the rest are rounding on high-contrast textures
+(road lines, rock), where a one-step texel coordinate difference flips the
+blend. 16:9 with HUD at the edges: race frames 94.8-98.3% identical.
+
 **Hardware renderer, stage 2 (textures).** ps_poly is a port of the
 rasterizer's draw_tex_span and fetch_bilinear_texel in integer arithmetic:
 the 4-bit sheets with their 2048x1024-as-1024x2048 mapping, bilinear 8-bit

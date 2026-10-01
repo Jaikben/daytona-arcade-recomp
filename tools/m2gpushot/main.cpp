@@ -3,6 +3,7 @@
 // m2run, whose dumps come from the software renderer: compare the two.
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
+//             [--aspect W:H [--hud-edges] [--stretch-backdrop]]
 //
 // SDL_GPU without a window: an offscreen texture is drawn and read back.
 
@@ -27,7 +28,18 @@ int main(int argc, char **argv) {
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
     std::string dump_dir, inputs_path;
     uint64_t every = 0;
+    double aspect = 0;
+    bool hud_edges = false, stretch = false;
+    for (int i = 3; i < argc; i++) {
+        if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
+        if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch = true;
+    }
     for (int i = 3; i + 1 < argc; i += 2) {
+        if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop")) { i--; continue; }
+        if (!std::strcmp(argv[i], "--aspect")) {
+            double a = 0, b = 0;
+            if (std::sscanf(argv[i + 1], "%lf:%lf", &a, &b) == 2 && b > 0) aspect = a / b;
+        }
         if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
@@ -52,19 +64,20 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "m2gpushot: %s\n", gpu.error().c_str());
         return 1;
     }
-    constexpr int W = rt::GameLoop::kWidth, H = rt::GameLoop::kHeight;
+    constexpr int H = rt::GameLoop::kHeight;
+    const int W = rt::GameLoop::kWidth + 2 * rt::GameLoop::wide_margin(aspect);
     SDL_GPUTextureCreateInfo ti{};
     ti.type = SDL_GPU_TEXTURETYPE_2D;
     ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
     ti.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ti.width = W;
+    ti.width = Uint32(W);
     ti.height = H;
     ti.layer_count_or_depth = 1;
     ti.num_levels = 1;
     SDL_GPUTexture *target = SDL_CreateGPUTexture(dev, &ti);
     SDL_GPUTransferBufferCreateInfo tbi{};
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
-    tbi.size = W * H * 4;
+    tbi.size = Uint32(W) * H * 4;
     SDL_GPUTransferBuffer *download = SDL_CreateGPUTransferBuffer(dev, &tbi);
     if (!target || !download) {
         std::fprintf(stderr, "m2gpushot: %s\n", SDL_GetError());
@@ -74,6 +87,9 @@ int main(int argc, char **argv) {
     try {
         rt::GameLoop game(dir);
         game.board().video().set_external_3d(true, true);
+        game.set_aspect(aspect);
+        game.set_hud_edges(hud_edges);
+        game.set_stretch_backdrop(stretch);
         tools::Script script;
         if (!inputs_path.empty()) script.load(inputs_path);
         for (uint64_t f = 0; f < frames; f++) {
@@ -84,12 +100,12 @@ int main(int argc, char **argv) {
             SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
             SDL_GPUTextureRegion src{};
             src.texture = target;
-            src.w = W;
+            src.w = Uint32(W);
             src.h = H;
             src.d = 1;
             SDL_GPUTextureTransferInfo dst{};
             dst.transfer_buffer = download;
-            dst.pixels_per_row = W;
+            dst.pixels_per_row = Uint32(W);
             SDL_DownloadFromGPUTexture(copy, &src, &dst);
             SDL_EndGPUCopyPass(copy);
             SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);

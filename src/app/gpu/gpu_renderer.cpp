@@ -225,7 +225,14 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
     const std::vector<rt::GeoPoly> &polys = video.gpu_polys();
     const rt::VideoMem &mem = video.gpu_mem();
     const int windows = video.gpu_windows();
-    const int crtc_x = video.crtc_x(), crtc_y = video.crtc_y(), render_x = video.render_x(), render_y = video.render_y();
+    // widescreen: the screen is `margin` wider on each side; x shifts by it
+    const int margin = (w - rt::Video::W) / 2;
+    const int crtc_x = video.crtc_x() + margin, crtc_y = video.crtc_y(), render_x = video.render_x() + margin,
+              render_y = video.render_y();
+    // HUD at the edges: the condition panel's own quads (its z, inside its box) move
+    const int hud_dx = video.gpu_hud_shift();
+    const float *hud_box = video.raster().hud_box();
+    const uint16_t hud_z = video.raster().hud_z();
     if (polys.empty() || !mem.palram || !mem.colorxlat) return;
 
     // Raster::render: windows from the last down to 0, low z first, newest first within z.
@@ -244,8 +251,26 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
         const int renderer = (poly.texheader[0] >> 13) & 3;
         if (renderer == 1) continue; // translucent solid: the rasterizer draws nothing
 
-        // clip rectangle (Raster::render_one), in the renderer's offsets, within the screen
-        const int x0 = std::max(poly.viewport[0] + render_x, 0), x1 = std::min(poly.viewport[2] + render_x, w - 1);
+        // HUD overlay quad? (Raster::render_one's test, on the projected outline)
+        int dx = 0;
+        if (hud_dx && poly.z == hud_z) {
+            float bx0 = 1e9f, bx1 = -1e9f, by0 = 1e9f, by1 = -1e9f;
+            for (int k = 0; k < poly.num_vertices; k++) {
+                const rt::GeoVertex &g0 = poly.v[k];
+                const float z = g0.p[0] + std::numeric_limits<float>::min();
+                const float px = float(crtc_x + poly.center[0]) + g0.x / z - float(margin);
+                const float py = float((384 - poly.center[1]) + crtc_y) - g0.y / z;
+                bx0 = std::min(bx0, px), bx1 = std::max(bx1, px), by0 = std::min(by0, py), by1 = std::max(by1, py);
+            }
+            constexpr float kTol = 1.5f;
+            if (bx0 >= hud_box[0] - kTol && bx1 <= hud_box[1] + kTol && by0 >= hud_box[2] - kTol && by1 <= hud_box[3] + kTol)
+                dx = hud_dx;
+        }
+        // clip rectangle (Raster::render_one), in the renderer's offsets, within the screen;
+        // a viewport spanning the screen extends into the widescreen margins
+        const int wide = margin && poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin : 0;
+        const int x0 = std::max(poly.viewport[0] - wide + render_x + dx, 0),
+                  x1 = std::min(poly.viewport[2] + wide + render_x + dx, w - 1);
         const int y0 = std::max((384 - poly.viewport[3]) + render_y, 0), y1 = std::min((384 - poly.viewport[1]) + render_y, h - 1);
         if (x0 > x1 || y0 > y1) continue;
         const SDL_Rect clip{x0, y0, x1 - x0 + 1, y1 - y0 + 1};
@@ -265,7 +290,8 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
         const uint32_t th0 = poly.texheader[0], th1 = poly.texheader[1], th2 = poly.texheader[2];
         const uint32_t mirx = (th0 >> 8) & 1, miry = (th0 >> 9) & 1;
         const uint32_t wlog = th0 & 7, hlog = (th0 >> 3) & 7;
-        const uint32_t max_level = 5 + std::min(wlog, hlog); // log2(min(width, height)), width = 32 << wlog
+        // the rasterizer's 30 - countl_zero(min(width, height)): log2(min) - 1, width = 32 << wlog
+        const uint32_t max_level = 4 + std::min(wlog, hlog);
         uint32_t info[4], more[2];
         info[0] = uint32_t(renderer) | ((th0 >> 15) & 1) << 2 | (((th0 >> 6) & 1) & ~mirx) << 3 |
                   (((th0 >> 7) & 1) & ~miry) << 4 | mirx << 5 | miry << 6 | ((th0 >> 12) & 1) << 7 |
@@ -282,7 +308,7 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
             const rt::GeoVertex &g0 = poly.v[k];
             const float z = g0.p[0] + std::numeric_limits<float>::min();
             const float ooz = 1.0f / z; // render_one, textured: p[0] = 1/z, p[1..2] scaled by it / 8
-            v[k] = {float(crtc_x + poly.center[0]) + g0.x / z, float((384 - poly.center[1]) + crtc_y) - g0.y / z, depth,
+            v[k] = {float(crtc_x + dx + poly.center[0]) + g0.x / z, float((384 - poly.center[1]) + crtc_y) - g0.y / z, depth,
                     ooz, g0.p[1] * ooz * (1.0f / 8.0f), g0.p[2] * ooz * (1.0f / 8.0f),
                     r, g, b, 1.0f, {info[0], info[1], info[2], info[3]}, {more[0], more[1]}};
         }
@@ -384,6 +410,8 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     dt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
+    const SDL_GPUViewport viewport{0, 0, float(w), float(h), 0, 1}; // the target may be wider than this frame
+    SDL_SetGPUViewport(pass, &viewport);
     const float screen[4] = {fw, fh, 0, 0};
     SDL_PushGPUVertexUniformData(cmd, 0, screen, sizeof screen);
     const SDL_Rect full{0, 0, w, h};

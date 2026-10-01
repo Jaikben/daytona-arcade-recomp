@@ -63,16 +63,19 @@ public:
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
     // cpu_layers: the desktop hardware renderer, which takes the tilemap
-    // layers as CPU bitmaps (background_layer, foreground_layer); without it
-    // (Vita) the host draws the tiles itself. External 3D has no widescreen
-    // margins yet.
+    // layers as CPU bitmaps (background_layer, foreground_layer: width() wide,
+    // margins filled, HUD moved) and keeps widescreen; without it (Vita) the
+    // host draws the tiles itself, at 496.
     void set_external_3d(bool enabled, bool cpu_layers = false) {
         if (enabled == external_3d_ && cpu_layers == cpu_layers_) return;
-        if (enabled && margin_) set_wide_margin(0);
+        if (enabled && !cpu_layers && margin_) set_wide_margin(0);
         external_3d_ = enabled;
         cpu_layers_ = cpu_layers;
         render_done_ = false;
     }
+    // External 3D with widescreen and the HUD at the edges: how far the
+    // condition panel's overlay polygons move (0 = not at all), and which.
+    int gpu_hud_shift() const { return external_3d_ && hud_on_ ? margin_ : 0; }
     bool external_3d() const { return external_3d_; }
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
@@ -165,7 +168,7 @@ private:
     std::vector<int32_t> hud_label_, hud_move_;
     std::vector<std::array<int, 4>> hud_box_;
     std::vector<uint32_t> hud_stack_;
-    void copy_front_hud_to_edges();
+    void copy_front_hud_to_edges(std::vector<uint32_t> &out); // width() wide
     bool write_tracking_ = false, tile_memory_touched_ = false, character_memory_touched_ = false;
     Raster raster_;
     bool rendered_now_ = false, render_done_ = false;

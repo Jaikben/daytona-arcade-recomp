@@ -169,7 +169,7 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                 cfg_.save();
             }
             ImGui::TextDisabled("Software draws the 3D on the CPU, as the arcade board. Hardware uses the GPU:\n"
-                                "in development, close to but not yet pixel-exact, no widescreen yet.");
+                                "in development, close to but not yet pixel-exact.");
             if (ImGui::Checkbox("Fullscreen", &cfg_.fullscreen)) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();

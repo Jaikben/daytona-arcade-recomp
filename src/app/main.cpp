@@ -344,8 +344,8 @@ int main(int argc, char **argv) {
         if (!cmd) return fail("SDL_AcquireGPUCommandBuffer");
         const bool hardware = game && game->board().video().external_3d();
         if (new_frame && hardware) {
-            screen_w = W; // no widescreen in the hardware renderer yet
-            gpu.render(cmd, screen, W, H, game->board().video());
+            screen_w = game->screen_width();
+            gpu.render(cmd, screen, screen_w, H, game->board().video());
             new_frame = false;
         }
         if (new_frame) {

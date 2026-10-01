@@ -429,6 +429,33 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // Save the exact two System-24 layers separately. The Vita frontend
         // draws background -> GPU 3D -> foreground. No CPU polygon pixels are
         // produced in this mode, so raster_ms should remain zero.
+#ifndef M2_VITA_RENDER_OPT
+        if (cpu_layers_) {
+            // Desktop hardware renderer: both layers width() wide. Margins as
+            // the software path fills them, with the 3D coverage estimated
+            // from the polygons (no CPU 3D layer here); the HUD moved to the
+            // edges as there, and the condition panel's polygons with it on
+            // the GPU (gpu_hud_shift).
+            if (margin_) {
+                coverage_ = polys.empty() ? 0 : raster_.coverage_estimate(polys, windows, crtc_x_ + margin_, crtc_y_);
+                fill_margins();
+            }
+            background_gpu_.assign(screen_.begin(), screen_.end());
+            before = ticks();
+            std::fill(sys24_.begin(), sys24_.end(), 0u);
+            for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+            profile_.tile_draw += ticks() - before;
+            foreground_gpu_.assign(screen_.size(), 0u);
+            hud_on_ = margin_ && hud_edges_ && raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
+            if (hud_on_) {
+                copy_front_hud_to_edges(foreground_gpu_);
+            } else {
+                for (int y = 0; y < H; ++y)
+                    std::copy_n(&sys24_[size_t(y) * W], W, &foreground_gpu_[size_t(y) * out_w + size_t(margin_)]);
+            }
+            return;
+        }
+#endif
         std::copy_n(screen_.data(), screen_.size(), background_gpu_.data());
 #ifndef M2_VITA_RENDER_OPT
         // Reference path has not drawn the post-3D tile pass yet.
@@ -486,7 +513,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
 #endif
     before = ticks();
     if (hud_edges && hud_on_) {
-        copy_front_hud_to_edges();
+        copy_front_hud_to_edges(screen_);
     } else {
         copy_trans(sys24_.data(), W, W, margin_);
     }
@@ -515,7 +542,7 @@ void Video::set_raster_hud_moves() {
     raster_.set_hud_shift(hud_on_ ? kHudGroups[1].side * margin_ : 0);
 }
 
-void Video::copy_front_hud_to_edges() {
+void Video::copy_front_hud_to_edges(std::vector<uint32_t> &out) {
     const size_t n = size_t(W) * H;
     // Pixels present, widened by kHudJoin in x then y (a square neighbourhood).
     hud_mask_.assign(n, 0);
@@ -569,7 +596,7 @@ void Video::copy_front_hud_to_edges() {
         for (int x = 0; x < W; ++x) {
             const size_t i = size_t(y) * W + size_t(x);
             if (const uint32_t pixel = sys24_[i])
-                screen_[size_t(y) * out_w + size_t(margin_ + x + hud_move_[size_t(hud_label_[i])])] = pixel;
+                out[size_t(y) * out_w + size_t(margin_ + x + hud_move_[size_t(hud_label_[i])])] = pixel;
         }
 }
 
@@ -619,7 +646,7 @@ void Video::set_wide_margin(int margin) {
 #ifdef M2_VITA_RENDER_OPT
     margin = 0; // the Vita compositor draws the 496-wide layers itself
 #endif
-    if (external_3d_) margin = 0;
+    if (external_3d_ && !cpu_layers_) margin = 0;
     margin = std::max(margin, 0);
     if (margin == margin_) return;
     margin_ = margin;

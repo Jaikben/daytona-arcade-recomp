@@ -165,6 +165,42 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
 
+int Raster::coverage_estimate(const std::vector<GeoPoly> &polys, int windows, int crtc_x, int crtc_y) const {
+    constexpr int kCell = 8, CW = 496 / kCell, CH = 384 / kCell;
+    std::array<uint8_t, size_t(CW) * CH> cells{};
+    for (const GeoPoly &poly : polys) {
+        if (poly.window > windows || poly.num_vertices < 3) continue;
+        float px[8], py[8];
+        for (int i = 0; i < poly.num_vertices; i++) { // as model2_3d_project, in 496-wide coordinates
+            const GeoVertex &v = poly.v[i];
+            const float z = v.p[0] + std::numeric_limits<float>::min();
+            px[i] = float(crtc_x + poly.center[0]) + v.x / z - float(margin_);
+            py[i] = float((384 - poly.center[1]) + crtc_y) - v.y / z;
+        }
+        for (int t = 1; t + 1 < poly.num_vertices; t++) { // fan; a cell counts when its centre is inside
+            const float ax = px[0], ay = py[0], bx = px[t], by = py[t], cx = px[t + 1], cy = py[t + 1];
+            const float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+            if (!(std::fabs(area) > 0.0f)) continue;
+            const int x0 = std::max(0, int(std::floor(std::min({ax, bx, cx}) / kCell)));
+            const int x1 = std::min(CW - 1, int(std::floor(std::max({ax, bx, cx}) / kCell)));
+            const int y0 = std::max(0, int(std::floor(std::min({ay, by, cy}) / kCell)));
+            const int y1 = std::min(CH - 1, int(std::floor(std::max({ay, by, cy}) / kCell)));
+            for (int gy = y0; gy <= y1; gy++)
+                for (int gx = x0; gx <= x1; gx++) {
+                    const float qx = (float(gx) + 0.5f) * kCell, qy = (float(gy) + 0.5f) * kCell;
+                    const float w0 = (bx - ax) * (qy - ay) - (by - ay) * (qx - ax);
+                    const float w1 = (cx - bx) * (qy - by) - (cy - by) * (qx - bx);
+                    const float w2 = (ax - cx) * (qy - cy) - (ay - cy) * (qx - cx);
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                        cells[size_t(gy) * CW + size_t(gx)] = 1;
+                }
+        }
+    }
+    int covered = 0;
+    for (uint8_t c : cells) covered += c;
+    return covered * 100 / (CW * CH);
+}
+
 bool Raster::find_race_hud(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) {
     for (const GeoPoly &poly : polys) {
         if (poly.z > kHudOverlayZ || poly.texheader[0] != 0x8000 || poly.num_vertices < 3) continue;
