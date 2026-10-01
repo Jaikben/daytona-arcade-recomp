@@ -822,7 +822,8 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     };
 #ifdef M2_VITA_RENDER_OPT
     before = ticks();
-    if (background_dirty_) {
+    const bool rebuild_background = background_dirty_ && !gpu_background();
+    if (rebuild_background) {
         // All tile writes are replacements, not blends. Drawing the back
         // layers over pen 0 is identical to zero + transparent copy over pen 0.
         std::fill(background_.begin(), background_.end(), pens_[0]);
@@ -841,6 +842,27 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     }
     profile_.tile_draw = ticks() - before;
     before = ticks();
+    if (external_3d_ && margin_) {
+        // Keep the backdrop native-sized: scaling and plain sky margins are
+        // cheap 2D GPU draws, not a CPU widescreen bitmap per frame.
+        if (!gpu_background() && (rebuild_background || background_gpu_.size() != size_t(W) * H))
+            background_gpu_.assign(background_.data(), background_.data() + size_t(W) * H);
+        hud_on_ = hud_edges_ && raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
+        set_raster_hud_moves();
+        if (gpu_front_margin_ != margin_ || gpu_front_hud_ != hud_on_ || gpu_front_source_ != sys24_) {
+            std::fill(screen_.begin(), screen_.end(), 0u);
+            if (hud_on_) copy_front_hud_to_edges();
+            else copy_trans(sys24_.data(), W, W, margin_);
+            foreground_gpu_ = screen_;
+            gpu_front_source_ = sys24_;
+            gpu_front_margin_ = margin_;
+            gpu_front_hud_ = hud_on_;
+            ++foreground_generation_;
+        }
+        profile_.composite += ticks() - before;
+        rendered_now_ = false;
+        return;
+    }
     if (!margin_) std::copy_n(background_.data(), screen_.size(), screen_.data());
     else {
         std::fill(screen_.begin(), screen_.end(), background_[0]);

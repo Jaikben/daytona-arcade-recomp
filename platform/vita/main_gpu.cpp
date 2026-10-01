@@ -181,7 +181,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU BUFFERS", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - WIDE GPU BACKDROP", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
@@ -394,7 +394,10 @@ int main(int, char **) {
         return a && b;
     };
     auto apply_mode = [&] {
-        if (game) game->board().video().set_external_3d(gpu_fast);
+        if (game) {
+            game->board().video().set_external_3d(gpu_fast);
+            game->board().video().set_gpu_background(gpu_fast);
+        }
         gpu.reset_materials();
         clock.reset();
     };

@@ -2,6 +2,39 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Widescreen GPU backdrop optimization (2026-10-01)
+
+Hardware feedback: all physical buffer choices still slower in widescreen.
+Buffer count was not a cure for the extra rendering work. The wide path still
+CPU-composed scrolling backgrounds, unlike original aspect's GXM tiles.
+
+Add an explicit GPU-background capability enabled only by Vita's GPU frontend.
+Wide screen_update skips CPU background composition/copies; GXM uses the
+existing System24 tile upload and composition around unchanged 3D polygons.
+Only background destination x changes for stretch, never UVs or 3D projection.
+CPU foreground and per-item HUD relocation remain intact. Non-stretched side
+margins clear to palette pen0 as in the original GPU path. The old CPU backdrop
+path remains when capability is off; normal desktop/PSP behavior is unchanged.
+Double GPU buffers remain default; no frame skipping, audio or clock changes.
+
+A synthetic host test (1000 scrolling updates,margin93,empty geometry,constant
+character pixels,changing hscroll) measured526.78ms before and238.81ms after
+for CPU screen_update, about55percent less. Commands/source are under ignored
+build/vita-wide-bench-new.cpp and /tmp/vita-wide-bench.cpp. This excludes GPU
+cost and does not establish hardware FPS, visual fidelity or a full-speed game.
+Prior homogeneous-WVP failure is not reintroduced: no draw_polygons changes,
+shader changes, custom matrix, or HUD algorithm changes.
+
+Host renderer contracts cover margins59/93/200, centred/stretch coordinates,
+unchanged UVs and HUD pixels, no CPU backdrop generation, and one CPU layer
+draw instead of two. Full host build and21 CTest passes (2 optional Lua skips),
+ASan/UBSan renderer contracts, VitaSDK build and VPK archive checks pass.
+Package:build/daytona-vita-wide-gpu-background.vpk
+SHA256:400df3856a523876c0686cd47a8aac79c7c555b3b0e3d247760fb8e5ed36cb1e.
+Hardware rendering and audio checks remain necessary. Main/PSP untouched;
+no remote push.
+
+
 ## Vita physical GPU display buffers (2026-10-01)
 
 User requested actual Vita GPU buffering separate from main's software draw

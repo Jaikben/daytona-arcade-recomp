@@ -355,6 +355,50 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
         mock::require(renderer.sy(0) >= 0 && renderer.sy(384) <= 544.01f, "wide vertical letterbox");
         mock::end_scene();
         renderer.prepare_frame();
+        if (margin) {
+            video.set_stretch_backdrop(true);
+            mock::start_scene(); renderer.draw(video);
+            mock::require(mock::layers.size() == 2, "wide background and foreground draw count");
+            const auto back = mock::layers[0];
+            mock::require(back.w == 496 && back.h == 384, "stretch must sample native backdrop");
+            mock::require(std::abs(back.w * back.xs - video.width() * renderer.scale_) < 0.01f,
+                          "stretch must fill wide viewport");
+            mock::require(std::abs(back.x - renderer.sx(-float(margin))) < 0.01f,
+                          "stretch left edge");
+            mock::end_scene(); renderer.prepare_frame();
+            video.set_stretch_backdrop(false);
+            const auto old_front = video.foreground_layer();
+            const auto background_generation = video.background_generation();
+            video.set_gpu_background(true);
+            video.frame_start(); video.screen_update(polys, 0, images.mem);
+            mock::require(video.foreground_layer() == old_front, "GPU backdrop changed HUD pixels");
+            mock::require(video.background_generation() == background_generation, "GPU backdrop rebuilt CPU background");
+            renderer.prepare_frame(); mock::start_scene(); renderer.draw(video);
+            mock::require(mock::layers.size() == 1, "GPU backdrop still uploads/draws CPU background");
+            mock::end_scene(); renderer.prepare_frame();
+            mock::capture_draws = true;
+            mock::start_scene(); renderer.draw_system24(video, false);
+            const auto centred = mock::captured_draws;
+            mock::require(!centred.empty(), "no GPU backdrop tiles");
+            mock::end_scene(); renderer.prepare_frame();
+            video.set_stretch_backdrop(true);
+            mock::start_scene(); renderer.draw_system24(video, false);
+            mock::require(centred.size() == mock::captured_draws.size(), "stretch changed tile draws");
+            for (size_t d = 0; d < centred.size(); ++d) {
+                const auto &a = centred[d].vertices;
+                const auto &b = mock::captured_draws[d].vertices;
+                mock::require(a.size() == b.size(), "stretch changed tile topology");
+                for (size_t i = 0; i < a.size(); ++i) {
+                    const float source_x = (a[i].x - renderer.sx(0)) / renderer.scale_;
+                    const float expected = renderer.sx(source_x * video.width() / 496.f - margin);
+                    mock::require(std::abs(b[i].x - expected) < .001f, "GPU backdrop stretch coordinate");
+                    mock::require(a[i].y == b[i].y && a[i].u == b[i].u && a[i].v == b[i].v,
+                                  "GPU backdrop changed UV or vertical coordinate");
+                }
+            }
+            mock::end_scene(); renderer.prepare_frame(); mock::capture_draws = false;
+            video.set_stretch_backdrop(false); video.set_gpu_background(false);
+        }
     }
     video.set_wide_margin(93);
     video.set_hud_edges(true);

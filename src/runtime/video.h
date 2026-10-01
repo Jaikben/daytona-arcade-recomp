@@ -93,6 +93,8 @@ public:
     bool cpu_front() const { return hud_on_; }
     uint64_t instance() const { return instance_; } // tells a new Video from an old one at the same address
     bool external_3d() const { return external_3d_; }
+    void set_gpu_background(bool enabled) { gpu_background_ = enabled; }
+    bool gpu_background() const { return external_3d_ && gpu_background_ && margin_; }
 #ifdef M2_DC_MEMORY
     // The Dreamcast, external 3D: the layers as composed, not copies (1.5 MB):
     // the background is the screen, the front tile layers sys24 (W x (H + 4)).
@@ -287,6 +289,7 @@ private:
     std::vector<uint16_t> gpu_tile_words_;
     std::vector<uint32_t> gpu_pens_;
     uint64_t instance_;
+    bool gpu_background_ = false;
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching

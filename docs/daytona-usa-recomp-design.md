@@ -182,8 +182,14 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 
 **Vita GXM presentation enhancements.** The Vita branch exposes the same
 aspect, scenery-distance and per-item HUD policies in its options. Original
-mode uses GPU System24 composition; wide mode uses shared CPU-composed tile/HUD
-layers around GPU polygons. The homogeneous-WVP and wide GPU tile changes were
+mode uses GPU System24 composition. Wide mode now uses the same GXM tile
+compositor for its backdrop, with only background destination x coordinates
+scaled when stretch is enabled. Unstretched margins use palette pen0, like
+the original GXM clear. The CPU foreground/per-item HUD compositor and 3D
+polygon renderer remain unchanged. The previous Wide2 CPU backdrop remains
+available when the explicit Vita GPU-background capability is disabled.
+Unchanged foreground pixels reuse HUD grouping/uploads. The Vita stretch option
+applies to all wide backdrops; desktop retains its exact 3D-coverage gating. The homogeneous-WVP and wide GPU tile changes were
 withdrawn after IMG_2856 showed missing textured geometry on real hardware.
 The previous affine subdivision path is restored. Road-line wobble and wide-mode
 cost remain unresolved; host matrix tests did not validate actual GXM output. Fixed896x384 layer textures

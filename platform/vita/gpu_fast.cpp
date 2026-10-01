@@ -187,10 +187,11 @@ void GpuFastRenderer::update_system24_textures(const rt::Video &video) {
 }
 
 bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
-    if (!video.system24_gpu_compatible()) return false;
+    if (!video.system24_gpu_compatible() && !(video.gpu_background() && !foreground)) return false;
     if (!foreground) {
         system24_quads_ = 0;
-        vita2d_draw_rectangle(kOffsetX, 0.0f, kSourceW * kScale, kDisplayH, swap_rb(video.system24_pen(0)));
+        vita2d_draw_rectangle(sx(-float(video.wide_margin())), sy(0),
+            video.width() * scale_, rt::Video::H * scale_, swap_rb(video.system24_pen(0)));
     }
     struct Rect { int x0, x1, y0, y1, h, v; };
     auto submit = [&](int source_layer, const std::vector<Rect> &rects) {
@@ -205,7 +206,11 @@ bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
         if (!vertices) { ++pool_drops_; return false; }
         size_t out = 0;
         auto vertex = [&](float x, float y, float u, float v) {
-            vertices[out++] = vita2d_texture_vertex{sx(x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
+            // Stretch only backdrop screen coordinates; texture coordinates and
+            // the 3D/HUD projection stay untouched.
+            const float draw_x = video.gpu_background() && video.stretch_backdrop()
+                ? x * float(video.width()) / rt::Video::W - video.wide_margin() : x;
+            vertices[out++] = vita2d_texture_vertex{sx(draw_x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
         };
         for (const Rect &r : rects) {
             const float u0 = float(r.x0 + r.h), u1 = float(r.x1 + r.h);
@@ -710,6 +715,22 @@ void GpuFastRenderer::draw(rt::Video &video) {
         draw_polygons(video);
         const uint64_t polygons = sceKernelGetProcessTimeWide();
         draw_system24(video, true);
+        const uint64_t foreground = sceKernelGetProcessTimeWide();
+        last_upload_us_ = uploaded - begin;
+        last_polygon_us_ = polygons - background;
+        last_tile_us_ = (background - uploaded) + (foreground - polygons);
+    } else if (video.gpu_background()) {
+        update_system24_textures(video);
+        if (foreground_generation_ != video.foreground_generation()) {
+            upload_layer(foreground_, video.foreground_layer());
+            foreground_generation_ = video.foreground_generation();
+        }
+        const uint64_t uploaded = sceKernelGetProcessTimeWide();
+        draw_system24(video, false);
+        const uint64_t background = sceKernelGetProcessTimeWide();
+        draw_polygons(video);
+        const uint64_t polygons = sceKernelGetProcessTimeWide();
+        draw_layer(foreground_, video);
         const uint64_t foreground = sceKernelGetProcessTimeWide();
         last_upload_us_ = uploaded - begin;
         last_polygon_us_ = polygons - background;
