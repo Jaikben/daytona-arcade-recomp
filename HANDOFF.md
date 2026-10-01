@@ -14,7 +14,8 @@ GCC-header build. `setup.ps1` installs (or adds to an existing Visual
 Studio) the Clang tools; `setup.py` builds with the ClangCL toolset when
 present, MSVC otherwise (`M2_COMPILER=clang|msvc` forces one), and
 reconfigures a build directory set up for the other.
-`.github/workflows/windows.yml` builds and tests both, without a ROM set.
+`.github/workflows/build.yml` builds and tests both, without a ROM set,
+alongside macOS and Linux (GCC, Clang).
 Not yet run on a Windows PC here; a tester reports Clang + Ninja builds.
 First CI run: SoftFloat compiled under both; both then stopped on
 `tests/test_vita_gpu_memory.cpp`, `alignas(262144)` (C2345; clang-cl: 8192

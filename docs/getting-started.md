@@ -189,7 +189,8 @@ Delete that folder to reset them.
 ## Status
 
 The game builds and plays on macOS (Apple silicon, Metal). Every change is
-built and tested on Windows (Clang and MSVC) by GitHub Actions, without a
-ROM set; the Windows and Linux games have had less testing.
+built and tested by GitHub Actions on Windows (Clang and MSVC), macOS and
+Linux (GCC and Clang), without a ROM set; the Windows and Linux games
+themselves have had less testing.
 Problems on any platform are worth an issue on GitHub, with the full
 output of setup.
