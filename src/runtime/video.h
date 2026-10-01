@@ -139,6 +139,8 @@ private:
     int gpu_windows_ = 0;
     bool external_3d_ = false;
     int margin_ = 0;
+    int dw_ = W;                               // draw()'s output width: W, or 512 for widescreen's wrap
+    std::vector<uint32_t> back512_;            // widescreen: the back layers drawn 512 wide
     bool hud_edges_ = false;
     bool hud_on_ = false;                      // the rasterizer is moving the HUD overlay polygons
     void set_raster_hud_moves();

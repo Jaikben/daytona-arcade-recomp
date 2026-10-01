@@ -99,7 +99,11 @@ condition panel's box (one checker-shaded overlay polygon, texheader
 0x8000, sort z <= 0x0fff, ~77x82 at x 385..462, y 67..149;
 Raster::race_hud_visible). Measured after: 240 attract frames at 16:9
 identical with the option on and off; the race HUD still moves, and the
-map stays at the edge through the rolling start. The side margins are the sky's plain colour (the back
+map stays at the edge through the rolling start. The side margins now
+continue the back tilemaps: they scroll and wrap every 512 pixels, so with
+widescreen the back layers are drawn a second time 512 wide (draw()'s output
+width `dw_`, 496 otherwise) and margin column x comes from (x mod 512),
+clouds and mountains included. Before that the margins were the sky's plain colour (the back
 layers' top-left pixel); carrying each row's edge out smeared the sky
 picture's clouds and mountains. Off: all scenario hashes unchanged; 21:9
 with it on: all scenarios run to the end. rules.md now lets enhancements change game logic.

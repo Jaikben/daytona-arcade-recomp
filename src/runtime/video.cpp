@@ -153,7 +153,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
                       int sy, int xx1, int yy1, int xx2, int yy2) {
     const uint16_t *source = &pixmap_[L][size_t(sy) * 512 + size_t(sx)];
     const uint8_t *trans = &flags_[L][size_t(sy) * 512 + size_t(sx)];
-    uint32_t *dest = &dm[size_t(yy1) * W + size_t(xx1)];
+    uint32_t *dest = &dm[size_t(yy1) * size_t(dw_) + size_t(xx1)];
     tpri |= PIXEL_LAYER0;
     mask += yy1 * 4;
     yy2 -= yy1;
@@ -219,7 +219,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
         }
         source += 512;
         trans += 512;
-        dest += W;
+        dest += dw_;
         mask += 4;
     }
 }
@@ -232,9 +232,9 @@ void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int m
     const uint8_t mask = (flags & DRAW_OPAQUE) ? CATEGORY_MASK : uint8_t(CATEGORY_MASK | PIXEL_LAYER0);
     const uint8_t value = (flags & DRAW_OPAQUE) ? cat : uint8_t(cat | PIXEL_LAYER0);
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++)
-        for (int x = std::max(minx, 0); x <= std::min(maxx, W - 1); x++) {
+        for (int x = std::max(minx, 0); x <= std::min(maxx, dw_ - 1); x++) {
             const size_t i = size_t((y + sy) & 511) * 512 + size_t((x + sx) & 511);
-            if ((flags_[L][i] & mask) == value) dm[size_t(y) * W + size_t(x)] = pens_[pixmap_[L][i]];
+            if ((flags_[L][i] & mask) == value) dm[size_t(y) * size_t(dw_) + size_t(x)] = pens_[pixmap_[L][i]];
         }
 }
 
@@ -263,7 +263,7 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
                 for (int y = 0; y < H; y++) {
                     const int l1 = y >= v ? layer ^ 1 : layer;
                     const uint16_t h = tile(hscrtb + uint32_t(y)) & 0x1ff;
-                    tilemap_draw(bitmap, l1, -h, sy, 0, W - 1, y, y, fl);
+                    tilemap_draw(bitmap, l1, -h, sy, 0, dw_ - 1, y, y, fl);
                 }
                 break;
             }
@@ -274,8 +274,8 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
                     const int h = hscr & 0x1ff;
                     int l1 = layer;
                     if (!(hscr & 0x200)) l1 ^= 1;
-                    tilemap_draw(bitmap, l1, -h, sy, 0, std::min(W - 1, h - 1), y, y, fl);
-                    tilemap_draw(bitmap, l1 ^ 1, -h, sy, std::max(0, h), W - 1, y, y, fl);
+                    tilemap_draw(bitmap, l1, -h, sy, 0, std::min(dw_ - 1, h - 1), y, y, fl);
+                    tilemap_draw(bitmap, l1 ^ 1, -h, sy, std::max(0, h), dw_ - 1, y, y, fl);
                 }
                 break;
             }
@@ -285,16 +285,16 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
             case 1: {
                 const int v = (-vscr) & 0x1ff;
                 if (!((-vscr) & 0x200)) layer ^= 1;
-                tilemap_draw(bitmap, layer, sx, sy, 0, W - 1, 0, std::min(H - 1, v - 1), fl);
-                tilemap_draw(bitmap, layer ^ 1, sx, sy, 0, W - 1, std::max(0, v), H - 1, fl);
+                tilemap_draw(bitmap, layer, sx, sy, 0, dw_ - 1, 0, std::min(H - 1, v - 1), fl);
+                tilemap_draw(bitmap, layer ^ 1, sx, sy, 0, dw_ - 1, std::max(0, v), H - 1, fl);
                 break;
             }
             case 2:
             case 3: {
                 const int h = hscr & 0x1ff;
                 if (!(hscr & 0x200)) layer ^= 1;
-                tilemap_draw(bitmap, layer, sx, sy, 0, std::min(W - 1, h - 1), 0, H - 1, fl);
-                tilemap_draw(bitmap, layer ^ 1, sx, sy, std::max(0, h), W - 1, 0, H - 1, fl);
+                tilemap_draw(bitmap, layer, sx, sy, 0, std::min(dw_ - 1, h - 1), 0, H - 1, fl);
+                tilemap_draw(bitmap, layer ^ 1, sx, sy, std::max(0, h), dw_ - 1, 0, H - 1, fl);
                 break;
             }
             }
@@ -308,33 +308,33 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
         vscr &= 0x1ff;
         for (int y = 0; y < 384; y++) {
             hscr = uint16_t((-tile(hscrtb + uint32_t(y))) & 0x1ff);
-            if (hscr + 496 <= 512) {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, 496, y + 1);
+            if (hscr + dw_ <= 512) {
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, dw_, y + 1);
             } else {
                 draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, 512 - hscr, y + 1);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, y, 496, y + 1);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, y, dw_, y + 1);
             }
             vscr = (vscr + 1) & 0x1ff;
         }
     } else {
         hscr = uint16_t((-hscr) & 0x1ff);
         vscr = uint16_t((+vscr) & 0x1ff);
-        if (hscr + 496 <= 512) {
+        if (hscr + dw_ <= 512) {
             if (vscr + 384 <= 512) {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 496, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 384);
             } else {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 496, 512 - vscr);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, 496, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 512 - vscr);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, dw_, 384);
             }
         } else {
             if (vscr + 384 <= 512) {
                 draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 384);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, 496, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 384);
             } else {
                 draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 512 - vscr);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, 496, 512 - vscr);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 512 - vscr);
                 draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, 512 - hscr, 384);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, 0, 512 - hscr, 512 - vscr, 496, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, 0, 512 - hscr, 512 - vscr, dw_, 384);
             }
         }
     }
@@ -422,15 +422,27 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     copy_trans(sys24_.data(), W, W, margin_);
     if (margin_) {
         // Widescreen: the back tilemaps (the sky picture, with its clouds and
-        // mountains) are only 496 wide. Fill the side margins, under the 3D
-        // layer, with the sky's plain colour: the back layers' top-left pixel
-        // (open sky). Carrying each row's edge out smeared the clouds.
+        // mountains) scroll and wrap every 512 pixels, so screen column x
+        // shows what column x +/- 512 would. Draw them once more 512 wide
+        // (the 16 columns past 496 are off the original screen) and carry that
+        // out into the side margins, column x from (x mod 512).
+        back512_.assign(size_t(512) * (H + 4), 0u);
+        dw_ = 512;
+        for (int layer = 3; layer >= 2; --layer) draw(back512_, layer << 1, DRAW_OPAQUE);
+        for (int layer = 1; layer >= 0; --layer) draw(back512_, layer << 1, 0);
+        dw_ = W;
         const size_t out_w = size_t(width());
-        const uint32_t sky = screen_[size_t(margin_)];
         for (int y = 0; y < H; ++y) {
             uint32_t *row = &screen_[size_t(y) * out_w];
-            std::fill(row, row + margin_, sky);
-            std::fill(row + margin_ + W, row + out_w, sky);
+            const uint32_t *wrap = &back512_[size_t(y) * 512];
+            for (int x = -margin_; x < 0; ++x) {
+                const uint32_t p = wrap[(x + 512) & 511];
+                row[margin_ + x] = p ? p : pens_[0];
+            }
+            for (int x = W; x < W + margin_; ++x) {
+                const uint32_t p = wrap[x & 511];
+                row[margin_ + x] = p ? p : pens_[0];
+            }
         }
     }
     profile_.composite += ticks() - before;
