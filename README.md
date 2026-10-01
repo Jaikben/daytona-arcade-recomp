@@ -27,8 +27,25 @@ In short:
 
        powershell -ExecutionPolicy Bypass -File setup.ps1
 
+   On Windows the game is built with Clang from the Visual Studio Build
+   Tools. Setup installs them, or adds the Clang tools to the Visual Studio
+   you have; Windows asks for permission for that. `setup.ps1 --msvc` uses
+   Microsoft's compiler instead.
 3. Run the command setup prints at the end (`build/daytona`, or
    `build\Release\daytona.exe` on Windows).
+
+**Updating:** `git pull`, then run setup again (it recompiles the game from
+your ROM set, since updates can change the generated code).
+
+**Clean rebuild** (after a failed build, or to start over): delete the
+`build` folder and run setup again. Your ROM set in `roms/` and the
+downloaded libraries in `extern/` are kept.
+
+If setup fails, it says whether your ROM set was rejected (the line above
+names the file) or the build failed (the errors are just above). The
+[guide's troubleshooting](docs/getting-started.md#troubleshooting) covers
+the usual ones. Every change is built and tested by GitHub Actions on
+Windows (Clang and MSVC), macOS and Linux (GCC and Clang), without a ROM set.
 
 Setup scripts install the toolchain (C++20 compiler, CMake, Ninja, Python 3, Git;
 Visual Studio 2022 Build Tools on Windows, Homebrew packages on macOS, your
@@ -38,9 +55,10 @@ distribution's packages on Linux), fetch the pinned dependencies into
 `build/`, never committed). Already have a toolchain? Run
 `python3 scripts/setup.py` directly.
 
-Options: `--test-extras` (optional test dependencies), `--with-mame` (MAME
-source for the oracle test), `--build-mame` (the patched MAME that records
-validation traces; Linux and macOS).
+Options: `--msvc` (setup.ps1 only: Microsoft's compiler), `--test-extras`
+(optional test dependencies), `--with-mame` (MAME source for the oracle
+test), `--build-mame` (the patched MAME that records validation traces;
+Linux and macOS).
 
 After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
 

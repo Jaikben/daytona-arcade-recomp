@@ -28,7 +28,9 @@ Installer `modify` ran unelevated and, it seems, failed quietly. setup.ps1
 now runs it elevated, checks the Clang toolset with vswhere afterwards,
 stops with instructions if it is missing, and sets M2_COMPILER=clang
 (`--msvc` for MSVC). Untested on a real PC; CI only checks it parses
-(GitHub's Windows runners have no winget).
+(GitHub's Windows runners have no winget). README's Setup and
+docs/getting-started.md now cover Clang on Windows and `--msvc`, updating,
+a clean rebuild, the "build failed" message, and the widescreen options.
 
 **Widescreen (enhancement, off by default).** Launcher > Enhancements >
 Widescreen: Original (4:3), 16:10 (614x384), 16:9 (682x384), 21:9

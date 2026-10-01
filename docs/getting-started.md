@@ -118,6 +118,12 @@ the same `roms/daytona93.zip`, and wait for the line under it to say "All
 next time. **Controls** sets your keys and gamepad. In the game, **Esc**
 brings the launcher back.
 
+**Widescreen** (optional): in the launcher, under **Enhancements**, set
+**Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
+sides, nothing is stretched, and the HUD stays 4:3 in the centre; tick **HUD
+at the screen edges** to move the lap times, position and maps out to the
+sides. Both apply straight away, even mid-race.
+
 Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).
@@ -155,6 +161,17 @@ and run setup again.
 The file is not the `daytona93` set, or is incomplete. See
 [What you need](#what-you-need). Renaming a different set does not help:
 its program is different.
+
+**`your ROM set was accepted, but recompiling or building the game
+failed`**
+Your ROM set is fine; the build has a problem. First run `git pull` and
+setup again: it may already be fixed. If not, search the output for lines
+containing `error` and report them (an issue on GitHub), with the ten or so
+lines around them. To retry from a clean state, delete the `build` folder
+first (see Starting again from scratch).
+
+**Windows: `unresolved external symbol WinMain`** (error LNK2019)
+An older version of the project. Run `git pull`, then `setup.ps1` again.
 
 **Windows: `error C4235: nonstandard extension used: '__int128'`**, or
 **`'__builtin_clz' undefined`**
