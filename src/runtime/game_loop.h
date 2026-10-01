@@ -97,6 +97,8 @@ public:
     static void set_draw_distance(int level) {
         Enhance::draw_distance = std::clamp(level, Enhance::kDrawMin, Enhance::kDrawMax);
     }
+    // With widescreen: the tile backdrop drawn into the margins (else plain sky).
+    void set_extend_backdrop(bool on) { board_->video().set_extend_backdrop(on); }
     // With widescreen: the race HUD's side groups at the screen edges.
     void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {

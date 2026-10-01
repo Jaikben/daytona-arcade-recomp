@@ -371,6 +371,17 @@ void Video::draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, in
         }
     };
     constexpr int kAll0 = -(1 << 20), kAll1 = 1 << 20;
+    // Split modes put layer A left of screen column h and B from h on: one
+    // 1024-pixel panorama. Off the screen it continues as such, A and B
+    // alternating every 512 columns ([h-512, h) A, [h, h+512) B, [h-1024,
+    // h-512) B ...); keeping A for every column left of h wrapped A onto
+    // itself, a seam a tester saw at the left edge.
+    auto row_split = [&](int A, int B, int h, int sx, int sy, int y) {
+        for (int x = x0; x < xend; ++x) {
+            const int Lr = ((x - h) >> 9) & 1 ? A : B;
+            row_tm(Lr, sx, sy, y, x, x);
+        }
+    };
 
     if (ctrl & 0x6000) { // special window/scroll modes: layers L and L^1 side by side or stacked
         if (L & 1) return;
@@ -390,8 +401,7 @@ void Video::draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, in
                     const int h = hl & 0x1ff;
                     int l1 = L;
                     if (!(hl & 0x200)) l1 ^= 1;
-                    row_tm(l1, -h, sy, y, kAll0, h - 1);
-                    row_tm(l1 ^ 1, -h, sy, y, h, kAll1);
+                    row_split(l1, l1 ^ 1, h, -h, sy, y);
                 }
             }
         } else {
@@ -405,10 +415,7 @@ void Video::draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, in
                 const int h = hscr & 0x1ff;
                 int Lb = L;
                 if (!(hscr & 0x200)) Lb ^= 1;
-                for (int y = 0; y < H; y++) {
-                    row_tm(Lb, sx, sy, y, kAll0, h - 1);
-                    row_tm(Lb ^ 1, sx, sy, y, h, kAll1);
-                }
+                for (int y = 0; y < H; y++) row_split(Lb, Lb ^ 1, h, sx, sy, y);
             }
         }
         return;
@@ -668,7 +675,9 @@ void Video::copy_front_hud_to_edges() {
         }
 }
 
-// Widescreen side margins, under the 3D layer. The back tilemaps scroll and
+// Widescreen side margins, under the 3D layer. Behind a 3D scene they are the
+// sky's plain colour, or, with "stretch tile background", the following.
+// The back tilemaps scroll and
 // wrap every 512 pixels. Behind a 3D scene they are the sky (clouds,
 // mountains), drawn to wrap: the margins continue it, the back layers drawn
 // once more 512 wide and margin column x taken from (x mod 512). On a 2D screen
@@ -682,7 +691,11 @@ void Video::copy_front_hud_to_edges() {
 void Video::fill_margins() {
     const bool scene = coverage_ >= 50;
     const int out = width();
-    if (scene) {
+    // Behind a 3D scene: the sky's plain colour (the back layers' top-left
+    // pixel, open sky) unless "stretch tile background" is on.
+    const bool extend = scene && extend_backdrop_;
+    const uint32_t sky = screen_[size_t(margin_)];
+    if (extend) {
         backwide_.assign(size_t(out) * H, 0u);
         for (int layer = 3; layer >= 2; --layer) draw_ext(backwide_, layer << 1, DRAW_OPAQUE, -margin_, out);
         for (int layer = 1; layer >= 0; --layer) draw_ext(backwide_, layer << 1, 0, -margin_, out);
@@ -699,8 +712,8 @@ void Video::fill_margins() {
     }
     for (int y = 0; y < H; ++y) {
         uint32_t *row = &screen_[size_t(y) * size_t(out)];
-        const uint32_t *ext = scene ? &backwide_[size_t(y) * size_t(out)] : nullptr;
-        const uint32_t left = row[margin_], right = row[margin_ + W - 1];
+        const uint32_t *ext = extend ? &backwide_[size_t(y) * size_t(out)] : nullptr;
+        const uint32_t left = scene ? sky : row[margin_], right = scene ? sky : row[margin_ + W - 1];
         for (int x = 0; x < margin_; ++x) {
             const uint32_t p = ext ? ext[x] : left;
             row[x] = p ? p : pens_[0];

@@ -303,6 +303,7 @@ int main(int argc, char **argv) {
         if (game && !in_launcher) {
             game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             game->set_hud_edges(cfg.hud_edges);
+            game->set_extend_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             while (pending >= frame_ns) {
                 game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), pad));

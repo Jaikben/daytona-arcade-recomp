@@ -29,6 +29,7 @@ void Config::load() {
         else if (k == "fullscreen") fullscreen = v == "1";
         else if (k == "aspect") aspect = v;
         else if (k == "hud_edges") hud_edges = v == "1";
+        else if (k == "stretch_backdrop") stretch_backdrop = v == "1";
         else if (k == "draw_distance") draw_distance = std::clamp(std::atoi(v.c_str()), -2, 2);
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
@@ -52,6 +53,7 @@ void Config::save() const {
     f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
     f << "aspect=" << aspect << "\n";
     f << "hud_edges=" << (hud_edges ? 1 : 0) << "\n";
+    f << "stretch_backdrop=" << (stretch_backdrop ? 1 : 0) << "\n";
     f << "draw_distance=" << draw_distance << "\n";
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";

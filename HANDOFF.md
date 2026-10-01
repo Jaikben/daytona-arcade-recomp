@@ -2,6 +2,19 @@
 
 ## Current state
 
+**Widescreen sky: plain by default, "Stretch tile background" to extend.**
+A tester still saw a seam in the margins with the tile backdrop drawn out.
+Measured: the race sky is tilemap layer 2, one layer in normal scroll mode
+(not a split pair: the split-mode alternation added to draw_ext changed 0
+pixels there), and its hscroll sweeps the whole 0..511 range over a lap
+(152 values), so the original 4:3 screen passes the picture's join too;
+only ~79% of rows match across it. So the margins default to the sky's
+plain colour behind 3D, and launcher > Enhancements > "Stretch tile
+background (Experimental)" (`m2run --stretch-backdrop`) draws the tiles out.
+2D screens keep each row's edge colours either way. Split pairs in draw_ext
+now alternate A/B every 512 columns (a 1024-pixel panorama), as the
+hardware's layout implies; not exercised by Daytona's race sky.
+
 **Launcher labels.** Options that need it say so: "Graphics API (Restart
 Required)"; "Native audio (Experimental, Reset Required)" (it applies when a
 game starts or is reset, not on an app restart); "HUD at the screen edges
