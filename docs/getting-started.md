@@ -136,7 +136,10 @@ Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).
 
-To skip the launcher:
+To skip the launcher, tick **Skip launcher** on the Game tab: from then on
+the game starts straight away (Esc still brings the launcher back, where you
+can untick it). If the ROM set is missing or wrong, the launcher shows
+anyway, with the reason. For one run only:
 
     build/daytona --rom roms/daytona93.zip --autostart
 

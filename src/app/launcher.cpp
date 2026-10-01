@@ -165,6 +165,9 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();
             }
+            if (ImGui::Checkbox("Skip launcher", &cfg_.skip_launcher)) cfg_.save();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(starts the game straight away; Esc opens this launcher)");
             ImGui::TextDisabled("Resolution and upscaling options: coming later.");
 
             ImGui::Spacing();

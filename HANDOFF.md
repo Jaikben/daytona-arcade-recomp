@@ -2,6 +2,11 @@
 
 ## Current state
 
+**Skip launcher.** Launcher > Game > "Skip launcher" (saved): start-up goes
+straight into the game, as `--autostart` does, when the ROM set checks out;
+otherwise the launcher shows with the reason. Esc still opens it. Checked:
+with it set, `daytona` started the game at once (377 frames in 8 s).
+
 **"Stretch tile background" stretches, it does not extend.** In a race, with
 the option on, the backdrop as drawn for the 496 columns is scaled across
 the whole width (linear blend per row); the tester wanted no repeat at all.

@@ -13,6 +13,7 @@ struct Config {
     std::string rom_path;
     std::string gpu;          // "" (automatic), vulkan, direct3d12, metal
     bool fullscreen = false;
+    bool skip_launcher = false; // start the game straight away (as --autostart); Esc still opens the launcher
     float volume = 0.8f;      // 0..1
     bool mute = false;
     bool native_audio = false; // applies on reset; reference remains the default

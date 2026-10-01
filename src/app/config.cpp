@@ -27,6 +27,7 @@ void Config::load() {
         if (k == "rom") rom_path = v;
         else if (k == "gpu") gpu = v;
         else if (k == "fullscreen") fullscreen = v == "1";
+        else if (k == "skip_launcher") skip_launcher = v == "1";
         else if (k == "aspect") aspect = v;
         else if (k == "hud_edges") hud_edges = v == "1";
         else if (k == "stretch_backdrop") stretch_backdrop = v == "1";
@@ -51,6 +52,7 @@ void Config::save() const {
     f << "rom=" << rom_path << "\n";
     f << "gpu=" << gpu << "\n";
     f << "fullscreen=" << (fullscreen ? 1 : 0) << "\n";
+    f << "skip_launcher=" << (skip_launcher ? 1 : 0) << "\n";
     f << "aspect=" << aspect << "\n";
     f << "hud_edges=" << (hud_edges ? 1 : 0) << "\n";
     f << "stretch_backdrop=" << (stretch_backdrop ? 1 : 0) << "\n";
