@@ -121,7 +121,7 @@ brings the launcher back.
 **Widescreen** (optional): in the launcher, under **Enhancements**, set
 **Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
 sides, nothing is stretched, and the HUD stays 4:3 in the centre; tick **HUD
-at the screen edges** to move the lap times, position and maps out to the
+at the screen edges (Experimental)** to move the lap times, position and maps out to the
 sides. Both apply straight away, even mid-race.
 
 **Draw distance** (optional): the slider under **Enhancements** sets how far

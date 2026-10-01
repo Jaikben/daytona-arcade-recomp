@@ -2,6 +2,11 @@
 
 ## Current state
 
+**Launcher labels.** Options that need it say so: "Graphics API (Restart
+Required)"; "Native audio (Experimental, Reset Required)" (it applies when a
+game starts or is reset, not on an app restart); "HUD at the screen edges
+(Experimental)". Everything else applies straight away.
+
 **Draw distance (enhancement, off by default).** Launcher slider (Shortest,
 Shorter, Default, Further, Furthest = -2..+2), `m2run --draw-distance N`.
 Found by tracing, not by guessing: the geometrizer's master z clip is unused

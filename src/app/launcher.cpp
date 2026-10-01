@@ -157,7 +157,7 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             for (int i = 0; i < 4; i++)
                 if (cfg_.gpu == api_ids[i]) api = i;
             ImGui::SetNextItemWidth(200);
-            if (ImGui::Combo("Graphics API (applies on restart)", &api, apis, 4)) {
+            if (ImGui::Combo("Graphics API (Restart Required)", &api, apis, 4)) {
                 cfg_.gpu = api_ids[api];
                 cfg_.save();
             }
@@ -181,7 +181,7 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                 cfg_.save();
             }
             ImGui::BeginDisabled(cfg_.aspect.empty());
-            if (ImGui::Checkbox("HUD at the screen edges", &cfg_.hud_edges)) cfg_.save();
+            if (ImGui::Checkbox("HUD at the screen edges (Experimental)", &cfg_.hud_edges)) cfg_.save();
             ImGui::EndDisabled();
             ImGui::TextDisabled("Shows more of the scene at the sides. The HUD stays 4:3 in the centre, or its\n"
                                 "lap times, position and maps move out to the edges.");
@@ -206,7 +206,7 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             }
             ImGui::SameLine();
             if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
-            if (ImGui::Checkbox("Native audio (experimental; applies on reset)", &cfg_.native_audio)) cfg_.save();
+            if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &cfg_.native_audio)) cfg_.save();
             ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
 
             ImGui::Spacing();

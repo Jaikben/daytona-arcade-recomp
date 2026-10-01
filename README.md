@@ -74,7 +74,7 @@ opens first:
   (automatic, Vulkan, Direct3D 12, Metal) and fullscreen. Enhancements
   (off by default): widescreen 16:10, 16:9 or 21:9, which shows more of the
   scene at the sides with the HUD kept 4:3 in the centre, or with "HUD at
-  the screen edges" the lap times, position, condition panel and course map
+  the screen edges" (experimental) the lap times, position, condition panel and course map
   moved out to the sides; and a draw distance slider for the scenery (default
   is the game's own; shorter runs faster). Start.
 - **Controls**: bind every arcade control to a key and a gamepad button or
