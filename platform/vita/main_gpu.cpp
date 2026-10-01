@@ -173,7 +173,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - GPU25", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - RECOVERY 1", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,

@@ -224,31 +224,6 @@ double benchmark(Emitter emitter, int subdiv) {
 
 int main(int argc, char **argv) {
     regression_tests();
-    // Project with the actual matrix layout, then independently evaluate the
-    // hardware perspective interpolation formula over a long road triangle.
-    const Point road[] = {{80,530,0,256,1}, {880,530,256,256,1}, {480,10,128,0,0.01f}};
-    Vertex hv[3];
-    for (int i = 0; i < 3; ++i) {
-        assert(vita::perspective_vertex(hv[i], road[i], 256, 256));
-        const float in[] = {hv[i].x, hv[i].y, hv[i].z, 1};
-        float clip[4]{};
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c)
-                clip[r] += vita::perspective_matrix[c*4+r] * in[c];
-        assert(std::abs((clip[0]/clip[3]+1)*480-road[i].x) < 0.001f);
-        assert(std::abs((1-clip[1]/clip[3])*272-road[i].y) < 0.001f);
-        assert(clip[3] > 0 && clip[2]/clip[3] == 0.5f);
-    }
-    for (int b = 0; b <= 100; ++b) for (int c = 0; c <= 100-b; ++c) {
-        const double w[] = {1.0-(b+c)/100.0, b/100.0, c/100.0};
-        double gpu=0, reference=0, gden=0, rden=0;
-        for (int i = 0; i < 3; ++i) {
-            gpu += w[i]*hv[i].v/hv[i].z; gden += w[i]/hv[i].z;
-            reference += w[i]*road[i].v*road[i].q/256; rden += w[i]*road[i].q;
-        }
-        assert(std::abs(gpu/gden-reference/rden) < 1.e-6);
-    }
-    std::puts("Perspective: 5151 road samples agree; three vertices replace up to 192.");
     if (argc == 2 && std::strcmp(argv[1], "--benchmark") == 0) {
         std::puts("Single-thread host process CPU time, not a Vita frame-rate measurement:");
         for (int subdiv : {1, 2, 4, 8}) {

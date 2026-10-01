@@ -49,11 +49,11 @@ is supplied externally; its precise source commit is not recorded by this
 installation. Validated archive SHA-256:
 6960641df92c51d15d45cca1eaffd0bb1b18cda024b0940fdd59b8fe9a8dabf2.
 
-The perspective adapter temporarily replaces exported _vita2d_ortho_matrix,
-which the draw API copies into a fresh WVP uniform buffer. It restores the
-matrix before UI, tile or stencil draws; upgrades must retain this contract
-or provide an equivalent public matrix setter. Existing shader binaries are
-linked from the public homebrew package; no proprietary compiler is used.
+The experimental exported-matrix adapter was withdrawn after real hardware
+lost textured geometry (IMG_2856). Do not assume the host matrix model proves
+the installed GXM shader/viewport behaviour. Recovery uses the original
+libvita2d draw interface without replacing its matrix. Existing shader binaries
+are linked from the public homebrew package; no proprietary compiler is used.
 
 The MIT License (MIT)
 

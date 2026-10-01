@@ -191,11 +191,10 @@ letterboxed vertically. The road window is unchanged by scenery distance.
 
 HUD relocation shares the desktop per-item rules and only activates when
 the race HUD is visible. Scenery stays put and crossing banners stay whole.
-Original and wide modes retain the fast GXM background compositor. Centred
-foregrounds also use GXM; only active edge HUDs need CPU grouping. Unchanged HUD
-pixels reuse the grouped layer and upload. Further draw distance still adds work.
-Textured geometry now uses hardware perspective interpolation rather than
-affine triangle subdivision; this change needs visual confirmation on hardware. The layer arena is12MiB instead of10MiB,
+Recovery 1 restores the earlier rendering paths after the perspective build
+lost textured geometry on hardware. Original mode uses GXM tile composition;
+wide mode uses CPU tile/HUD composition. Road wobble and widescreen performance
+are not fixed by this recovery. Steering curves remain available. The layer arena is12MiB instead of10MiB,
 making the three GPU arenas32MiB total.
 
 Hold Select and press Triangle for cabinet Test (enter/confirm).

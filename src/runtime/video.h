@@ -47,7 +47,7 @@ public:
     const std::vector<uint32_t> &screen() const { return screen_; } // width() x H
     // Widescreen (enhancement, 0 = off): the screen grows by `margin` pixels on
     // each side. The 3D layer fills it; the tilemap layers (HUD, text) stay
-    // 496 wide in the centre. External 3D uses the same margin and HUD policy.
+    // 496 wide in the centre. Not available with external 3D (the Vita path).
     void set_wide_margin(int margin);
     bool hud_at_edges_active() const { return hud_on_; }
     int wide_margin() const { return margin_; }
@@ -62,7 +62,7 @@ public:
         hud_edges_ = on;
         if (!on && hud_on_) { hud_on_ = false; set_raster_hud_moves(); render_done_ = false; }
     }
-    // Vita GPU-fast path: expose tile sources and optional CPU edge HUD; let the host
+    // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
     // desktop: the desktop hardware renderer, which draws the tilemap layers
     // itself from the decoded pixmaps (system24_pixels, system24_flags, the
@@ -276,8 +276,6 @@ private:
     bool scroll_mode(int &sx, int &sy) const;
 #endif
     std::vector<uint32_t> background_gpu_, foreground_gpu_;
-    std::vector<uint32_t> gpu_hud_source_;
-    int gpu_hud_margin_ = -1;
     uint64_t background_generation_ = 0, foreground_generation_ = 0, system24_texture_generation_ = 0;
     bool system24_source_dirty_ = true;
     std::vector<uint64_t> system24_tile_generations_;

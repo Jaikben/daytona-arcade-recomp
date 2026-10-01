@@ -60,6 +60,34 @@ This follows the design document's Platform layer & build and ROM handling
 sections: the shared runtime/renderer is unchanged. See the mobile handoff
 for build validation and device-test status.
 
+## Recovery 1 after hardware regression (2026-10-01)
+
+IMG_2856 shows the c3ec891 package losing most textured scene geometry: road
+and car surfaces missing, while tiles and some solid/checker geometry remain.
+This overrides the host-test success recorded below. The exact GXM failure
+mechanism has not been isolated; the host uniform/projection model did not
+execute the installed shader and was insufficient to validate the change.
+
+Restored gpu_fast.cpp, perspective_vertices.h, video.cpp/h and corresponding
+renderer tests byte-for-byte to1ca8cb3 (git diff --exit-code verified).
+Both homogeneous-WVP and wide GPU-tile changes are withdrawn, rather than
+shipping another unverified matrix guess. Steering curves, their controls
+tests, saved settings and existing Test/Service bindings remain.
+Menu identifies DAYTONA RECOMP - RECOVERY 1. Main and PSP untouched.
+
+Public VitaSDK cross-build and VPK archive checks pass. Input tests pass;
+restored renderer ASan/UBSan contracts pass, including painter order, checker
+parity, wrap/mirror addressing, allocation ownership and shutdown.
+Artifact: build/daytona-vita-recovery-1.vpk
+SHA256825368c373f9c52dd00329ff16fc9d9e08aed68c0dfa614efe3eed584693e0a5.
+Logging remains off. No hardware recovery result has been observed yet.
+
+Road wobble and wide-mode cost remain as in the earlier working renderer.
+Next: verify Recovery 1 on hardware before attempting isolated optimisations.
+Do not redistribute daytona-vita-perspective-curves.vpk as a working fix;
+its host math checks and replay hash did not demonstrate real GXM correctness.
+
+
 ## Vita perspective, widescreen cost and steering curves (2026-10-01)
 
 Work remains on psvita-native-frontend; main and PSP branches untouched.

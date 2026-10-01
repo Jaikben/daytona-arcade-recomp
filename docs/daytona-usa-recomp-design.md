@@ -181,17 +181,12 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
 **Vita GXM presentation enhancements.** The Vita branch exposes the same
-aspect, scenery-distance and per-item HUD policies in its options. The original
-and wide modes retain GPU System24 background composition. Centred foregrounds
-also stay on the GPU. Edge HUDs alone use CPU grouping, sharing the rasterizer's
-HUD polygon offset decision and race-HUD detection; unchanged foreground pixels
-reuse the grouped layer and its upload. The sky margin samples the composited
-top-left pixel through the same GPU tile rectangles.
-Textured polygons use homogeneous positions and the existing libvita2d WVP
-shader for perspective-correct interpolation instead of affine subdivision.
-Painter order, stencil clipping and screen-anchored solid checker remain intact.
-The scoped matrix adapter uses libvita2d's exported ortho matrix; it must be
-revalidated on library upgrades. No new shader compiler or shader fork is used. Fixed896x384 layer textures
+aspect, scenery-distance and per-item HUD policies in its options. Original
+mode uses GPU System24 composition; wide mode uses shared CPU-composed tile/HUD
+layers around GPU polygons. The homogeneous-WVP and wide GPU tile changes were
+withdrawn after IMG_2856 showed missing textured geometry on real hardware.
+The previous affine subdivision path is restored. Road-line wobble and wide-mode
+cost remain unresolved; host matrix tests did not validate actual GXM output. Fixed896x384 layer textures
 cover up to21:9; panel fitting preserves aspect on960x544. The layer arena grows
 from10 to12MiB (32MiB total GPU arenas), without per-frame GPU allocations.
 These options are not a promise of full-speed hardware performance.

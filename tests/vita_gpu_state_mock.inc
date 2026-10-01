@@ -9,7 +9,7 @@ namespace mock {
 SceGxmContext context;
 unsigned full_setups = 0, direct_draws = 0;
 int fail_direct_stage = 0;
-void reset_graphics_state() { context = {}; bound_wvp = {}; }
+void reset_graphics_state() { context = {}; }
 }
 SceGxmContext *vita2d_get_context() { return &mock::context; }
 const uint16_t *vita2d_get_linear_indices() {
@@ -22,7 +22,6 @@ const uint16_t *vita2d_get_linear_indices() {
 }
 void vita2d_draw_array_textured(const vita2d_texture *t, int primitive,
                               const vita2d_texture_vertex *v, unsigned count, uint32_t color) {
-    std::copy_n(_vita2d_ortho_matrix, 16, mock::bound_wvp.begin());
     mock::context.shader = 1;
     mock::context.texture = t->gxm_tex;
     mock::context.tint = color;
@@ -33,7 +32,6 @@ void vita2d_draw_array_textured(const vita2d_texture *t, int primitive,
     mock_draw_array_textured(t, primitive, v, count, color);
 }
 void vita2d_draw_array(int primitive, const vita2d_color_vertex *v, unsigned count) {
-    std::copy_n(_vita2d_ortho_matrix, 16, mock::bound_wvp.begin());
     mock::context.shader = 2;
     mock::context.vertices = v;
     ++mock::full_setups;
