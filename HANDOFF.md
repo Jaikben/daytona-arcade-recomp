@@ -2,6 +2,14 @@
 
 ## Current state
 
+**Windows: the game's messages.** daytona is a WIN32 (GUI) program, so on
+Windows its output went nowhere and a command window returned at once; a
+tester could not see which renderer ran. It now attaches to the parent
+console when there is one, else writes daytona.log in the pref folder, and
+prints `daytona: renderer hardware (GPU)` / `software (CPU)` whenever the
+active renderer changes. Checked on macOS (both lines); the Windows branch is
+compiled by CI only.
+
 **Hardware renderer speed (`m2gpushot --bench`).** race_basic, 6,000 frames,
 headless on this Mac (Metal): software 189 frames/s (5.3 ms a frame) at 4:3
 and 188 at 16:9; hardware 324 (3.1 ms) and 347. Hardware frame at 4:3: game

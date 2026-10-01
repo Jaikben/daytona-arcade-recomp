@@ -25,6 +25,12 @@
 #include "backends/imgui_impl_sdlgpu3.h"
 #include "imgui.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h> // AttachConsole
+#endif
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h> // Windows: the WinMain entry point a WIN32 (GUI) program links against
 
@@ -123,7 +129,27 @@ int fail(const char *what) {
 
 } // namespace
 
+// Windows builds daytona as a GUI program, which has no console of its own:
+// nothing it prints is seen. Started from a command window, attach to that
+// window; otherwise write to daytona.log beside the settings.
+void open_log() {
+#ifdef _WIN32
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        std::freopen("CONOUT$", "w", stdout);
+        std::freopen("CONOUT$", "w", stderr);
+        std::printf("\n");
+        return;
+    }
+    const std::string log = pref_file("daytona.log");
+    std::freopen(log.c_str(), "w", stdout);
+    std::freopen(log.c_str(), "a", stderr);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
+}
+
 int main(int argc, char **argv) {
+    open_log();
     app::Config cfg;
     cfg.load();
     uint64_t max_frames = 0;
@@ -251,6 +277,7 @@ int main(int argc, char **argv) {
     };
 
     bool in_launcher = true, running = true, have_frame = false, new_frame = false;
+    int reported_hardware = -1; // the renderer last reported (-1: none yet)
     // Skip launcher (saved) or --autostart: straight into the game when the ROM
     // set checks out; otherwise the launcher shows, with the reason.
     if ((autostart || cfg.skip_launcher) && launcher.rom_ok() && start_game()) in_launcher = false;
@@ -343,6 +370,10 @@ int main(int argc, char **argv) {
         SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
         if (!cmd) return fail("SDL_AcquireGPUCommandBuffer");
         const bool hardware = game && game->board().video().external_3d();
+        if (game && hardware != reported_hardware) { // say which renderer is drawing, whenever it changes
+            std::printf("daytona: renderer %s\n", hardware ? "hardware (GPU)" : "software (CPU)");
+            reported_hardware = hardware;
+        }
         if (new_frame && hardware) {
             screen_w = game->screen_width();
             gpu.render(cmd, screen, screen_w, H, game->board().video());

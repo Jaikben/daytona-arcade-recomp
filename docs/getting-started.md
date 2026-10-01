@@ -110,7 +110,12 @@ Windows:
     build\Release\daytona.exe
 
 (Use the exact path setup printed: it is `build\daytona.exe` if setup
-used Ninja.)
+used Ninja.) On Windows the command prompt comes back straight away, as for
+any windowed program; the game's messages still appear in that window. To
+have the window wait until the game closes, use
+`start /wait build\Release\daytona.exe`. Started from Explorer or a
+shortcut, the game writes its messages to `daytona.log` in its settings
+folder (see Starting again from scratch for where that is).
 
 A launcher opens first. On the **Game** tab, click **Browse...**, choose
 the same `roms/daytona93.zip`, and wait for the line under it to say "All
@@ -221,6 +226,13 @@ settings file below.
 The game reached code this version does not have yet. Run `git pull` and
 setup again; if it still happens, open an issue on GitHub with the address
 and what you were doing in the game.
+
+**Reporting a problem with the game itself**
+Include the game's messages: the lines starting `daytona:` in the window you
+started it from, or on Windows the file `daytona.log` in the settings folder
+below. They say which graphics driver and renderer are in use (for example
+`daytona: renderer hardware (GPU)`), and why the hardware renderer could not
+start if it could not.
 
 **Starting again from scratch**
 Delete the `build` folder and run setup again. Your ROM set in `roms/` is
