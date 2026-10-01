@@ -2,6 +2,40 @@
 
 ## Current state
 
+**Draw distance (enhancement, off by default).** Launcher slider (Shortest,
+Shorter, Default, Further, Furthest = -2..+2), `m2run --draw-distance N`.
+Found by tracing, not by guessing: the geometrizer's master z clip is unused
+(0xff); object commands in the display list are written by the TGP, which
+reads model lists from its own ROM (only 8 of ~3,000 i960 FIFO words per
+frame match model addresses). The i960 picks what to draw:
+- Scenery by course cell: a 16x16 grid (cell = x + 16 y; offsets table
+  0x17136 = dx + 16 dy). 0x16f74..0x17070 takes the 5x5 around the car's cell
+  (r8) in nearest-first order (0x17104; 0x1711d on two courses), kept where
+  two visibility masks allow (r13 from 0x171f8, r9 from 0x1727c), into the
+  draw list (count 0x5016c0, cells 0x5016c1.., 63 bytes before 0x501700) and
+  a near list of the 10 nearest (0x501600) plus bitmaps 0x501500/20/40.
+  Measured over a race: 8-13 cells listed, always reaching radius 2.
+- 0x17828 draws every object of each listed cell (table 0x501420) until a
+  per-frame polygon budget runs out: 0x5010e8 accumulates each object's cost,
+  0x5010f4 is the limit (5000, set once at 0x1210), checked at 0x17a78 and
+  0x1786c. Extra cells appended to the list drew nothing until the budget
+  was raised: it, not distance, is what stopped them.
+- The road: a 14-section window (0x13f5c: 5 back via +0x8c, 14 forward via
+  +0x88, list at +0x5c of its struct; ordered pair checks via table 0x13ec4
+  and TGP maths at 0x14180). Also game logic (car/section interaction);
+  not changed.
+Mechanism: `m2recomp --hooks FILE` ("ADDRESS name": the generated code calls
+rt::hook_<name>(c) before that instruction), `seeds/daytona93_hooks.txt`,
+`src/runtime/enhance.{h,cpp}`. hook_draw_list at 0x17078: -1 keeps the
+game's list within one cell, -2 the car's cell only; +1 lists all 5x5, +2
+all 7x7 (inside the grid), and raises the budget to 10000 / 15000 (restored
+to 5000 back at default). Only the draw list and the budget change; the near
+list and bitmaps the game logic reads do not. Measured (race_basic, m2run on
+this Mac): -2 242 frames/s, -1 198, default 193, +1 190, +2 185; default's
+screen hash unchanged (ad67233983ea8808). +2 adds visible scenery (frame
+2600: 1,560 pixels, a tree line behind the billboard); most frames differ
+by tens of pixels, because the road, not the scenery, is the horizon.
+
 **Setup's "ROM set rejected" was shown for any recompile failure.** A
 Windows tester got it with a zip that imports on macOS and Linux. The
 reader is portable C++ (binary I/O, fixed-width fields, its own inflate
@@ -395,9 +429,10 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Draw distance (enhancement): find where the i960 code limits which
-   track sections and objects it sends, and override it when the option is
-   on. Then the game's own 4:3 object culling, if widescreen shows pop-in.
+1. Draw distance for the road: the 14-section window (see Current state)
+   is shared with game logic; extending only what is drawn needs the draw
+   side of it separated. Then the game's own 4:3 object culling, if
+   widescreen shows pop-in.
 2. Run `daytona` on Windows (Direct3D 12 and Vulkan) and fix whatever MSVC
    rejects. macOS (Metal) is done (Current state).
    Harvest the states `seed_scan.py` found in MAME (which state the windowed

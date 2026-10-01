@@ -6,6 +6,10 @@
 // window that is the display's vsync, so the frame rate is the only limit.
 #pragma once
 
+#include "runtime/enhance.h"
+
+#include <algorithm>
+
 #include "runtime/frame_profile.h"
 #include "runtime/gen_support.h"
 #include "runtime/lockstep.h"
@@ -89,6 +93,10 @@ public:
     // square pixels as displayed) by showing more of the scene at the sides;
     // 0 or anything at most 496:384 is the original screen.
     void set_aspect(double aspect) { board_->set_wide_margin(wide_margin(aspect)); }
+    // Draw distance (enhancement; rt::Enhance): 0 = the game's own, -2..+2.
+    static void set_draw_distance(int level) {
+        Enhance::draw_distance = std::clamp(level, Enhance::kDrawMin, Enhance::kDrawMax);
+    }
     // With widescreen: the race HUD's side groups at the screen edges.
     void set_hud_edges(bool on) { board_->video().set_hud_edges(on); }
     static int wide_margin(double aspect) {

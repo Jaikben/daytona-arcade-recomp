@@ -5,6 +5,7 @@
 #pragma once
 
 #include "runtime/cpu.h"
+#include "runtime/enhance.h"
 #include "runtime/lockstep.h"
 
 #include <bit>

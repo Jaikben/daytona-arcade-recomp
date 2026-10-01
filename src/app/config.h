@@ -19,6 +19,7 @@ struct Config {
     // Enhancements (off by default).
     std::string aspect;        // widescreen: "" (original 4:3), "16:10", "16:9", "21:9"
     bool hud_edges = false;    // with widescreen: lap times, position and maps at the screen edges
+    int draw_distance = 0;     // scenery: 0 = the game's own, -2..+2 (rt::Enhance)
     static constexpr double kMaxAspect = 21.0 / 9.0;
     double aspect_ratio() const; // width / height; 0 = original
     Controls controls;

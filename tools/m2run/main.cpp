@@ -3,7 +3,7 @@
 // frames go to raw dumps (scripts/rgb2png.py converts them).
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
-//         [--aspect W:H [--hud-edges]]
+//         [--aspect W:H [--hud-edges]] [--draw-distance N]
 //
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
@@ -132,6 +132,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
         else if (!std::strcmp(argv[i], "--aspect")) {
             double w = 0, h = 0;
             if (std::sscanf(argv[i + 1], "%lf:%lf", &w, &h) == 2 && h > 0) aspect = w / h;

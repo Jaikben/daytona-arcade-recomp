@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -184,6 +185,15 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             ImGui::EndDisabled();
             ImGui::TextDisabled("Shows more of the scene at the sides. The HUD stays 4:3 in the centre, or its\n"
                                 "lap times, position and maps move out to the edges.");
+            static const char *distances[] = {"Shortest", "Shorter", "Default", "Further", "Furthest"};
+            ImGui::SetNextItemWidth(200);
+            int dd = std::clamp(cfg_.draw_distance, -2, 2);
+            if (ImGui::SliderInt("Draw distance", &dd, -2, 2, distances[dd + 2], ImGuiSliderFlags_AlwaysClamp)) {
+                cfg_.draw_distance = dd;
+                cfg_.save();
+            }
+            ImGui::TextDisabled("Scenery around the course. Default is the game's own; shorter is faster,\n"
+                                "further shows more trees and buildings ahead (not more road).");
 
             ImGui::Spacing();
             ImGui::Separator();

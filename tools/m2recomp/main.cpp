@@ -1,6 +1,10 @@
 // m2recomp: the i960 static recompiler (design doc, i960 static recompiler).
 //
-//   m2recomp PROGRAM.bin OUTDIR [--seeds FILE]... [--chunk N]
+//   m2recomp PROGRAM.bin OUTDIR [--seeds FILE]... [--hooks FILE] [--chunk N]
+//
+// --hooks: "ADDRESS name" lines; the generated code calls rt::hook_<name>(c)
+// just before the instruction at ADDRESS (enhancements: see
+// src/runtime/enhance.h). A hook that is off does nothing.
 //
 // Decodes every instruction reachable from the boot record plus the seed
 // addresses (src/i960/reach) and emits native C++: each instruction's
@@ -79,6 +83,9 @@ std::string ea(const Insn &in) {
     }
 }
 
+// Enhancement hooks: address -> name (rt::hook_<name>), from --hooks.
+std::map<uint32_t, std::string> g_hooks;
+
 struct Emitter {
     const std::set<uint32_t> *chunk_addrs; // instructions emitted in this chunk
     std::ostringstream o;
@@ -105,6 +112,7 @@ struct Emitter {
         // Lockstep: MAME's interrupt events happen before this instruction.
         line("c.m_IP = " + hex(pc) + ";");
         line("if (ls.boundary()) goto dispatch;");
+        if (const auto h = g_hooks.find(pc); h != g_hooks.end()) line("rt::hook_" + h->second + "(c);");
 
         std::string body, exit;   // body runs before ++count; exit transfers control
         bool falls = true;
@@ -312,6 +320,21 @@ std::vector<uint8_t> load(const std::string &path) {
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
+void load_hooks(const std::string &path) {
+    std::ifstream f(path);
+    if (!f) {
+        std::fprintf(stderr, "m2recomp: cannot open %s\n", path.c_str());
+        std::exit(2);
+    }
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream ls(line);
+        std::string addr, name;
+        if (ls >> addr >> name) g_hooks[uint32_t(std::strtoul(addr.c_str(), nullptr, 16))] = name;
+    }
+}
+
 std::vector<uint32_t> load_seeds(const std::string &path) {
     std::ifstream f(path);
     std::vector<uint32_t> v;
@@ -335,7 +358,7 @@ std::vector<uint32_t> load_seeds(const std::string &path) {
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: m2recomp PROGRAM.bin OUTDIR [--seeds FILE]... [--chunk N]\n");
+        std::fprintf(stderr, "usage: m2recomp PROGRAM.bin OUTDIR [--seeds FILE]... [--hooks FILE] [--chunk N]\n");
         return 2;
     }
     const std::vector<uint8_t> img = load(argv[1]);
@@ -346,6 +369,8 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--seeds") && i + 1 < argc) {
             auto s = load_seeds(argv[++i]);
             seeds.insert(seeds.end(), s.begin(), s.end());
+        } else if (!std::strcmp(argv[i], "--hooks") && i + 1 < argc) {
+            load_hooks(argv[++i]);
         } else if (!std::strcmp(argv[i], "--chunk") && i + 1 < argc) {
             chunk = std::strtoul(argv[++i], nullptr, 0);
         }

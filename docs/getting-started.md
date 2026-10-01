@@ -124,6 +124,12 @@ sides, nothing is stretched, and the HUD stays 4:3 in the centre; tick **HUD
 at the screen edges** to move the lap times, position and maps out to the
 sides. Both apply straight away, even mid-race.
 
+**Draw distance** (optional): the slider under **Enhancements** sets how far
+ahead trees, rocks and buildings are drawn. **Default** is the game's own.
+**Shorter** and **Shortest** draw less and run faster, which helps slower
+machines; **Further** and **Furthest** draw more. The road itself is not
+affected yet.
+
 Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).

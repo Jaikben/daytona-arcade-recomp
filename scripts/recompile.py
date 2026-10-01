@@ -63,7 +63,8 @@ def main():
             os.remove(os.path.join(gen, f))
     os.makedirs(gen, exist_ok=True)
     run([tool(build, args.config, "m2recomp"), os.path.join(cache, "program.bin"), gen,
-         "--seeds", os.path.join("seeds", "daytona93.txt")])
+         "--seeds", os.path.join("seeds", "daytona93.txt"),
+         "--hooks", os.path.join("seeds", "daytona93_hooks.txt")])
     tgp = os.path.join(build, "gen", "daytona93_tgp")
     os.makedirs(tgp, exist_ok=True)
     run([tool(build, args.config, "m2tgprecomp"), os.path.join(cache, "tgp_program.bin"),

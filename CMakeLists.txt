@@ -95,6 +95,7 @@ add_library(runtime STATIC
     src/runtime/native_sample_mixer.cpp
     src/runtime/native_sound_sequencer.cpp
     src/runtime/native_sound_engine.cpp
+    src/runtime/enhance.cpp
 )
 target_include_directories(runtime PUBLIC src)
 # 7z ROM sets: the 7-Zip LZMA SDK's decoder (public-domain files only),
