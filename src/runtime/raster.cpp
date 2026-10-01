@@ -165,7 +165,7 @@ void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoM
         if (polys[i].window <= windows) render_one(polys[i], crtc_x, crtc_y, render_x, render_y, clip_minx, clip_maxx, clip_miny, clip_maxy);
 }
 
-bool Raster::race_hud_visible(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) const {
+bool Raster::find_race_hud(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) {
     for (const GeoPoly &poly : polys) {
         if (poly.z > kHudOverlayZ || poly.texheader[0] != 0x8000 || poly.num_vertices < 3) continue;
         float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
@@ -176,7 +176,11 @@ bool Raster::race_hud_visible(const std::vector<GeoPoly> &polys, int crtc_x, int
             const float y = float((384 - poly.center[1]) + crtc_y) - v.y / z;
             x0 = std::min(x0, x), x1 = std::max(x1, x), y0 = std::min(y0, y), y1 = std::max(y1, y);
         }
-        if (x0 >= 375 && x1 <= 472 && y0 >= 57 && y1 <= 159 && x1 - x0 >= 60 && y1 - y0 >= 60) return true;
+        if (x0 >= 375 && x1 <= 472 && y0 >= 57 && y1 <= 159 && x1 - x0 >= 60 && y1 - y0 >= 60) {
+            hud_box_[0] = x0, hud_box_[1] = x1, hud_box_[2] = y0, hud_box_[3] = y1;
+            hud_z_ = poly.z;
+            return true;
+        }
     }
     return false;
 }
@@ -192,21 +196,20 @@ void Raster::render_one(GeoPoly poly, int crtc_x, int crtc_y, int render_x, int 
         v.y = float((384 - poly.center[1]) + crtc_y) - (v.y / (v.p[0] + std::numeric_limits<float>::min()));
     }
 
-    // Widescreen, HUD at the edges: an overlay polygon inside a moved group moves with it.
-    if (hud_moves_count_ && poly.z <= kHudOverlayZ) {
+    // Widescreen, HUD at the edges: the condition panel's own overlay quads
+    // (its z, inside its box) move with the HUD; nothing else does.
+    if (hud_dx_ && poly.z == hud_z_) {
         float x0 = poly.v[0].x, x1 = x0, y0 = poly.v[0].y, y1 = y0;
         for (int i = 1; i < poly.num_vertices; i++) {
             x0 = std::min(x0, poly.v[i].x), x1 = std::max(x1, poly.v[i].x);
             y0 = std::min(y0, poly.v[i].y), y1 = std::max(y1, poly.v[i].y);
         }
         const float sx = float(margin_); // projected x includes the margin
-        for (int m = 0; m < hud_moves_count_; m++) {
-            const HudMove &M = hud_moves_[m];
-            if (M.dx && x0 - sx >= M.x0 && x1 - sx <= M.x1 && y0 >= M.y0 && y1 <= M.y1) {
-                for (int i = 0; i < poly.num_vertices; i++) poly.v[i].x += float(M.dx);
-                render_x += M.dx;
-                break;
-            }
+        constexpr float kTol = 1.5f;
+        if (x0 - sx >= hud_box_[0] - kTol && x1 - sx <= hud_box_[1] + kTol && y0 >= hud_box_[2] - kTol &&
+            y1 <= hud_box_[3] + kTol) {
+            for (int i = 0; i < poly.num_vertices; i++) poly.v[i].x += float(hud_dx_);
+            render_x += hud_dx_;
         }
     }
     // model2_3d_render

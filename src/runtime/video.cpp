@@ -11,6 +11,8 @@
 #include "runtime/video.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 
@@ -340,6 +342,101 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
     }
 }
 
+// draw() for screen columns x0..x0+width-1, any of them off the 496-pixel
+// screen (widescreen's margins): the same scroll registers, layer splits,
+// priority and window masks, pixel by pixel, as if the screen were wider. A
+// column left of the screen comes from the layer and place the hardware's
+// rules give it, so a sky spread over two side-by-side layers continues
+// instead of repeating one layer. Window masks are screen columns; off the
+// screen the nearest column's applies.
+void Video::draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, int width) {
+    uint16_t hscr = tile(0x5000 + uint32_t(layer >> 1));
+    uint16_t vscr = tile(0x5004 + uint32_t(layer >> 1));
+    const uint16_t ctrl = tile(0x5004 + uint32_t((layer >> 1) & 2));
+    const uint16_t tpri = uint16_t(layer & 1);
+    const int L = layer >> 1;
+    const int fl = tpri | flags;
+    if (vscr & 0x8000) return; // layer disable
+    const int xend = x0 + width;
+
+    // tilemap_draw for one row y, screen columns xa..xb
+    auto row_tm = [&](int Lr, int sx, int sy, int y, int xa, int xb) {
+        const uint8_t cat = uint8_t(fl & CATEGORY_MASK);
+        const uint8_t m = (fl & DRAW_OPAQUE) ? CATEGORY_MASK : uint8_t(CATEGORY_MASK | PIXEL_LAYER0);
+        const uint8_t v = (fl & DRAW_OPAQUE) ? cat : uint8_t(cat | PIXEL_LAYER0);
+        const size_t srow = size_t((y + sy) & 511) * 512;
+        for (int x = std::max(xa, x0); x <= std::min(xb, xend - 1); x++) {
+            const size_t i = srow + size_t((x + sx) & 511);
+            if ((flags_[Lr][i] & m) == v) bm[size_t(y) * size_t(width) + size_t(x - x0)] = pens_[pixmap_[Lr][i]];
+        }
+    };
+    constexpr int kAll0 = -(1 << 20), kAll1 = 1 << 20;
+
+    if (ctrl & 0x6000) { // special window/scroll modes: layers L and L^1 side by side or stacked
+        if (L & 1) return;
+        const int sy = vscr & 0x1ff;
+        const int mode = (ctrl & 0x6000) >> 13;
+        if (hscr & 0x8000) {
+            const uint32_t hscrtb = 0x4000 + 0x200 * uint32_t(L);
+            if (mode == 1) {
+                const int v = (-vscr) & 0x1ff;
+                int Lb = L;
+                if (!((-vscr) & 0x200)) Lb ^= 1;
+                for (int y = 0; y < H; y++)
+                    row_tm(y >= v ? Lb ^ 1 : Lb, -(tile(hscrtb + uint32_t(y)) & 0x1ff), sy, y, kAll0, kAll1);
+            } else {
+                for (int y = 0; y < H; y++) {
+                    const uint16_t hl = tile(hscrtb + uint32_t(y));
+                    const int h = hl & 0x1ff;
+                    int l1 = L;
+                    if (!(hl & 0x200)) l1 ^= 1;
+                    row_tm(l1, -h, sy, y, kAll0, h - 1);
+                    row_tm(l1 ^ 1, -h, sy, y, h, kAll1);
+                }
+            }
+        } else {
+            const int sx = -(hscr & 0x1ff);
+            if (mode == 1) {
+                const int v = (-vscr) & 0x1ff;
+                int Lb = L;
+                if (!((-vscr) & 0x200)) Lb ^= 1;
+                for (int y = 0; y < H; y++) row_tm(y < v ? Lb : Lb ^ 1, sx, sy, y, kAll0, kAll1);
+            } else {
+                const int h = hscr & 0x1ff;
+                int Lb = L;
+                if (!(hscr & 0x200)) Lb ^= 1;
+                for (int y = 0; y < H; y++) {
+                    row_tm(Lb, sx, sy, y, kAll0, h - 1);
+                    row_tm(Lb ^ 1, sx, sy, y, h, kAll1);
+                }
+            }
+        }
+        return;
+    }
+
+    // draw_rect: one layer, whole-screen or per-line scroll, window masks
+    const int win = L & 1;
+    const uint8_t want = uint8_t(tpri | PIXEL_LAYER0);
+    const bool per_line = hscr & 0x8000;
+    const uint32_t hscrtb = 0x4000 + 0x200 * uint32_t(L);
+    int vs = vscr & 0x1ff;
+    const int hs_all = (-hscr) & 0x1ff;
+    for (int y = 0; y < H; y++) {
+        const int hs = per_line ? ((-tile(hscrtb + uint32_t(y))) & 0x1ff) : hs_all;
+        const int sy = per_line ? vs : ((y + vs) & 511);
+        const size_t srow = size_t(sy) * 512;
+        for (int x = x0; x < xend; x++) {
+            const int mx = std::clamp(x, 0, W - 1);
+            uint16_t mk = tile((layer & 4 ? 0x6800 : 0x6000) + uint32_t(y * 4 + (mx >> 7)));
+            if (win) mk = uint16_t(~mk);
+            if (mk & (0x8000 >> ((mx >> 3) & 15))) continue;
+            const size_t i = srow + size_t((x + hs) & 511);
+            if (flags_[L][i] == want || (flags & DRAW_OPAQUE)) bm[size_t(y) * size_t(width) + size_t(x - x0)] = pens_[pixmap_[L][i]];
+        }
+        if (per_line) vs = (vs + 1) & 0x1ff;
+    }
+}
+
 bool Video::system24_gpu_compatible() const {
     // The Vita GXM compositor supports normal windowing plus all three
     // System24 split-layer modes. Keep this query for the CPU fallback API.
@@ -420,31 +517,6 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     profile_.layers_rebuilt = true;
     before = ticks();
     copy_trans(sys24_.data(), W, W, margin_);
-    if (margin_) {
-        // Widescreen: the back tilemaps (the sky picture, with its clouds and
-        // mountains) scroll and wrap every 512 pixels, so screen column x
-        // shows what column x +/- 512 would. Draw them once more 512 wide
-        // (the 16 columns past 496 are off the original screen) and carry that
-        // out into the side margins, column x from (x mod 512).
-        back512_.assign(size_t(512) * (H + 4), 0u);
-        dw_ = 512;
-        for (int layer = 3; layer >= 2; --layer) draw(back512_, layer << 1, DRAW_OPAQUE);
-        for (int layer = 1; layer >= 0; --layer) draw(back512_, layer << 1, 0);
-        dw_ = W;
-        const size_t out_w = size_t(width());
-        for (int y = 0; y < H; ++y) {
-            uint32_t *row = &screen_[size_t(y) * out_w];
-            const uint32_t *wrap = &back512_[size_t(y) * 512];
-            for (int x = -margin_; x < 0; ++x) {
-                const uint32_t p = wrap[(x + 512) & 511];
-                row[margin_ + x] = p ? p : pens_[0];
-            }
-            for (int x = W; x < W + margin_; ++x) {
-                const uint32_t p = wrap[x & 511];
-                row[margin_ + x] = p ? p : pens_[0];
-            }
-        }
-    }
     profile_.composite += ticks() - before;
 #endif
     rendered_now_ = false;
@@ -473,7 +545,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
         profile_.tile_draw += ticks() - before;
         // Only while the race HUD is on screen (its condition panel's box).
-        const bool race_hud = raster_.race_hud_visible(polys, crtc_x_ + margin_, crtc_y_);
+        const bool race_hud = raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
         if (race_hud != hud_on_) { hud_on_ = race_hud; set_raster_hud_moves(); render_done_ = false; }
     }
     if (!render_done_ && !polys.empty()) {
@@ -481,10 +553,22 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         raster_.render(polys, windows, mem, crtc_x_ + margin_, crtc_y_, render_x_ + margin_, render_y_, 0,
                        width() - 1, 0, H - 1);
         profile_.raster = ticks() - before;
+        if (margin_) { // widescreen: how much of the original screen the 3D layer covers
+            size_t covered = 0;
+            for (int y = 0; y < H; ++y) {
+                const uint32_t *row = raster_.pixels() + size_t(y) * size_t(raster_.stride()) + size_t(margin_);
+                for (int x = 0; x < W; ++x) covered += row[x] != 0;
+            }
+            coverage_ = int(covered * 100 / (size_t(W) * H));
+        }
         render_done_ = true;
         rendered_now_ = true;
     }
     before = ticks();
+    if (margin_) {
+        if (!render_done_) coverage_ = 0; // no 3D this frame: a 2D screen
+        fill_margins();
+    }
     if (render_done_) copy_trans(raster_.pixels(), size_t(raster_.stride()), width());
     profile_.composite += ticks() - before;
 #ifndef M2_VITA_RENDER_OPT
@@ -522,14 +606,8 @@ constexpr int kHudJoin = 4;
 } // namespace
 
 void Video::set_raster_hud_moves() {
-    // The game's overlay polygons inside a group (the condition panel's box
-    // and car) always move with it.
-    Raster::HudMove moves[2];
-    for (int g = 0; g < 2; ++g) {
-        const HudGroup &G = kHudGroups[g];
-        moves[g] = {G.x0, G.x1, G.y0, G.y1, hud_on_ ? G.side * margin_ : 0};
-    }
-    raster_.set_hud_moves(moves, 2);
+    // The condition panel's overlay quads go with the right-hand group.
+    raster_.set_hud_shift(hud_on_ ? kHudGroups[1].side * margin_ : 0);
 }
 
 void Video::copy_front_hud_to_edges() {
@@ -588,6 +666,50 @@ void Video::copy_front_hud_to_edges() {
             if (const uint32_t pixel = sys24_[i])
                 screen_[size_t(y) * out_w + size_t(margin_ + x + hud_move_[size_t(hud_label_[i])])] = pixel;
         }
+}
+
+// Widescreen side margins, under the 3D layer. The back tilemaps scroll and
+// wrap every 512 pixels. Behind a 3D scene they are the sky (clouds,
+// mountains), drawn to wrap: the margins continue it, the back layers drawn
+// once more 512 wide and margin column x taken from (x mod 512). On a 2D screen
+// (car and circuit select, titles) the picture covers only the 496 visible
+// columns: its 16 hidden ones hold leftovers, and wrapping showed them as
+// stripes and put each side's colour on the other, so each row carries its
+// own edge colours outwards instead. Which: whether the 3D layer covers half
+// the original screen (measured: races 69-100%, select screens about 23%).
+// A test of whether the picture joins up across its hidden columns failed on
+// the race sky (median 79% of rows), stretching the clouds.
+void Video::fill_margins() {
+    const bool scene = coverage_ >= 50;
+    const int out = width();
+    if (scene) {
+        backwide_.assign(size_t(out) * H, 0u);
+        for (int layer = 3; layer >= 2; --layer) draw_ext(backwide_, layer << 1, DRAW_OPAQUE, -margin_, out);
+        for (int layer = 1; layer >= 0; --layer) draw_ext(backwide_, layer << 1, 0, -margin_, out);
+        if (std::getenv("M2_CHECK_DRAW_EXT")) { // the visible columns must match draw() exactly
+            size_t bad = 0;
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) {
+                    const uint32_t a = backwide_[size_t(y) * size_t(out) + size_t(margin_ + x)];
+                    const uint32_t b = screen_[size_t(y) * size_t(out) + size_t(margin_ + x)];
+                    bad += (a ? a : pens_[0]) != b;
+                }
+            if (bad) std::fprintf(stderr, "draw_ext: %zu visible pixels differ from draw()\n", bad);
+        }
+    }
+    for (int y = 0; y < H; ++y) {
+        uint32_t *row = &screen_[size_t(y) * size_t(out)];
+        const uint32_t *ext = scene ? &backwide_[size_t(y) * size_t(out)] : nullptr;
+        const uint32_t left = row[margin_], right = row[margin_ + W - 1];
+        for (int x = 0; x < margin_; ++x) {
+            const uint32_t p = ext ? ext[x] : left;
+            row[x] = p ? p : pens_[0];
+        }
+        for (int x = margin_ + W; x < out; ++x) {
+            const uint32_t p = ext ? ext[x] : right;
+            row[x] = p ? p : pens_[0];
+        }
+    }
 }
 
 void Video::set_wide_margin(int margin) {

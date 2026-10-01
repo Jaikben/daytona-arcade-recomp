@@ -56,30 +56,26 @@ public:
     // whose viewport spans the 496-pixel screen may then draw `margin` pixels
     // beyond either side. The layer grows to hold the wider screen.
     void set_wide_margin(int margin);
-    // Widescreen, HUD at the edges: HUD overlay polygons (the game draws them
-    // at a fixed near depth, z 1536; scenery near the HUD is above 18000)
-    // lying wholly inside a moved HUD group's rectangle (496-wide screen
-    // coordinates) move with it: the condition panel's box and car.
-    struct HudMove { int x0 = 0, x1 = 0, y0 = 0, y1 = 0, dx = 0; };
-    static constexpr uint16_t kHudOverlayZ = 0x0fff; // sort z: the smallest exponent (HUD overlays are 0x0600)
-    // Whether the race HUD is on screen: its condition panel's box, one
-    // checker-shaded overlay polygon (texheader 0x8000, sort z <= kHudOverlayZ)
-    // about 77x82 pixels at x 385..462, y 67..149 (496-wide coordinates).
-    // Without it nothing is moved: car close-ups, attract and ranking screens
-    // put near polygons and 2D text in the HUD's areas too.
-    bool race_hud_visible(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y) const;
-    void set_hud_moves(const HudMove *moves, int count) {
-        hud_moves_count_ = std::min(count, 3);
-        std::copy_n(moves, hud_moves_count_, hud_moves_);
-    }
+    // Widescreen, HUD at the edges. The race HUD's condition panel is drawn
+    // with overlay polygons: its box, one checker-shaded polygon (texheader
+    // 0x8000) at a fixed near sort z (0x0600; scenery there is above 18000),
+    // about 77x82 pixels at x 385..462, y 67..149 (496-wide coordinates), and
+    // the car icon inside it at the same z. find_race_hud looks for the box
+    // and remembers its outline and z; with a shift set, only polygons at
+    // exactly that z lying inside that outline move: the overlay's own quads,
+    // never the 3D scene around them. No box: the race HUD is not on screen.
+    static constexpr uint16_t kHudOverlayZ = 0x0fff;
+    bool find_race_hud(const std::vector<GeoPoly> &polys, int crtc_x, int crtc_y);
+    void set_hud_shift(int dx) { hud_dx_ = dx; }
     uint64_t hash(int minx, int maxx, int miny, int maxy) const; // as the MAME log computes it
 
     struct Extra; // per-polygon shading state (MAME m2_poly_extra_data)
 
 private:
     int stride_ = 512, margin_ = 0;
-    HudMove hud_moves_[3];
-    int hud_moves_count_ = 0;
+    int hud_dx_ = 0;                           // HUD overlay move (0 = none)
+    float hud_box_[4] = {0, 0, 0, 0};          // the condition box: x0, x1, y0, y1 (496-wide)
+    uint16_t hud_z_ = 0;
     std::vector<uint32_t> dest_;
     std::vector<uint8_t> fill_;
     uint8_t gamma_[256];

@@ -99,11 +99,26 @@ condition panel's box (one checker-shaded overlay polygon, texheader
 0x8000, sort z <= 0x0fff, ~77x82 at x 385..462, y 67..149;
 Raster::race_hud_visible). Measured after: 240 attract frames at 16:9
 identical with the option on and off; the race HUD still moves, and the
-map stays at the edge through the rolling start. The side margins now
-continue the back tilemaps: they scroll and wrap every 512 pixels, so with
-widescreen the back layers are drawn a second time 512 wide (draw()'s output
-width `dw_`, 496 otherwise) and margin column x comes from (x mod 512),
-clouds and mountains included. Before that the margins were the sky's plain colour (the back
+map stays at the edge through the rolling start. A tester still saw 3D
+moved in play: the rule was any polygon at sort z <= 0x0fff inside the right
+group. Now only the condition panel's own quads move: polygons at exactly
+the box's z inside the box's outline (Raster::find_race_hud records both).
+Measured: race at 16:10, option on vs off, 0 of 120 frames differ outside
+the HUD areas.
+Side margins: in a 3D scene (the 3D layer covers >= 50% of the screen;
+measured races 69-100%, select screens ~23%) the back layers are drawn
+margin to margin by Video::draw_ext, draw()'s rules pixel by pixel for any
+screen column: scroll, per-line scroll, the split modes that put layers
+L and L^1 side by side, priority, window masks. Checked: its visible columns
+equal draw()'s on every frame of a race (M2_CHECK_DRAW_EXT=1 prints any
+difference; none). Earlier tries, all wrong in play: one plain sky colour;
+each row's edge carried out (smeared the clouds); copying columns mod 512
+(a tester saw the backdrop duplicated with a seam: a column off the screen
+can belong to the other layer of a split pair); a "joins up across the
+wrap" test to tell sky from menus (failed on the race sky, median 79% of
+rows). On 2D screens (car, circuit select) each row carries its own edge
+colours: their art covers only the 496 columns, and drawing further shows
+leftover tiles as stripes. Before that the margins were the sky's plain colour (the back
 layers' top-left pixel); carrying each row's edge out smeared the sky
 picture's clouds and mountains. Off: all scenario hashes unchanged; 21:9
 with it on: all scenarios run to the end. rules.md now lets enhancements change game logic.

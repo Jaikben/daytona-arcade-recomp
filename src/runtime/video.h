@@ -139,8 +139,11 @@ private:
     int gpu_windows_ = 0;
     bool external_3d_ = false;
     int margin_ = 0;
-    int dw_ = W;                               // draw()'s output width: W, or 512 for widescreen's wrap
-    std::vector<uint32_t> back512_;            // widescreen: the back layers drawn 512 wide
+    int dw_ = W;                               // draw()'s output width (always W; draw_ext covers the margins)
+    std::vector<uint32_t> backwide_;           // widescreen: the back layers drawn margin to margin
+    int coverage_ = 100;                       // widescreen: % of the screen the last 3D render covered
+    void fill_margins();
+    void draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, int width);
     bool hud_edges_ = false;
     bool hud_on_ = false;                      // the rasterizer is moving the HUD overlay polygons
     void set_raster_hud_moves();
