@@ -79,9 +79,13 @@ The name ends in `.sh`: `./setup` on its own is "no such file".
     powershell -ExecutionPolicy Bypass -File setup.ps1
 
 It installs Git, CMake, Ninja, Python and the Visual Studio 2022 Build
-Tools with winget. The Build Tools are a large download, and Windows may
-ask for permission. If it says Python "is not on PATH yet", close
-PowerShell, open a new one and run the same command again.
+Tools, with their Clang compiler, using winget. If you already have Visual
+Studio or the Build Tools, it adds the C++ and Clang tools to them. The
+game is built with Clang (`Compiler: Clang` in the output); without the
+Clang tools setup falls back to Microsoft's compiler. The Build Tools are a
+large download, and Windows may ask for permission. If it says Python "is
+not on PATH yet", close PowerShell, open a new one and run the same command
+again.
 
 Setup prints each step. It is done when you see:
 
@@ -150,6 +154,12 @@ The file is not the `daytona93` set, or is incomplete. See
 [What you need](#what-you-need). Renaming a different set does not help:
 its program is different.
 
+**Windows: `error C4235: nonstandard extension used: '__int128'`**, or
+**`'__builtin_clz' undefined`**
+An older version of the project, built with Microsoft's compiler. Run
+`git pull`, then `setup.ps1` again: it installs the Clang tools and
+switches the build to Clang (both compilers work now).
+
 **Start is greyed out in the launcher**
 The line under the ROM path says why. If it says files are missing or
 wrong, the file you chose is not the `daytona93` set. If it cannot open the
@@ -178,7 +188,8 @@ Delete that folder to reset them.
 
 ## Status
 
-The game builds and plays on macOS (Apple silicon, Metal). The Windows and
-Linux builds use the same code and setup, but have had less testing.
+The game builds and plays on macOS (Apple silicon, Metal). Every change is
+built and tested on Windows (Clang and MSVC) by GitHub Actions, without a
+ROM set; the Windows and Linux games have had less testing.
 Problems on any platform are worth an issue on GitHub, with the full
 output of setup.

@@ -4,10 +4,11 @@
 #   powershell -ExecutionPolicy Bypass -File setup.ps1 [--test-extras] [--with-mame]
 #
 # Installs (skipping what is already there): Git, CMake, Ninja, Python 3 and
-# Visual Studio 2022 Build Tools with the C++ workload (MSVC and the Windows
-# SDK, which has Direct3D 12). SDL 3 is fetched and built with the project;
-# Vulkan comes with the GPU driver. Put your own
-# ROM set at roms\daytona93.zip to have the game recompiled too.
+# Visual Studio 2022 Build Tools with the C++ workload and its Clang tools
+# (clang-cl, MSVC and the Windows SDK, which has Direct3D 12); the game is
+# built with Clang. SDL 3 is fetched and built with the project; Vulkan comes
+# with the GPU driver. Put your own ROM set at roms\daytona93.zip to have the
+# game recompiled too.
 
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
@@ -32,8 +33,33 @@ Install-Package 'Git.Git'
 Install-Package 'Kitware.CMake'
 Install-Package 'Ninja-build.Ninja'
 Install-Package 'Python.Python.3.12'
-Install-Package 'Microsoft.VisualStudio.2022.BuildTools' `
-    '--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
+# The C++ tools, with Clang (clang-cl and the ClangCL toolset): setup.py
+# builds with Clang when it is there, MSVC otherwise.
+$vsComponents = @('Microsoft.VisualStudio.Workload.VCTools',
+                  'Microsoft.VisualStudio.Component.VC.Llvm.Clang',
+                  'Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset')
+$vsAdd = ($vsComponents | ForEach-Object { "--add $_" }) -join ' '
+Install-Package 'Microsoft.VisualStudio.2022.BuildTools' "--wait --passive --norestart $vsAdd --includeRecommended"
+
+# winget leaves an existing Visual Studio or Build Tools install as it is, so
+# add the C++ and Clang tools to it if they are missing.
+$installerDir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+$vswhere = Join-Path $installerDir 'vswhere.exe'
+if (Test-Path $vswhere) {
+    $withClang = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset -property installationPath
+    if (-not $withClang) {
+        $vsPath = & $vswhere -latest -products * -property installationPath
+        if ($vsPath) {
+            Write-Host "== Adding the C++ and Clang tools to $vsPath (the Visual Studio Installer may ask for permission)"
+            $modify = @('modify', '--installPath', "`"$vsPath`"", '--passive', '--norestart', '--includeRecommended') +
+                      ($vsComponents | ForEach-Object { @('--add', $_) })
+            $p = Start-Process -FilePath (Join-Path $installerDir 'setup.exe') -ArgumentList $modify -Wait -PassThru
+            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {  # 3010: done, restart suggested
+                Write-Warning "The Visual Studio Installer could not add Clang (exit $($p.ExitCode)); setup continues with MSVC."
+            }
+        }
+    }
+}
 
 # Pick up the new tools without opening a new terminal.
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +

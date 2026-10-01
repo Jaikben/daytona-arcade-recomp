@@ -20,20 +20,41 @@ endif()
 set(SOFTFLOAT_DIR ${CMAKE_SOURCE_DIR}/extern/softfloat)
 include(cmake/softfloat_sources.cmake)
 add_library(softfloat STATIC ${SOFTFLOAT_SOURCES})
+# SoftFloat's GCC platform header needs __int128, __builtin_clz and GNU inline
+# rules, which MSVC rejects (and clang-cl's are not GCC's). Those compilers get
+# our portable one (cmake/softfloat-portable): same results, plain functions.
+# M2_SOFTFLOAT_PORTABLE forces it anywhere, to test that path off Windows.
+option(M2_SOFTFLOAT_PORTABLE "Build SoftFloat without GCC extensions" OFF)
+if(MSVC OR M2_SOFTFLOAT_PORTABLE)
+    set(SOFTFLOAT_PLATFORM ${CMAKE_SOURCE_DIR}/cmake/softfloat-portable)
+    set(SOFTFLOAT_INLINE)
+else()
+    set(SOFTFLOAT_PLATFORM ${SOFTFLOAT_DIR}/build/Linux-x86_64-GCC)
+    set(SOFTFLOAT_INLINE INLINE_LEVEL=5)
+endif()
 target_include_directories(softfloat
     PUBLIC ${SOFTFLOAT_DIR}/source/include
-    PRIVATE ${SOFTFLOAT_DIR}/build/Linux-x86_64-GCC ${SOFTFLOAT_DIR}/source/8086-SSE)
+    PRIVATE ${SOFTFLOAT_PLATFORM} ${SOFTFLOAT_DIR}/source/8086-SSE)
 target_compile_definitions(softfloat PRIVATE
-    SOFTFLOAT_ROUND_ODD INLINE_LEVEL=5 SOFTFLOAT_FAST_DIV32TO16 SOFTFLOAT_FAST_DIV64TO32)
+    SOFTFLOAT_ROUND_ODD ${SOFTFLOAT_INLINE} SOFTFLOAT_FAST_DIV32TO16 SOFTFLOAT_FAST_DIV64TO32)
 # FAST_INT64 selects the by-value extF80 API and LITTLEENDIAN the field order of
 # extFloat80_t in the public headers, so users must see both (a mismatch silently
 # swaps signExp and signif across the call boundary). Little-endian hosts only.
 # Rounding mode and flags are globals in SoftFloat: make them per thread.
 # C++ users get __thread, not thread_local: on macOS an extern thread_local is
-# reached through a C++ wrapper function the C definitions never emit.
+# reached through a C++ wrapper function the C definitions never emit. MSVC and
+# clang-cl (Windows TLS has no such wrapper) use __declspec(thread) in C, which
+# both accept where MSVC's C may not take _Thread_local, and thread_local in C++.
+if(MSVC)
+    set(SOFTFLOAT_TLS_C "__declspec(thread)")
+    set(SOFTFLOAT_TLS_CXX thread_local)
+else()
+    set(SOFTFLOAT_TLS_C _Thread_local)
+    set(SOFTFLOAT_TLS_CXX __thread)
+endif()
 target_compile_definitions(softfloat PUBLIC SOFTFLOAT_FAST_INT64 LITTLEENDIAN=1
-    $<$<COMPILE_LANGUAGE:C>:THREAD_LOCAL=_Thread_local>
-    $<$<COMPILE_LANGUAGE:CXX>:THREAD_LOCAL=$<IF:$<CXX_COMPILER_ID:MSVC>,thread_local,__thread>>)
+    $<$<COMPILE_LANGUAGE:C>:THREAD_LOCAL=${SOFTFLOAT_TLS_C}>
+    $<$<COMPILE_LANGUAGE:CXX>:THREAD_LOCAL=${SOFTFLOAT_TLS_CXX}>)
 set_target_properties(softfloat PROPERTIES C_STANDARD 11)
 if(NOT MSVC)
     target_compile_options(softfloat PRIVATE -w) # upstream code, not ours

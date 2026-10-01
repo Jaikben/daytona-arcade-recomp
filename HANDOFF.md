@@ -2,6 +2,28 @@
 
 ## Current state
 
+**Windows: Clang by default; MSVC fixed.** MSVC failed on SoftFloat: the
+CMake used SoftFloat's `build/Linux-x86_64-GCC/platform.h` everywhere, whose
+`opts-GCC.h` needs `__int128`, `__builtin_clz` and GNU inline (C4235, C4013).
+MSVC and clang-cl now get `cmake/softfloat-portable/platform.h` (no
+`INLINE_LEVEL`, no builtins, no 128-bit type) and `__declspec(thread)` /
+`thread_local` for its globals; `-DM2_SOFTFLOAT_PORTABLE=ON` forces that
+header anywhere. Measured here with it forced: `test_fp` 0 mismatches,
+race_basic, time_attack and course_expert screen hashes identical to the
+GCC-header build. `setup.ps1` installs (or adds to an existing Visual
+Studio) the Clang tools; `setup.py` builds with the ClangCL toolset when
+present, MSVC otherwise (`M2_COMPILER=clang|msvc` forces one), and
+reconfigures a build directory set up for the other.
+`.github/workflows/windows.yml` builds and tests both, without a ROM set.
+Not yet run on a Windows PC here; a tester reports Clang + Ninja builds.
+
+**PS Vita frontend merged (PR #3, `c3007c6`).** Desktop unchanged by it,
+measured: all 11 scripted scenarios and 3,000 frames of attract give the
+same instruction counts and screen hashes as `398eb4b`; 21/21 tests pass.
+Native audio is opt-in (launcher checkbox). Its notes live in
+`platform/vita/` (HANDOFF, THIRD_PARTY for SDL2); the Vita build itself is
+untested here (needs VitaSDK).
+
 **Setup for players.** `docs/getting-started.md` walks from nothing to
 playing on each OS, with troubleshooting for what went wrong in practice:
 `./setup` for `./setup.sh`, the ROM set under another name (setup silently

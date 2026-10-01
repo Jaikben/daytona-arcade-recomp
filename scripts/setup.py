@@ -113,13 +113,59 @@ def fetch_mame(full):
                 run(["git", "-C", dest, "apply", path])
 
 
+VSWHERE = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                       "Microsoft Visual Studio", "Installer", "vswhere.exe")
+
+
+def vs_has_clang():
+    """Visual Studio (or its Build Tools) with the Clang toolset component,
+    which setup.ps1 installs: the ClangCL toolset needs no developer prompt."""
+    if not os.path.exists(VSWHERE):
+        return False
+    out = subprocess.run([VSWHERE, "-latest", "-products", "*", "-requires",
+                          "Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset", "-property", "installationPath"],
+                         capture_output=True, text=True).stdout
+    return bool(out.strip())
+
+
+def cached(build, key):
+    try:
+        for line in open(os.path.join(build, "CMakeCache.txt")):
+            if line.startswith(key + ":"):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
 def configure_and_build(build):
     say("Configuring and building")
     cmd = ["cmake", "-S", ".", "-B", build, "-DCMAKE_BUILD_TYPE=Release"]
+    want = {}  # cache entries that must match, or the build directory is reconfigured
     if WINDOWS and not (shutil.which("cl") and shutil.which("ninja")):
-        cmd += ["-A", "x64"]  # Visual Studio generator: finds MSVC without a developer prompt
+        # Visual Studio generator: finds the compiler without a developer prompt.
+        # Clang (clang-cl) when Visual Studio has it, else MSVC.
+        cmd += ["-A", "x64"]
+        choice = os.environ.get("M2_COMPILER", "").lower()  # clang or msvc forces one (CI builds both)
+        if choice == "clang" and not vs_has_clang():
+            sys.exit("setup: M2_COMPILER=clang, but Visual Studio has no Clang tools (setup.ps1 adds them)")
+        toolset = "ClangCL" if choice != "msvc" and vs_has_clang() else ""
+        if toolset:
+            cmd += ["-T", toolset]
+            print("Compiler: Clang (Visual Studio's ClangCL toolset)")
+        else:
+            print("Compiler: MSVC. For Clang, run setup.ps1, which adds Visual Studio's Clang tools.")
+        want["CMAKE_GENERATOR_TOOLSET"] = toolset
     elif shutil.which("ninja"):
         cmd += ["-G", "Ninja"]
+        if WINDOWS and shutil.which("clang-cl"):  # a developer prompt with Clang on PATH
+            cmd += ["-DCMAKE_C_COMPILER=clang-cl", "-DCMAKE_CXX_COMPILER=clang-cl"]
+    if os.path.exists(os.path.join(build, "CMakeCache.txt")):
+        if any((cached(build, k) or "") != v for k, v in want.items()):
+            # A compiler or toolset cannot change in place: start this build directory's CMake state again.
+            print("The build directory was configured for another compiler; reconfiguring it.")
+            os.remove(os.path.join(build, "CMakeCache.txt"))
+            shutil.rmtree(os.path.join(build, "CMakeFiles"), ignore_errors=True)
     if not os.path.exists(os.path.join(build, "CMakeCache.txt")):
         run(cmd)
     else:
