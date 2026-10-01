@@ -50,9 +50,9 @@ public:
     // 496 wide in the centre. Not available with external 3D (the Vita path).
     void set_wide_margin(int margin);
     int width() const { return W + 2 * margin_; }
-    // With widescreen, behind 3D: draw the tile backdrop out into the margins
-    // (on) or fill them with the sky's plain colour (off, the default).
-    void set_extend_backdrop(bool on) { extend_backdrop_ = on; }
+    // With widescreen, behind 3D: stretch the tile backdrop across the whole
+    // width (on) or fill the margins with the sky's plain colour (off, default).
+    void set_stretch_backdrop(bool on) { stretch_backdrop_ = on; }
     // With widescreen: the race HUD's side groups (lap times; position,
     // condition panel, course map) at the screen edges instead of 4:3 centred.
     void set_hud_edges(bool on) {
@@ -142,12 +142,11 @@ private:
     int gpu_windows_ = 0;
     bool external_3d_ = false;
     int margin_ = 0;
-    int dw_ = W;                               // draw()'s output width (always W; draw_ext covers the margins)
-    std::vector<uint32_t> backwide_;           // widescreen: the back layers drawn margin to margin
-    int coverage_ = 100;
-    bool extend_backdrop_ = false;                       // widescreen: % of the screen the last 3D render covered
+    int dw_ = W;                               // draw()'s output width
+    std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching
+    int coverage_ = 100;                       // widescreen: % of the screen the last 3D render covered
+    bool stretch_backdrop_ = false;
     void fill_margins();
-    void draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, int width);
     bool hud_edges_ = false;
     bool hud_on_ = false;                      // the rasterizer is moving the HUD overlay polygons
     void set_raster_hud_moves();

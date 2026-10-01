@@ -2,6 +2,11 @@
 
 ## Current state
 
+**"Stretch tile background" stretches, it does not extend.** In a race, with
+the option on, the backdrop as drawn for the 496 columns is scaled across
+the whole width (linear blend per row); the tester wanted no repeat at all.
+Video::draw_ext (drawing the tiles past the screen edge) is removed. Earlier:
+
 **Widescreen sky: plain by default, "Stretch tile background" to extend.**
 A tester still saw a seam in the margins with the tile backdrop drawn out.
 Measured: the race sky is tilemap layer 2, one layer in normal scroll mode

@@ -75,8 +75,9 @@ opens first:
   (off by default): widescreen 16:10, 16:9 or 21:9, which shows more of the
   scene at the sides with the HUD kept 4:3 in the centre, or with "HUD at
   the screen edges" (experimental) the lap times, position, condition panel and course map
-  moved out to the sides (the sky at the sides is plain blue, or with
-  "Stretch tile background" the game's sky picture drawn further out); and
+  moved out to the sides (in a race the sky at the sides is plain blue, or
+  with "Stretch tile background" the game's sky picture stretched across);
+  and
   a draw distance slider for the scenery (default
   is the game's own; shorter runs faster). Start.
 - **Controls**: bind every arcade control to a key and a gamepad button or

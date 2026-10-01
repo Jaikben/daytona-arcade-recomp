@@ -122,10 +122,9 @@ brings the launcher back.
 **Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
 sides, nothing is stretched, and the HUD stays 4:3 in the centre; tick **HUD
 at the screen edges (Experimental)** to move the lap times, position and maps out to the
-sides. The sky at the sides is plain blue; tick **Stretch tile background
-(Experimental)** to draw the game's own sky picture further out instead (its
-two ends do not always meet, so it can show a seam). All apply straight
-away, even mid-race.
+sides. In a race the sky at the sides is plain blue; tick **Stretch tile
+background (Experimental)** to stretch the game's own sky picture across
+the whole screen instead. All apply straight away, even mid-race.
 
 **Draw distance** (optional): the slider under **Enhancements** sets how far
 ahead trees, rocks and buildings are drawn. **Default** is the game's own.

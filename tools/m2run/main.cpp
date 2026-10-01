@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
         if (aspect > 0) {
             game.set_aspect(aspect);
             game.set_hud_edges(hud_edges);
-            game.set_extend_backdrop(stretch_backdrop);
+            game.set_stretch_backdrop(stretch_backdrop);
             std::printf("m2run: screen %dx%d\n", game.screen_width(), rt::GameLoop::kHeight);
         }
         Script script;

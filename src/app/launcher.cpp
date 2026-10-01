@@ -185,8 +185,8 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             if (ImGui::Checkbox("Stretch tile background (Experimental)", &cfg_.stretch_backdrop)) cfg_.save();
             ImGui::EndDisabled();
             ImGui::TextDisabled("Shows more of the scene at the sides. The HUD stays 4:3 in the centre, or its\n"
-                                "lap times, position and maps move out to the edges. The sky at the sides is\n"
-                                "plain blue, or the game's sky picture drawn further out (it can show a seam).");
+                                "lap times, position and maps move out to the edges. In-game the sky at the\n"
+                                "sides is plain blue, or the game's sky picture stretched across the screen.");
             static const char *distances[] = {"Shortest", "Shorter", "Default", "Further", "Furthest"};
             ImGui::SetNextItemWidth(200);
             int dd = std::clamp(cfg_.draw_distance, -2, 2);

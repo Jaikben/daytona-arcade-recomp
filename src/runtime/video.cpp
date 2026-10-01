@@ -342,108 +342,6 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
     }
 }
 
-// draw() for screen columns x0..x0+width-1, any of them off the 496-pixel
-// screen (widescreen's margins): the same scroll registers, layer splits,
-// priority and window masks, pixel by pixel, as if the screen were wider. A
-// column left of the screen comes from the layer and place the hardware's
-// rules give it, so a sky spread over two side-by-side layers continues
-// instead of repeating one layer. Window masks are screen columns; off the
-// screen the nearest column's applies.
-void Video::draw_ext(std::vector<uint32_t> &bm, int layer, int flags, int x0, int width) {
-    uint16_t hscr = tile(0x5000 + uint32_t(layer >> 1));
-    uint16_t vscr = tile(0x5004 + uint32_t(layer >> 1));
-    const uint16_t ctrl = tile(0x5004 + uint32_t((layer >> 1) & 2));
-    const uint16_t tpri = uint16_t(layer & 1);
-    const int L = layer >> 1;
-    const int fl = tpri | flags;
-    if (vscr & 0x8000) return; // layer disable
-    const int xend = x0 + width;
-
-    // tilemap_draw for one row y, screen columns xa..xb
-    auto row_tm = [&](int Lr, int sx, int sy, int y, int xa, int xb) {
-        const uint8_t cat = uint8_t(fl & CATEGORY_MASK);
-        const uint8_t m = (fl & DRAW_OPAQUE) ? CATEGORY_MASK : uint8_t(CATEGORY_MASK | PIXEL_LAYER0);
-        const uint8_t v = (fl & DRAW_OPAQUE) ? cat : uint8_t(cat | PIXEL_LAYER0);
-        const size_t srow = size_t((y + sy) & 511) * 512;
-        for (int x = std::max(xa, x0); x <= std::min(xb, xend - 1); x++) {
-            const size_t i = srow + size_t((x + sx) & 511);
-            if ((flags_[Lr][i] & m) == v) bm[size_t(y) * size_t(width) + size_t(x - x0)] = pens_[pixmap_[Lr][i]];
-        }
-    };
-    constexpr int kAll0 = -(1 << 20), kAll1 = 1 << 20;
-    // Split modes put layer A left of screen column h and B from h on: one
-    // 1024-pixel panorama. Off the screen it continues as such, A and B
-    // alternating every 512 columns ([h-512, h) A, [h, h+512) B, [h-1024,
-    // h-512) B ...); keeping A for every column left of h wrapped A onto
-    // itself, a seam a tester saw at the left edge.
-    auto row_split = [&](int A, int B, int h, int sx, int sy, int y) {
-        for (int x = x0; x < xend; ++x) {
-            const int Lr = ((x - h) >> 9) & 1 ? A : B;
-            row_tm(Lr, sx, sy, y, x, x);
-        }
-    };
-
-    if (ctrl & 0x6000) { // special window/scroll modes: layers L and L^1 side by side or stacked
-        if (L & 1) return;
-        const int sy = vscr & 0x1ff;
-        const int mode = (ctrl & 0x6000) >> 13;
-        if (hscr & 0x8000) {
-            const uint32_t hscrtb = 0x4000 + 0x200 * uint32_t(L);
-            if (mode == 1) {
-                const int v = (-vscr) & 0x1ff;
-                int Lb = L;
-                if (!((-vscr) & 0x200)) Lb ^= 1;
-                for (int y = 0; y < H; y++)
-                    row_tm(y >= v ? Lb ^ 1 : Lb, -(tile(hscrtb + uint32_t(y)) & 0x1ff), sy, y, kAll0, kAll1);
-            } else {
-                for (int y = 0; y < H; y++) {
-                    const uint16_t hl = tile(hscrtb + uint32_t(y));
-                    const int h = hl & 0x1ff;
-                    int l1 = L;
-                    if (!(hl & 0x200)) l1 ^= 1;
-                    row_split(l1, l1 ^ 1, h, -h, sy, y);
-                }
-            }
-        } else {
-            const int sx = -(hscr & 0x1ff);
-            if (mode == 1) {
-                const int v = (-vscr) & 0x1ff;
-                int Lb = L;
-                if (!((-vscr) & 0x200)) Lb ^= 1;
-                for (int y = 0; y < H; y++) row_tm(y < v ? Lb : Lb ^ 1, sx, sy, y, kAll0, kAll1);
-            } else {
-                const int h = hscr & 0x1ff;
-                int Lb = L;
-                if (!(hscr & 0x200)) Lb ^= 1;
-                for (int y = 0; y < H; y++) row_split(Lb, Lb ^ 1, h, sx, sy, y);
-            }
-        }
-        return;
-    }
-
-    // draw_rect: one layer, whole-screen or per-line scroll, window masks
-    const int win = L & 1;
-    const uint8_t want = uint8_t(tpri | PIXEL_LAYER0);
-    const bool per_line = hscr & 0x8000;
-    const uint32_t hscrtb = 0x4000 + 0x200 * uint32_t(L);
-    int vs = vscr & 0x1ff;
-    const int hs_all = (-hscr) & 0x1ff;
-    for (int y = 0; y < H; y++) {
-        const int hs = per_line ? ((-tile(hscrtb + uint32_t(y))) & 0x1ff) : hs_all;
-        const int sy = per_line ? vs : ((y + vs) & 511);
-        const size_t srow = size_t(sy) * 512;
-        for (int x = x0; x < xend; x++) {
-            const int mx = std::clamp(x, 0, W - 1);
-            uint16_t mk = tile((layer & 4 ? 0x6800 : 0x6000) + uint32_t(y * 4 + (mx >> 7)));
-            if (win) mk = uint16_t(~mk);
-            if (mk & (0x8000 >> ((mx >> 3) & 15))) continue;
-            const size_t i = srow + size_t((x + hs) & 511);
-            if (flags_[L][i] == want || (flags & DRAW_OPAQUE)) bm[size_t(y) * size_t(width) + size_t(x - x0)] = pens_[pixmap_[L][i]];
-        }
-        if (per_line) vs = (vs + 1) & 0x1ff;
-    }
-}
-
 bool Video::system24_gpu_compatible() const {
     // The Vita GXM compositor supports normal windowing plus all three
     // System24 split-layer modes. Keep this query for the CPU fallback API.
@@ -675,53 +573,45 @@ void Video::copy_front_hud_to_edges() {
         }
 }
 
-// Widescreen side margins, under the 3D layer. Behind a 3D scene they are the
-// sky's plain colour, or, with "stretch tile background", the following.
-// The back tilemaps scroll and
-// wrap every 512 pixels. Behind a 3D scene they are the sky (clouds,
-// mountains), drawn to wrap: the margins continue it, the back layers drawn
-// once more 512 wide and margin column x taken from (x mod 512). On a 2D screen
-// (car and circuit select, titles) the picture covers only the 496 visible
-// columns: its 16 hidden ones hold leftovers, and wrapping showed them as
-// stripes and put each side's colour on the other, so each row carries its
-// own edge colours outwards instead. Which: whether the 3D layer covers half
-// the original screen (measured: races 69-100%, select screens about 23%).
-// A test of whether the picture joins up across its hidden columns failed on
-// the race sky (median 79% of rows), stretching the clouds.
+// Widescreen side margins, under the 3D layer. On a 2D screen (car and
+// circuit select, titles: the 3D layer covers less than half the original
+// screen; measured races 69-100%, select screens about 23%) each row carries
+// its own edge colours out: the art covers only 496 columns. Behind a 3D
+// scene (the race) the margins are the sky's plain colour (the back layers'
+// top-left pixel, open sky), or with "stretch tile background" the backdrop
+// as drawn for the 496 columns is stretched across the whole width, never
+// repeated: the race sky is one 512-pixel layer whose ends do not meet, so
+// drawing it further (tried, also with split pairs) showed a seam.
 void Video::fill_margins() {
     const bool scene = coverage_ >= 50;
     const int out = width();
-    // Behind a 3D scene: the sky's plain colour (the back layers' top-left
-    // pixel, open sky) unless "stretch tile background" is on.
-    const bool extend = scene && extend_backdrop_;
     const uint32_t sky = screen_[size_t(margin_)];
-    if (extend) {
-        backwide_.assign(size_t(out) * H, 0u);
-        for (int layer = 3; layer >= 2; --layer) draw_ext(backwide_, layer << 1, DRAW_OPAQUE, -margin_, out);
-        for (int layer = 1; layer >= 0; --layer) draw_ext(backwide_, layer << 1, 0, -margin_, out);
-        if (std::getenv("M2_CHECK_DRAW_EXT")) { // the visible columns must match draw() exactly
-            size_t bad = 0;
-            for (int y = 0; y < H; ++y)
-                for (int x = 0; x < W; ++x) {
-                    const uint32_t a = backwide_[size_t(y) * size_t(out) + size_t(margin_ + x)];
-                    const uint32_t b = screen_[size_t(y) * size_t(out) + size_t(margin_ + x)];
-                    bad += (a ? a : pens_[0]) != b;
+    if (scene && stretch_backdrop_) {
+        stretch_row_.resize(size_t(W));
+        for (int y = 0; y < H; ++y) {
+            uint32_t *row = &screen_[size_t(y) * size_t(out)];
+            std::copy_n(row + margin_, W, stretch_row_.data());
+            for (int x = 0; x < out; ++x) {
+                // out column x samples backdrop column (x + 0.5) * W / out - 0.5, blended
+                const float u = std::clamp((float(x) + 0.5f) * float(W) / float(out) - 0.5f, 0.0f, float(W - 1));
+                const int i = int(u), j = std::min(i + 1, W - 1);
+                const float f = u - float(i);
+                const uint32_t a = stretch_row_[size_t(i)], b = stretch_row_[size_t(j)];
+                uint32_t p = 0;
+                for (int k = 0; k < 24; k += 8) {
+                    const float c = float((a >> k) & 0xff) * (1.0f - f) + float((b >> k) & 0xff) * f;
+                    p |= uint32_t(c + 0.5f) << k;
                 }
-            if (bad) std::fprintf(stderr, "draw_ext: %zu visible pixels differ from draw()\n", bad);
+                row[x] = p | (a & 0xff000000u);
+            }
         }
+        return;
     }
     for (int y = 0; y < H; ++y) {
         uint32_t *row = &screen_[size_t(y) * size_t(out)];
-        const uint32_t *ext = extend ? &backwide_[size_t(y) * size_t(out)] : nullptr;
         const uint32_t left = scene ? sky : row[margin_], right = scene ? sky : row[margin_ + W - 1];
-        for (int x = 0; x < margin_; ++x) {
-            const uint32_t p = ext ? ext[x] : left;
-            row[x] = p ? p : pens_[0];
-        }
-        for (int x = margin_ + W; x < out; ++x) {
-            const uint32_t p = ext ? ext[x] : right;
-            row[x] = p ? p : pens_[0];
-        }
+        std::fill(row, row + margin_, left ? left : pens_[0]);
+        std::fill(row + margin_ + W, row + out, right ? right : pens_[0]);
     }
 }
 
