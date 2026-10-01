@@ -2,6 +2,37 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Vita physical GPU display buffers (2026-10-01)
+
+User requested actual Vita GPU buffering separate from main's software draw
+mode, with double as default. Options now persists gpu_buffers1..3; default
+and Reset Defaults select2. Old draw_mode remains ignored. No frame skipping,
+clock catch-up, audio backend, or polygon-renderer changes are reintroduced.
+
+The pinned public MIT libvita2d source is built privately in the build tree.
+display_buffers.inc changes the active GXM surface ring, not board cadence.
+Double/triple retain normal display-queue sync; single finishes GPU work and
+directly presents the sole surface without queuing identical old/new sync
+objects. It may tear during rendering and is not promised faster. Switching
+drains GPU and display work, copies the latest frame to surface0 when needed,
+waits for scanout, then resets front/back indices. All three allocations stay
+alive to allow switching; this does not reclaim framebuffer RAM.
+
+Source archive hash verified. Initial build caught upstream JPEG ceil missing
+math.h with the current compiler; target-only forced include resolves it.
+All seven pinned shaders' extracted binaries match the installed package
+exactly (object metadata hashes differ). No shader compiler used.
+The design and dependency records now describe physical buffers rather than
+the withdrawn frame-skip options; upstream MIT license is packaged.
+
+Validation: adapter tests cover all mode transitions, VSync on/off, invalid
+counts, uninitialized/in-scene/system-app rejection and GPU-before-display
+ordering. ASan/UBSan pass;21 CTest passes,2 optional Lua skips. VitaSDK cross-build,
+linked buffer-control symbols and VPK archive checks pass. Package:
+build/daytona-vita-gpu-buffers.vpk. Hardware switching,
+tearing, frame pacing and audio remain unverified. Main/PSP branches untouched.
+
+
 ## Vita pre-draw-mode pacing recovery (2026-10-01)
 
 Hardware feedback after9790e57: game and audio still lag since draw modes.

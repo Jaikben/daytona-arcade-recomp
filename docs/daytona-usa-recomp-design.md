@@ -191,6 +191,18 @@ cover up to21:9; panel fitting preserves aspect on960x544. The layer arena grows
 from10 to12MiB (32MiB total GPU arenas), without per-frame GPU allocations.
 These options are not a promise of full-speed hardware performance.
 
+**Vita GPU buffering.** Upstream's Double Buffered / Single Buffered / Every
+Third Frame labels select frame skipping, not physical buffer counts. That
+Vita integration was withdrawn after hardware game/audio stutter reports.
+Vita retains its pre-integration VSync-paced loop and exposes a separate
+physical GXM display ring: single, double (default), or triple. All three
+surfaces remain allocated; double/triple use GXM display-queue sync objects.
+Changing the ring drains GPU and queued display work before rebinding scanout.
+Single mode waits for GPU completion and directly presents the sole surface;
+it can tear while that surface is rendered. No audio or board steps are
+skipped, and no shared software-renderer draw-mode setting is changed.
+Native audio stays device-clocked. Buffer choice is not a speedup guarantee.
+
 **Enhancements (all off by default)**
 
 With every enhancement off the build is the game as MAME runs it; parity checks run that way. When on, an enhancement may change game logic (rules.md, changed 1 Oct 2026: previously "never change game logic", which ruled out widening the game's own culling).

@@ -392,6 +392,8 @@ endif()
 # device frame rates. Off by default: not part of the desktop build.
 option(M2_VITA_TESTS "Build the PS Vita frontend's host tests" OFF)
 if(M2_VITA_TESTS)
+    add_executable(test_vita_display_buffers tests/test_vita_display_buffers.cpp)
+    add_test(NAME vita_display_buffers COMMAND test_vita_display_buffers)
     add_executable(test_vita_controls tests/test_vita_controls.cpp)
     add_test(NAME vita_controls COMMAND test_vita_controls)
     add_executable(test_vita_gpu_memory tests/test_vita_gpu_memory.cpp)

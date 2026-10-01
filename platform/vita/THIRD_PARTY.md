@@ -42,12 +42,15 @@ unchanged from the shared build.
 ## libvita2d (GPU-fast frontend)
 
 Upstream: https://github.com/xerpi/libvita2d (MIT).
-Source inspected at a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed:
-libvita2d/shader/texture_v.cg and libvita2d/source/vita2d_texture.c.
-No library source changes or copied shader code. The installed VitaSDK archive
-is supplied externally; its precise source commit is not recorded by this
-installation. Validated archive SHA-256:
-6960641df92c51d15d45cca1eaffd0bb1b18cda024b0940fdd59b8fe9a8dabf2.
+Source pinned at a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed.
+Archive SHA-256:97b48d7955882b283d67450936e1ca04aad1549f733141d5b0fa7953cf805bbc.
+CMake fetches this MIT source into the ignored build directory and compiles
+it locally with its existing public homebrew shader objects. The project-owned
+display_buffers.inc adapter is injected before swap_buffers; the modulo uses
+the active physical ring size. Single mode finishes GPU work before direct
+presentation; ring changes drain queued work. No shader or matrix changes.
+The compiler includes math.h for the upstream JPEG loader's ceil declaration.
+Upstream source and license are not edited; the license is included in the VPK.
 
 The experimental exported-matrix adapter was withdrawn after real hardware
 lost textured geometry (IMG_2856). Do not assume the host matrix model proves

@@ -93,11 +93,8 @@ else()
     set(VITA_SDL_TARGET SDL2::SDL2)
 endif()
 if(DAYTONA_VITA_GPU_FAST)
-    find_path(VITA2D_INCLUDE_DIR vita2d.h PATHS "${VITASDK}/arm-vita-eabi/include" NO_DEFAULT_PATH)
-    find_library(VITA2D_LIBRARY vita2d PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
-    if(NOT VITA2D_INCLUDE_DIR OR NOT VITA2D_LIBRARY)
-        message(FATAL_ERROR "GPU FAST requires libvita2d. Install it with: vdpm libvita2d")
-    endif()
+    include("${CMAKE_CURRENT_SOURCE_DIR}/buffered_vita2d.cmake")
+    set(VITA_BUFFER_LICENSE FILE "${buffered_vita2d_source_SOURCE_DIR}/LICENSE" "licenses/libvita2d.txt")
 endif()
 
 if(DAYTONA_VITA_COMPILE_CHECK)
@@ -132,5 +129,6 @@ else()
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
         VERSION "01.23" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
-        FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md")
+        FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md"
+        ${VITA_BUFFER_LICENSE})
 endif()
