@@ -16,6 +16,7 @@
 #include "runtime/video_profile.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -52,9 +53,9 @@ public:
     // With widescreen: the race HUD's side groups (lap times; position,
     // condition panel, course map) at the screen edges instead of 4:3 centred.
     void set_hud_edges(bool on) {
-        if (on != hud_edges_) render_done_ = false;
+        if (on == hud_edges_) return;
         hud_edges_ = on;
-        if (!on) { std::fill(hud_shift_, hud_shift_ + 3, 0); set_raster_hud_moves(); }
+        if (!on && hud_on_) { hud_on_ = false; set_raster_hud_moves(); render_done_ = false; }
     }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
@@ -139,9 +140,13 @@ private:
     bool external_3d_ = false;
     int margin_ = 0;
     bool hud_edges_ = false;
-    int hud_shift_[3] = {0, 0, 0};             // this frame's per-group moves
-    void hud_shifts(int shift[3]) const;       // from the front layers in sys24_
-    void set_raster_hud_moves();               // hud_shift_ to the rasterizer
+    bool hud_on_ = false;                      // the rasterizer is moving the HUD overlay polygons
+    void set_raster_hud_moves();
+    // Scratch for copy_front_hud_to_edges (kept to avoid per-frame allocation).
+    std::vector<uint8_t> hud_mask_, hud_tmp_;
+    std::vector<int32_t> hud_label_, hud_move_;
+    std::vector<std::array<int, 4>> hud_box_;
+    std::vector<uint32_t> hud_stack_;
     void copy_front_hud_to_edges();
     bool write_tracking_ = false, tile_memory_touched_ = false, character_memory_touched_ = false;
     Raster raster_;
