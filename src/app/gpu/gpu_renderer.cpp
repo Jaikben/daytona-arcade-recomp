@@ -168,7 +168,7 @@ void GpuRenderer::shutdown() {
     if (qbuf_) SDL_ReleaseGPUBuffer(dev_, qbuf_), qbuf_ = nullptr;
     for (SDL_GPUBuffer **b : {&texram_, &luma_, &xlat_})
         if (*b) SDL_ReleaseGPUBuffer(dev_, *b), *b = nullptr;
-    texram_copy_.clear();
+    texram_generation_ = ~0ull;
     if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_), upload_ = nullptr;
     vbuf_size_ = upload_size_ = 0;
     depth_w_ = depth_h_ = 0;
@@ -349,14 +349,11 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
         xlat_table_.resize(kXlatEntries);
         for (uint32_t i = 0; i < kXlatEntries; i++) xlat_table_[i] = gamma_[le16(mem.colorxlat, i) & 0xff];
         std::memcpy(p + data_at + kLumaBytes, xlat_table_.data(), kXlatEntries * 4);
-        tex_changed = texram_copy_.size() != 2 * kSheetWords ||
-                      std::memcmp(texram_copy_.data(), mem.tex0, kSheetWords * 4) != 0 ||
-                      std::memcmp(texram_copy_.data() + kSheetWords, mem.tex1, kSheetWords * 4) != 0;
+        tex_changed = mem.tex_generation != texram_generation_; // the board counts texture RAM writes
         if (tex_changed) {
-            texram_copy_.resize(2 * kSheetWords);
-            std::memcpy(texram_copy_.data(), mem.tex0, kSheetWords * 4);
-            std::memcpy(texram_copy_.data() + kSheetWords, mem.tex1, kSheetWords * 4);
-            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4, texram_copy_.data(), kTexramBytes);
+            texram_generation_ = mem.tex_generation;
+            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4, mem.tex0, kSheetWords * 4);
+            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4 + kSheetWords * 4, mem.tex1, kSheetWords * 4);
         }
     }
     SDL_UnmapGPUTransferBuffer(dev_, upload_);

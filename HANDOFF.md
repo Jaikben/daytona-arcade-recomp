@@ -11,6 +11,10 @@ for the GPU 0.17 ms. From the draw-mode figures (every third frame drawn:
 442 frames/s), logic is about 0.75 ms, the CPU tilemap layers about 1.45 ms
 and the CPU 3D rasterizer about 3 ms a frame. Next costs, in order: tilemaps
 on the GPU; texture RAM tracked by writes instead of compared.
+Done: M2Board::tex_write counts writes (VideoMem::tex_generation) and the
+renderer uploads texture RAM only when the count moves; the 4 MB compare and
+shadow copy are gone. Renderer CPU 0.72 -> 0.54 ms, 324 -> 346 frames/s at
+4:3; GPU frames byte-identical to before (8 of 8 sampled).
 
 **Hardware renderer, widescreen and a mip-level fix.** Hardware mode keeps
 widescreen: Video's external-3D mode with CPU layers no longer drops the

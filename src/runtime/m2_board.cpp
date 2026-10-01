@@ -153,6 +153,7 @@ void M2Board::vblank_end() {
     m.lumaram = luma_.data();
     m.tex0 = reinterpret_cast<const uint32_t *>(tex0_.data());
     m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
+    m.tex_generation = tex_generation_;
     video_->screen_update(geo_->polys, geo_->windows(), m);
     ++frame_;
 }
@@ -319,6 +320,7 @@ void M2Board::tex_write(const Page &p, uint32_t addr, uint32_t lane_data) {
     uint8_t *const w = base + (o >> 1) * 4 + (o & 1) * 2;
     w[0] = uint8_t(lane_data);
     w[1] = uint8_t(lane_data >> 8);
+    ++tex_generation_; // the hardware renderer re-uploads texture RAM when this moves
 }
 
 // --- bus ---------------------------------------------------------------------

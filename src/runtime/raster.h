@@ -31,6 +31,7 @@ struct VideoMem {
     const uint8_t *lumaram = nullptr;   // 0x12800000, 0x20000 bytes (byte lane 0 of each dword)
     const uint32_t *tex0 = nullptr;     // texture RAM 0, packed as MAME stores it (0x80000 dwords)
     const uint32_t *tex1 = nullptr;     // texture RAM 1
+    uint64_t tex_generation = 0;        // counts writes to texture RAM (changes when either sheet does)
 };
 
 class Raster {

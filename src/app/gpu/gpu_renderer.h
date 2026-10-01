@@ -59,7 +59,7 @@ private:
     SDL_GPUBuffer *vbuf_ = nullptr, *qbuf_ = nullptr;
     // storage buffers: texture RAM (both sheets), luma RAM, colour translation with gamma
     SDL_GPUBuffer *texram_ = nullptr, *luma_ = nullptr, *xlat_ = nullptr;
-    std::vector<uint32_t> texram_copy_; // what texram_ holds, to upload only on change
+    uint64_t texram_generation_ = ~0ull; // the texture RAM generation texram_ holds
     std::vector<uint32_t> xlat_table_;
     uint32_t vbuf_size_ = 0;
     SDL_GPUTransferBuffer *upload_ = nullptr;

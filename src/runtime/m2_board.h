@@ -125,6 +125,7 @@ private:
     IoBoard io_;
     Cpu *cpu_ = nullptr;
     int frame_skip_ = 0;
+    uint64_t tex_generation_ = 0; // texture RAM writes so far
     Lockstep *ls_ = nullptr;
 
     uint32_t intreq_ = 0, intena_ = 0;
