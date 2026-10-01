@@ -573,6 +573,7 @@ M2_PIXEL_TEMPLATE void Video::draw(std::vector<M2_PIXEL> &bitmap, int layer, int
 }
 
 bool Video::system24_gpu_compatible() const {
+    if (margin_) return false; // Wide HUD uses the shared per-item compositor.
     // The Vita GXM compositor supports normal windowing plus all three
     // System24 split-layer modes. Keep this query for the CPU fallback API.
     return true;
@@ -840,7 +841,11 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
     }
     profile_.tile_draw = ticks() - before;
     before = ticks();
-    std::copy_n(background_.data(), screen_.size(), screen_.data());
+    if (!margin_) std::copy_n(background_.data(), screen_.size(), screen_.data());
+    else {
+        std::fill(screen_.begin(), screen_.end(), background_[0]);
+        copy_trans(background_.data(), W, W, margin_);
+    }
     profile_.composite += ticks() - before;
 #else
     before = ticks();
@@ -883,8 +888,18 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         profile_.tile_draw += ticks() - before;
 #endif
 #ifndef M2_DC_MEMORY
-        std::fill(foreground_gpu_.begin(), foreground_gpu_.end(), 0u);
-        std::copy_n(sys24_.data(), std::min(sys24_.size(), foreground_gpu_.size()), foreground_gpu_.data());
+        if (margin_) {
+            hud_on_ = hud_edges_ && raster_.race_hud_visible(polys, crtc_x_ + margin_, crtc_y_);
+            set_raster_hud_moves();
+            std::fill(screen_.begin(), screen_.end(), 0u);
+            if (hud_on_) copy_front_hud_to_edges();
+            else copy_trans(sys24_.data(), W, W, margin_);
+            foreground_gpu_ = screen_;
+            ++background_generation_; ++foreground_generation_;
+        } else {
+            std::fill(foreground_gpu_.begin(), foreground_gpu_.end(), 0u);
+            std::copy_n(sys24_.data(), std::min(sys24_.size(), foreground_gpu_.size()), foreground_gpu_.data());
+        }
 #endif
         return;
     }
@@ -1063,14 +1078,17 @@ void Video::fill_margins() {
 
 void Video::set_wide_margin(int margin) {
 #ifdef M2_VITA_RENDER_OPT
-    margin = 0; // the Vita compositor draws the 496-wide layers itself
-#endif
-    if (external_3d_ && !desktop_) margin = 0;
+    margin = std::clamp(margin, 0, 200);
+#else
     margin = std::max(margin, 0);
+#endif
     if (margin == margin_) return;
     margin_ = margin;
     set_raster_hud_moves();
     screen_.assign(size_t(width()) * H, 0u);
+    background_gpu_.assign(screen_.size(), 0u);
+    foreground_gpu_.assign(screen_.size(), 0u);
+    ++background_generation_; ++foreground_generation_;
     raster_.set_wide_margin(margin_);
     render_done_ = false; // redraw the 3D layer at the new width
 }

@@ -49,6 +49,8 @@ public:
     // each side. The 3D layer fills it; the tilemap layers (HUD, text) stay
     // 496 wide in the centre. Not available with external 3D (the Vita path).
     void set_wide_margin(int margin);
+    bool hud_at_edges_active() const { return hud_on_; }
+    int wide_margin() const { return margin_; }
     int width() const { return W + 2 * margin_; }
     // With widescreen, behind 3D: stretch the tile backdrop across the whole
     // width (on) or fill the margins with the sky's plain colour (off, default).

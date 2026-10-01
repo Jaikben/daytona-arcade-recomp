@@ -34,11 +34,21 @@ int main() {
     CHECK(controls.gear() == 1);
     in = controls.sample({vita::Cross | vita::Circle | vita::Square | vita::Triangle});
     CHECK((in.in0 & 0xe0) == 0 && (in.in1 & 1) == 0);
-    CHECK((controls.sample({vita::Select}).in0 & 1) == 0);
+    CHECK(controls.sample({vita::Select}).in0 == 0xff);
+    CHECK((controls.sample({}).in0 & 1) == 0);
     CHECK((controls.sample({vita::Start}).in0 & 0x10) == 0);
     CHECK(controls.sample({vita::Start | vita::Select}).in0 == 0xff);
     CHECK(vita::menu_chord(vita::Start | vita::Select));
     CHECK(!vita::menu_chord(vita::Start));
+    in = controls.sample({vita::Select | vita::Triangle});
+    CHECK(in.in0 == 0xfb && (in.in1 & 1) != 0); // Test, no coin/view.
+    in = controls.sample({vita::Select | vita::Square});
+    CHECK(in.in0 == 0xf7); // Service, no coin/view.
+    CHECK(controls.sample({}).in0 == 0xff);
+    controls.sample({vita::Select});
+    CHECK(controls.sample({vita::Select | vita::Triangle}).in0 == 0xfb);
+    CHECK(controls.sample({}).in0 == 0xff);
+    CHECK(controls.sample({vita::Start | vita::Select | vita::Triangle}).in0 == 0xff);
     // Test every digital combination; no ADC or active-low port overflow.
     for (uint32_t buttons = 0; buttons < 4096; ++buttons) {
         in = controls.sample({buttons});

@@ -1,5 +1,112 @@
 # Handoff
 
+## Mobile touch controls and latest main (2026-10-06)
+
+Rebased mobile again onto origin/main 10c85cb before completing touch input.
+Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
+Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
+the touch-work stash remains as an additional recovery copy. No branch pushed.
+
+Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
+sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
+capture controls independently (device and finger IDs), not ImGui's single
+mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
+menu and safe-area changes release input. Existing physical controls merge
+with touch through Controls; desktop receives zero touch input by default.
+This follows the design's Platform layer & build boundary; runtime/shaders
+and upstream pacing remain unchanged. See mobile handoff for validation.
+
+## Mobile rebase onto remote main (2026-10-06)
+
+Rebased mobile onto origin/main 6817bff, preserving Android document imports,
+iOS Files import, screen sizing and unsigned packaging. CMake conflict
+resolution keeps upstream link/force-feedback sources and Windows socket
+libraries alongside mobile SDL targets. Generated-source paths combine
+M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
+uses the upstream Devices owner. Initialize the link address before Android's
+stale-URI early return. The previous mobile tip is retained at
+backup/mobile-before-main-20261006. Main and the other platform branches are
+unchanged. Existing IPA files predate this rebase and must not be presented as
+rebuilt from it.
+Validation: desktop daytona_app compilation passes; 13 Android-path import
+tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
+ancestor of the rebased tip. iOS/Android device builds are not rerun here.
+
+## iOS launcher and Files picker (2026-10-06)
+
+Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
+keeping a separate private copy for each selection before the existing ROM
+validation. Enabled modern full-screen launch sizing, safe-area placement,
+logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
+drag scrolling. Picker errors are shown beside the ROM field. Changes follow
+the design's thin platform layer; runtime and shaders are unchanged.
+
+Device Release IPA and simulator build succeed. The simulator cannot provide
+visual verification: SDL_CreateGPUDevice reports that its device does not meet
+SDL_GPU Metal hardware requirements; the resulting black screen is not UI
+validation. Native Files selection and layout need another physical-device
+test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
+screen fit based on compilation alone.
+
+## Mobile iOS packaging (2026-10-06)
+
+The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
+signing, stage the device app under `Payload/daytona.app`, and produce
+`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
+CFBundleExecutable and the APPL package type. Custom build and generated-source
+paths are normalized before packaging; argument handling remains compatible
+with macOS Bash 3.2. No ROM archives or generated sources are committed.
+This follows the design document's Platform layer & build and ROM handling
+sections: the shared runtime/renderer is unchanged. See the mobile handoff
+for build validation and device-test status.
+
+## Vita GXM presentation options and cabinet binds (2026-10-01)
+
+Switched to psvita-native-frontend and fast-forwarded to origin/bc02bb0 first.
+No PSP files or commits were brought across; main and PSP branches untouched.
+Upstream already contained desktop widescreen, per-item race-HUD gating and
+draw-distance hooks, but the GXM frontend had none of their options connected.
+
+Added persistent Aspect0..3, HUD edges and Draw Distance-2..2 settings, live
+application on resume, scrolling16-row options and unchanged defaults.
+Original GXM System24 fast path remains. Wide modes use shared CPU tile/HUD
+composition, widened geometry clip planes and matching GXM projection/clip/HUD
+offsets. Layer textures reserve896x384 for up to21:9;12MiB layer arena raises
+totalGPU reservation30->32MiB. Wider/further options may cost FPS; no physical
+performance claim.21:9 fits with vertical letterboxing.
+
+Select+Triangle maps Test and Select+Square Service, consuming coin/view inputs.
+Plain Select coin now triggers on release so staggered chords do not insert
+coins. Menu latch suppresses a coin on resume; Start+Select remains frontend menu.
+Controls regression covers both chords, staggered press and release.
+
+Found existing generated C++ lacked hook_draw_list. Regenerated privately into
+build/vita-enhancements-input/gen with seeds/daytona93_hooks.txt; onlychunk012
+differs. Vita build links enhance.cpp and uses that generated tree. No generated
+game code/assets are committed.
+
+Validation complete: full host build,20CTest passes (2optional Lua skipped),
+11build-helper tests and final GPU lifetime/layout/HUD ASan/UBSan pass.
+Default and Furthest6000frame host16:9/HUD-edge replays complete:
+default196665345i960 instructions, hash9047513777edfaae; furthest202533889,
+hashc45f82273dcf08c6. Both223429779TGP instructions and3636sound-command bytes.
+These are host replay results, not Vita speed or physical visual validation.
+
+The first cross-build used old hookless generated code and was discarded.
+An interrupted retry initially overlapped; both owned build trees' processes
+were stopped, then a single build was resumed and completed. A host replay
+link first missed the ymfm include path; corrected before the recorded runs.
+The build helper now rejects GPU packages with a missing generated hook.
+
+VPK: build/vita-enhancements/daytona_vita.vpk, archive integrity verified.
+SHA256:95523616c6226f77293c8f71122f483aa1bbb9bc9973cc2e017483d9ba14da42.
+ELF contains hook_draw_list and shared hud_polygon_offset; frontend objects
+are newer than the final settings/control/source edits. Logging remains off.
+Evidence: build/vita-enhancements-{package,final-tests,asan-final,
+race-default,race-furthest}.log. Physical Vita testing remains required,
+especially FPS at higher scenery levels and HUD appearance.
+Changes are local on psvita-native-frontend; no push to main or PSP.
+
 ## Current state
 
 **Licence: BSD-3-Clause (LICENSE).** "Copyright (c) 2026, Ben Templeman and

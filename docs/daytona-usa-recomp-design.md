@@ -180,6 +180,15 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Sorting: reproduce the hardware's priority/z-sort order first; a z-buffer mode is an enhancement toggle, since hardware ordering artefacts are part of the look.
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
+**Vita GXM presentation enhancements.** The Vita branch exposes the same
+aspect, scenery-distance and per-item HUD policies in its options. The original
+mode retains GPU System24 composition. Wide modes use widened CPU-composed
+background/foreground layers around GPU polygons, sharing the CPU rasterizer's
+HUD polygon offset decision and race-HUD detection. Fixed896x384 layer textures
+cover up to21:9; panel fitting preserves aspect on960x544. The layer arena grows
+from10 to12MiB (32MiB total GPU arenas), without per-frame GPU allocations.
+These options are not a promise of full-speed hardware performance.
+
 **Enhancements (all off by default)**
 
 With every enhancement off the build is the game as MAME runs it; parity checks run that way. When on, an enhancement may change game logic (rules.md, changed 1 Oct 2026: previously "never change game logic", which ruled out widening the game's own culling).

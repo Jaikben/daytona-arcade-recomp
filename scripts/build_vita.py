@@ -49,6 +49,10 @@ def main(argv=None):
         if missing:
             ap.error("missing host-generated code:\n" + "\n".join(missing) +
                      "\nRun python3 scripts/recompile.py with the host compiler first.")
+    if args.gpu_fast and not args.compile_check:
+        if not any("rt::hook_draw_list(" in source.read_text()
+                   for source in (gen / "daytona93").glob("chunk_*.cpp")):
+            ap.error("generated game code lacks the draw-distance hook; regenerate with scripts/recompile.py")
     env = os.environ.copy()
     env["VITASDK"] = str(sdk)
     env["PATH"] = str(sdk / "bin") + os.pathsep + env.get("PATH", "")

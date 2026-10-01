@@ -29,10 +29,24 @@ class Controls {
 public:
     Input sample(Pad pad) {
         Input in;
+        const uint32_t previous = held_;
         const uint32_t pressed = pad.buttons & ~held_;
+        if (pressed & Select) select_used_ = false;
         held_ = pad.buttons;
         // The menu chord must not inject a coin or start a race.
-        if (menu_chord(pad.buttons)) { set_gear(in); return in; }
+        if (menu_chord(pad.buttons)) { select_used_ = true; set_gear(in); return in; }
+        // Cabinet controls consume the modifier and view buttons.
+        if (pad.buttons & Select) {
+            const bool test = (pad.buttons & Triangle) != 0;
+            const bool service = (pad.buttons & Square) != 0;
+            if (test || service) {
+                select_used_ = true;
+                if (test) in.in0 &= uint8_t(~0x04);
+                if (service) in.in0 &= uint8_t(~0x08);
+                set_gear(in);
+                return in;
+            }
+        }
         float steer = axis(pad.lx, deadzone_);
         if (pad.buttons & (Left | Right))
             steer = float(bool(pad.buttons & Right)) - float(bool(pad.buttons & Left));
@@ -47,7 +61,8 @@ public:
         const int shift = int(bool(pressed & Up)) - int(bool(pressed & Down));
         gear_ = std::clamp(gear_ + shift, 1, 4);
         set_gear(in);
-        if (pad.buttons & Select) in.in0 &= uint8_t(~0x01);
+        // Coin on release leaves time to distinguish Select-based chords.
+        if ((previous & Select) && !(pad.buttons & Select) && !select_used_) in.in0 &= uint8_t(~0x01);
         if (pad.buttons & Start) in.in0 &= uint8_t(~0x10);
         if (pad.buttons & Cross) in.in0 &= uint8_t(~0x20);
         if (pad.buttons & Circle) in.in0 &= uint8_t(~0x40);
@@ -55,7 +70,7 @@ public:
         if (pad.buttons & Triangle) in.in1 &= uint8_t(~0x01);
         return in;
     }
-    void latch(uint32_t buttons) { held_ = buttons; }
+    void latch(uint32_t buttons) { held_ = buttons; if (buttons & Select) select_used_ = true; }
     int gear() const { return gear_; }
     void set_deadzone(float value) { deadzone_ = std::clamp(value, 0.0f, 0.4f); }
     void set_steer_invert(bool value) { steer_invert_ = value; }
@@ -68,7 +83,7 @@ private:
     uint32_t held_ = 0;
     int gear_ = 1;
     float deadzone_ = 0.12f;
-    bool steer_invert_ = false;
+    bool steer_invert_ = false, select_used_ = false;
 };
 
 // Host time only; each simulation step still advances at GameLoop::kFrameHz.

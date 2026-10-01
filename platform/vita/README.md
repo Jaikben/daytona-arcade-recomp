@@ -179,3 +179,31 @@ introducing explicitly separate SoftFloat state.
 
 See [HANDOFF.md](HANDOFF.md) for the port's status and
 [THIRD_PARTY.md](THIRD_PARTY.md) for SDK dependency references.
+
+## Widescreen, draw distance and cabinet controls
+
+The GXM Options menu now saves Aspect (Original, 16:10, 16:9, 21:9),
+HUD (Centred or Screen Edges), and scenery Draw Distance (Shortest through
+Furthest). Changes apply on resume; original aspect, centred HUD and default
+distance remain the defaults. Widescreen shows additional scenery with the
+same focal length, not stretched pixels. On the 960x544 display, 21:9 is
+letterboxed vertically. The road window is unchanged by scenery distance.
+
+HUD relocation shares the desktop per-item rules and only activates when
+the race HUD is visible. Scenery stays put and crossing banners stay whole.
+Original mode retains the fast GXM tile compositor. Wide modes compose tile
+layers on the CPU and upload them around GXM polygons; wide HUD and further
+draw distance can reduce frame rate. The layer arena is12MiB instead of10MiB,
+making the three GPU arenas32MiB total.
+
+Hold Select and press Triangle for cabinet Test (enter/confirm).
+Hold Select and press Square for cabinet Service (advance/select).
+Release between presses. Cross supplies VR1 (menu next) and Start supplies
+cabinet Start (menu select), as used by the game's test screens.
+Start+Select still opens the frontend pause menu.
+Plain Select inserts a coin on release; Test/Service chords do not insert
+coins or operate view buttons. The bindings are listed in Options.
+
+Draw distance requires generated code with seeds/daytona93_hooks.txt:
+regenerate with scripts/recompile.py before building. Merely linking the
+enhancement runtime cannot add a missing hook to old generated code.

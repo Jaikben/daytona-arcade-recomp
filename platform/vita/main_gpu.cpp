@@ -107,6 +107,8 @@ struct VitaSettings {
     int gpu_clock = 111;
     int volume = 80;
     int deadzone = 12;
+    int aspect = 0, draw_distance = 0;
+    bool hud_edges = false;
     bool mute = false;
     bool native_audio = false; // explicitly selected while native fidelity is validated
     bool steer_invert = false;
@@ -123,6 +125,8 @@ struct VitaSettings {
         gpu_clock = valid(gpu_clock, gpus, 4, 111);
         volume = std::clamp(volume, 0, 100);
         deadzone = std::clamp(deadzone, 0, 40);
+        aspect = std::clamp(aspect, 0, 3);
+        draw_distance = std::clamp(draw_distance, -2, 2);
     }
     void load() {
         FILE *f = std::fopen("ux0:data/daytona93/vita.cfg", "r");
@@ -130,7 +134,10 @@ struct VitaSettings {
         char line[96], key[40]; int value = 0;
         while (std::fgets(line, sizeof line, f)) {
             if (std::sscanf(line, "%39[^=]=%d", key, &value) != 2) continue;
-            if (!std::strcmp(key, "cpu_clock")) cpu_clock = value;
+            if (!std::strcmp(key, "aspect")) aspect = value;
+            else if (!std::strcmp(key, "draw_distance")) draw_distance = value;
+            else if (!std::strcmp(key, "hud_edges")) hud_edges = value != 0;
+            else if (!std::strcmp(key, "cpu_clock")) cpu_clock = value;
             else if (!std::strcmp(key, "gpu_clock")) gpu_clock = value;
             else if (!std::strcmp(key, "volume")) volume = value;
             else if (!std::strcmp(key, "mute")) mute = value != 0;
@@ -145,6 +152,7 @@ struct VitaSettings {
         if (!f) return false;
         std::fprintf(f, "cpu_clock=%d\ngpu_clock=%d\nvolume=%d\nmute=%d\nnative_audio=%d\ndeadzone=%d\nsteer_invert=%d\n",
                      cpu_clock, gpu_clock, volume, int(mute), int(native_audio), deadzone, int(steer_invert));
+        std::fprintf(f, "aspect=%d\ndraw_distance=%d\nhud_edges=%d\n", aspect, draw_distance, int(hud_edges));
         bool ok = std::fflush(f) == 0;
         if (std::fclose(f) != 0) ok = false;
         if (!ok) { std::remove("ux0:data/daytona93/vita.cfg.tmp"); return false; }
@@ -177,7 +185,7 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
         vita::gpu_text("CROSS SELECT  CIRCLE RESUME  START+SELECT MENU", 30, 516, white, 2, 74, 1);
         return;
     }
-    const char *values[13];
+    const char *values[16];
     char cpu[32], gpu[32], volume[32], mute[32], deadzone[32], invert[32];
     std::snprintf(cpu, sizeof cpu, "CPU CLOCK: %d MHz", settings.cpu_clock);
     std::snprintf(gpu, sizeof gpu, "GPU CLOCK: %d MHz", settings.gpu_clock);
@@ -188,10 +196,15 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     values[0]=cpu; values[1]=gpu; values[2]=volume; values[3]=mute; values[4]=deadzone; values[5]=invert;
     values[6]=settings.native_audio ? "AUDIO ENGINE: NATIVE (TEST)" : "AUDIO ENGINE: REFERENCE";
     values[7]="GRAPHICS API: GXM"; values[8]="FULLSCREEN: ON"; values[9]="ROM: DAYTONA93.ZIP";
-    values[10]="BINDINGS: VITA FIXED"; values[11]="RESET DEFAULTS"; values[12]="BACK";
-    for (int i = 0; i < 13; ++i) {
+    values[10]="BINDS: SELECT+TRIANGLE TEST / SELECT+SQUARE SERVICE";
+    static const char* aspects[] = {"ASPECT: ORIGINAL", "ASPECT: 16:10", "ASPECT: 16:9", "ASPECT: 21:9"};
+    static const char* distances[] = {"DISTANCE: SHORTEST", "DISTANCE: SHORTER", "DISTANCE: DEFAULT", "DISTANCE: FURTHER", "DISTANCE: FURTHEST"};
+    values[11]=aspects[settings.aspect]; values[12]=settings.hud_edges ? "HUD: SCREEN EDGES" : "HUD: CENTRED";
+    values[13]=distances[settings.draw_distance + 2]; values[14]="RESET DEFAULTS"; values[15]="BACK";
+    const int first = std::max(0, selection - 11);
+    for (int i = first; i < std::min(first + 12, 16); ++i) {
         std::string label = std::string(i == selection ? "> " : "  ") + values[i];
-        vita::gpu_text(label, 42, 68 + i * 32, i == selection ? yellow : white, 2, 70, 1);
+        vita::gpu_text(label, 42, 68 + (i - first) * 32, i == selection ? yellow : white, 2, 70, 1);
     }
     vita::gpu_text(status, 30, 489, white, 1, 112, 2);
     vita::gpu_text("LEFT/RIGHT CHANGE  CROSS SELECT  CIRCLE BACK", 30, 526, white, 1, 112, 1);
@@ -318,6 +331,12 @@ int main(int, char **) {
         native_audio.mute(settings.mute);
         controls.set_deadzone(float(settings.deadzone) / 100.0f);
         controls.set_steer_invert(settings.steer_invert);
+        rt::GameLoop::set_draw_distance(settings.draw_distance);
+        if (game) {
+            static constexpr double aspects[] = {0, 16.0/10, 16.0/9, 21.0/9};
+            game->set_aspect(aspects[settings.aspect]);
+            game->set_hud_edges(settings.hud_edges);
+        }
     };
     auto commit_settings = [&](bool set_clocks) {
         if (!finish_sound()) return;
@@ -423,7 +442,7 @@ int main(int, char **) {
         }
         if (menu && !wait_release) {
             if (options) {
-                constexpr int kOptionCount = 13;
+                constexpr int kOptionCount = 16;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
                 if (pressed & vita::Down) selection = (selection + 1) % kOptionCount;
                 if (pressed & vita::Circle) { options = false; selection = 2; wait_release = true; }
@@ -461,14 +480,22 @@ int main(int, char **) {
                                      : "ROM MISSING: UX0:DATA/DAYTONA93/DAYTONA93.ZIP";
                         if (rom) std::fclose(rom);
                     } else if (selection == 10 && activate) {
-                        status = "STEER=L-STICK  PEDALS=R-STICK/L/R  SHIFT=UP/DOWN";
-                    } else if (selection == 11 && activate) {
+                        status = "TEST: SELECT+TRIANGLE  SERVICE: SELECT+SQUARE  MENU: CROSS NEXT / START ENTER";
+                    } else if (selection == 11 && (direction || activate)) {
+                        settings.aspect = (settings.aspect + (direction < 0 ? 3 : 1)) % 4; changed = true;
+                    } else if (selection == 12 && (direction || activate)) {
+                        settings.hud_edges = !settings.hud_edges; changed = true;
+                    } else if (selection == 13 && (direction || activate)) {
+                        settings.draw_distance = std::clamp(settings.draw_distance + (direction < 0 ? -1 : 1), -2, 2);
+                        changed = true;
+                    } else if (selection == 14 && activate) {
                         settings.defaults(); changed = clocks_changed = true;
-                    } else if (selection == 12 && activate) {
+                    } else if (selection == 15 && activate) {
                         options = false; selection = 2; wait_release = true;
                     }
                     if (changed) {
                         commit_settings(clocks_changed);
+                        if (selection == 13) status = "FURTHER DISTANCES ADD SCENERY AND MAY REDUCE FPS.";
                         if (selection == 6) status = "AUDIO ENGINE CHANGE SAVED. RESET GAME TO APPLY. NATIVE IS EXPERIMENTAL.";
                     }
                 }
