@@ -226,8 +226,10 @@ def main():
     if any(os.path.exists(os.path.join(ROOT, "roms", "daytona93." + e)) for e in ("zip", "7z")):
         say("Recompiling the game to native code (your ROM set, kept in build/)")
         r = run([sys.executable, os.path.join("scripts", "recompile.py"), "--build-dir", args.build_dir], check=False)
-        if r.returncode:
+        if r.returncode == 3:  # recompile.py ROM_REJECTED_EXIT
             sys.exit(ROM_REJECTED)
+        if r.returncode:
+            sys.exit(BUILD_FAILED)
         game = next((p for p in (os.path.join(build, "daytona" + EXE), os.path.join(build, "Release", "daytona" + EXE))
                      if os.path.exists(p)), None)
     else:
@@ -242,6 +244,12 @@ def main():
 
 
 EXE = ".exe" if WINDOWS else ""
+
+BUILD_FAILED = """
+setup: your ROM set was accepted, but recompiling or building the game
+failed (the errors are above, just before this message). That is a problem
+in the build, not in your ROM set: please report it with those errors.
+"""
 
 ROM_REJECTED = """
 setup: your ROM set was rejected (the line starting "m2import:" above names

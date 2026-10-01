@@ -2,6 +2,15 @@
 
 ## Current state
 
+**Setup's "ROM set rejected" was shown for any recompile failure.** A
+Windows tester got it with a zip that imports on macOS and Linux. The
+reader is portable C++ (binary I/O, fixed-width fields, its own inflate
+and CRC), so the likelier cause is a later step failing on Windows (the
+game's generated code has never been compiled there) under the wrong
+message. `recompile.py` now exits 3 only when `m2import` rejects the set;
+any other failure gets "ROM accepted, the build failed, see the errors
+above". Waiting on the tester's full output.
+
 **Widescreen (enhancement, off by default).** Launcher > Enhancements >
 Widescreen: Original (4:3), 16:10 (614x384), 16:9 (682x384), 21:9
 (896x384); `m2run --aspect 16:9` for headless dumps. More of the scene at

@@ -18,6 +18,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# Exit status for "the ROM set was rejected", so setup.py can tell it from a
+# failure to recompile or build (which exit 1, with the tool's own errors).
+ROM_REJECTED_EXIT = 3
+
+
 def run(cmd, **kw):
     print("+ " + " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True, cwd=ROOT, **kw)
@@ -48,7 +53,8 @@ def main():
         if not roms:
             sys.exit("recompile: put your ROM set at roms/daytona93.zip (or .7z) first")
         run(build_cmd + ["--target", "m2import"])
-        run([tool(build, args.config, "m2import"), roms[0], cache])
+        if subprocess.run([tool(build, args.config, "m2import"), roms[0], cache], cwd=ROOT).returncode:
+            sys.exit(ROM_REJECTED_EXIT)  # m2import printed which file is missing or wrong
     run(build_cmd + ["--target", "m2recomp", "m2tgprecomp", "m2sndrecomp"])
 
     gen = os.path.join(build, "gen", "daytona93")
