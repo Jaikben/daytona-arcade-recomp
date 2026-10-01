@@ -2,6 +2,25 @@
 
 ## Current state
 
+**Hardware renderer, stage 2 (textures).** ps_poly is a port of the
+rasterizer's draw_tex_span and fetch_bilinear_texel in integer arithmetic:
+the 4-bit sheets with their 2048x1024-as-1024x2048 mapping, bilinear 8-bit
+blending (LERP), wrap/mirror/edge rules, mip levels by fast_log2 (the same
+128-entry table) and texlod, the microtexture, the translucency flag and
+test, the luma RAM and the colour translation. Data: three read-only storage
+buffers (texture RAM, both sheets, uploaded only when it changes; luma RAM;
+colour translation with the rasterizer's gamma applied on the CPU); per
+polygon texture state as flat integers decoded as render_one does; 1/z, u/z,
+v/z interpolated noperspective. Measured (race_basic, Metal, m2gpushot vs
+m2run): frame 1500 99.9% of pixels identical; race frames 3000 and 4500
+95.5% and 95.1% identical, 98.4% and 98.8% within 8 levels. The differences
+are scattered over textured surfaces (far road, rock face), not edges:
+float differences flipping mip-level and texel thresholds. The rasterizer
+accumulates 1/z, u/z, v/z per pixel along each span; the GPU evaluates each
+pixel's directly, and Metal compiles with fast math. Exactness is stage 4.
+build_shaders.py pulls the x86-64 Ubuntu image explicitly (a cached arm64
+one failed with "exec format error").
+
 **Hardware renderer, stage 1 (geometry).** Launcher > Game > Renderer:
 Software (exact; default) or Hardware (Experimental). `src/app/gpu/`:
 `m2.hlsl` (one source) -> `scripts/build_shaders.py` (DXC v1.9.2609 to

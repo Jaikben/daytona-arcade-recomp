@@ -54,6 +54,9 @@ def main():
             "mkdir -p /tmp/dxc && tar xzf /tmp/dxc.tgz -C /tmp/dxc",
             "export LD_LIBRARY_PATH=/tmp/dxc/lib",
         ] + commands("/tmp/dxc/bin/dxc", "spirv-cross"))
+        # DXC's Linux build is x86-64. Pull that variant explicitly: a cached
+        # arm64 ubuntu:24.04 (Apple silicon) otherwise fails with "exec format error".
+        subprocess.run(["docker", "pull", "-q", "--platform", "linux/amd64", "ubuntu:24.04"], check=True)
         subprocess.run(["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{ROOT}:/src", "-w", "/src",
                         "ubuntu:24.04", "bash", "-c", script], check=True)
 

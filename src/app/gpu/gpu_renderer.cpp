@@ -14,15 +14,21 @@ namespace {
 
 inline uint16_t le16(const uint8_t *base, uint32_t index) { return uint16_t(base[index * 2] | base[index * 2 + 1] << 8); }
 
+constexpr uint32_t kSheetWords = 0x80000;                 // one texture sheet (VideoMem tex0, tex1)
+constexpr uint32_t kTexramBytes = kSheetWords * 4 * 2;    // both sheets
+constexpr uint32_t kLumaBytes = 0x20000;                  // luma RAM (one entry per dword)
+constexpr uint32_t kXlatEntries = 0x6000;                 // colour translation (0xc000 bytes of u16)
+
 } // namespace
 
 SDL_GPUShader *GpuRenderer::shader(const unsigned char *spv, size_t spv_len, const unsigned char *dxil, size_t dxil_len,
                                    const char *msl, const char *dxil_entry, SDL_GPUShaderStage stage, int uniforms,
-                                   int samplers) {
+                                   int samplers, int storage_buffers) {
     SDL_GPUShaderCreateInfo si{};
     si.stage = stage;
     si.num_uniform_buffers = Uint32(uniforms);
     si.num_samplers = Uint32(samplers);
+    si.num_storage_buffers = Uint32(storage_buffers);
     const SDL_GPUShaderFormat formats = SDL_GetGPUShaderFormats(dev_);
     if (formats & SDL_GPU_SHADERFORMAT_SPIRV) {
         si.format = SDL_GPU_SHADERFORMAT_SPIRV, si.code = spv, si.code_size = spv_len, si.entrypoint = "main";
@@ -48,7 +54,7 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     SDL_GPUShader *vs_poly = shader(k_vs_poly_spv, sizeof k_vs_poly_spv, k_vs_poly_dxil, sizeof k_vs_poly_dxil,
                                     k_vs_poly_msl, "vs_poly", SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
     SDL_GPUShader *ps_poly = shader(k_ps_poly_spv, sizeof k_ps_poly_spv, k_ps_poly_dxil, sizeof k_ps_poly_dxil,
-                                    k_ps_poly_msl, "ps_poly", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0);
+                                    k_ps_poly_msl, "ps_poly", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 3);
     SDL_GPUShader *vs_quad = shader(k_vs_quad_spv, sizeof k_vs_quad_spv, k_vs_quad_dxil, sizeof k_vs_quad_dxil,
                                     k_vs_quad_msl, "vs_quad", SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
     SDL_GPUShader *ps_quad = shader(k_ps_quad_spv, sizeof k_ps_quad_spv, k_ps_quad_dxil, sizeof k_ps_quad_dxil,
@@ -62,16 +68,18 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     SDL_GPUColorTargetDescription color{};
     color.format = format;
 
-    // Polygons: position, depth (draw order), colour, checker flag.
+    // Polygons: position, depth (draw order), 1/z u/z v/z, colour, texture state.
     SDL_GPUVertexBufferDescription pvb{};
     pvb.slot = 0;
     pvb.pitch = sizeof(PolyVertex);
     pvb.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
-    SDL_GPUVertexAttribute pattr[4] = {
+    SDL_GPUVertexAttribute pattr[6] = {
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, Uint32(offsetof(PolyVertex, x))},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT, Uint32(offsetof(PolyVertex, depth))},
-        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, Uint32(offsetof(PolyVertex, r))},
-        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT, Uint32(offsetof(PolyVertex, checker))},
+        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, Uint32(offsetof(PolyVertex, ooz))},
+        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, Uint32(offsetof(PolyVertex, r))},
+        {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UINT4, Uint32(offsetof(PolyVertex, info))},
+        {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_UINT2, Uint32(offsetof(PolyVertex, more))},
     };
     SDL_GPUGraphicsPipelineCreateInfo pi{};
     pi.vertex_shader = vs_poly;
@@ -79,7 +87,7 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     pi.vertex_input_state.vertex_buffer_descriptions = &pvb;
     pi.vertex_input_state.num_vertex_buffers = 1;
     pi.vertex_input_state.vertex_attributes = pattr;
-    pi.vertex_input_state.num_vertex_attributes = 4;
+    pi.vertex_input_state.num_vertex_attributes = 6;
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
     pi.depth_stencil_state.enable_depth_test = true;
@@ -132,7 +140,15 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     qb.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
     qb.size = sizeof(QuadVertex) * 6;
     qbuf_ = SDL_CreateGPUBuffer(dev_, &qb);
-    if (!sampler_ || !qbuf_) {
+    SDL_GPUBufferCreateInfo sb{};
+    sb.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+    sb.size = kTexramBytes;
+    texram_ = SDL_CreateGPUBuffer(dev_, &sb);
+    sb.size = kLumaBytes;
+    luma_ = SDL_CreateGPUBuffer(dev_, &sb);
+    sb.size = kXlatEntries * 4;
+    xlat_ = SDL_CreateGPUBuffer(dev_, &sb);
+    if (!sampler_ || !qbuf_ || !texram_ || !luma_ || !xlat_) {
         error_ = std::string("SDL_GPU setup: ") + SDL_GetError();
         shutdown();
         return false;
@@ -150,6 +166,9 @@ void GpuRenderer::shutdown() {
     if (depth_) SDL_ReleaseGPUTexture(dev_, depth_), depth_ = nullptr;
     if (vbuf_) SDL_ReleaseGPUBuffer(dev_, vbuf_), vbuf_ = nullptr;
     if (qbuf_) SDL_ReleaseGPUBuffer(dev_, qbuf_), qbuf_ = nullptr;
+    for (SDL_GPUBuffer **b : {&texram_, &luma_, &xlat_})
+        if (*b) SDL_ReleaseGPUBuffer(dev_, *b), *b = nullptr;
+    texram_copy_.clear();
     if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_), upload_ = nullptr;
     vbuf_size_ = upload_size_ = 0;
     depth_w_ = depth_h_ = 0;
@@ -185,7 +204,8 @@ bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
         vbuf_ = SDL_CreateGPUBuffer(dev_, &bi);
         if (!vbuf_) return false;
     }
-    const uint32_t need = uint32_t(w) * uint32_t(h) * 4 * 2 + uint32_t(sizeof(QuadVertex) * 6) + vert_bytes;
+    const uint32_t need = uint32_t(w) * uint32_t(h) * 4 * 2 + uint32_t(sizeof(QuadVertex) * 6) + vert_bytes +
+                          kTexramBytes + kLumaBytes + kXlatEntries * 4;
     if (need > upload_size_) {
         if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_);
         upload_size_ = need * 2;
@@ -239,16 +259,32 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
         const float r = gamma_[le16(mem.colorxlat, 0x0000 / 2 + (((color >> 0) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
         const float g = gamma_[le16(mem.colorxlat, 0x4000 / 2 + (((color >> 5) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
         const float b = gamma_[le16(mem.colorxlat, 0x8000 / 2 + (((color >> 10) & 0x1f) << 8) + luma) & 0xff] / 255.0f;
-        const float checker = (poly.texheader[0] >> 15) & 1 ? 1.0f : 0.0f;
         const float depth = float(++drawn) * depth_step;
+
+        // texture state, decoded as render_one (m2.hlsl PolyIn)
+        const uint32_t th0 = poly.texheader[0], th1 = poly.texheader[1], th2 = poly.texheader[2];
+        const uint32_t mirx = (th0 >> 8) & 1, miry = (th0 >> 9) & 1;
+        const uint32_t wlog = th0 & 7, hlog = (th0 >> 3) & 7;
+        const uint32_t max_level = 5 + std::min(wlog, hlog); // log2(min(width, height)), width = 32 << wlog
+        uint32_t info[4], more[2];
+        info[0] = uint32_t(renderer) | ((th0 >> 15) & 1) << 2 | (((th0 >> 6) & 1) & ~mirx) << 3 |
+                  (((th0 >> 7) & 1) & ~miry) << 4 | mirx << 5 | miry << 6 | ((th0 >> 12) & 1) << 7 |
+                  ((th0 >> 10) & 3) << 8 | ((th2 >> 12) & 1) << 10 | max_level << 12 | wlog << 17 | hlog << 20;
+        info[1] = (32u * (th2 & 0x3f)) | (32u * ((th2 >> 6) & 0x1f)) << 16;
+        info[2] = (((th2 >> 13) & 1) * 128) | (((th2 >> 14) & 3) * 128) << 16;
+        info[3] = ((th1 & 0xff) << 7) | uint32_t(poly.luma) << 16;
+        more[0] = uint32_t(poly.texlod);
+        more[1] = le16(mem.palram, colorbase + 0x1000) & 0x7fff;
 
         // model2_3d_project, then a fan from vertex 0 (the polygon is convex)
         PolyVertex v[8];
         for (int k = 0; k < poly.num_vertices; k++) {
             const rt::GeoVertex &g0 = poly.v[k];
             const float z = g0.p[0] + std::numeric_limits<float>::min();
+            const float ooz = 1.0f / z; // render_one, textured: p[0] = 1/z, p[1..2] scaled by it / 8
             v[k] = {float(crtc_x + poly.center[0]) + g0.x / z, float((384 - poly.center[1]) + crtc_y) - g0.y / z, depth,
-                    r, g, b, 1.0f, checker};
+                    ooz, g0.p[1] * ooz * (1.0f / 8.0f), g0.p[2] * ooz * (1.0f / 8.0f),
+                    r, g, b, 1.0f, {info[0], info[1], info[2], info[3]}, {more[0], more[1]}};
         }
         for (int k = 1; k + 1 < poly.num_vertices; k++) {
             verts_.push_back(v[0]);
@@ -277,6 +313,26 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     const QuadVertex quad[6] = {{0, 0, 0, 0}, {fw, 0, 1, 0}, {0, fh, 0, 1}, {fw, 0, 1, 0}, {fw, fh, 1, 1}, {0, fh, 0, 1}};
     std::memcpy(p + 2 * layer_bytes, quad, sizeof quad);
     if (vert_bytes) std::memcpy(p + 2 * layer_bytes + sizeof quad, verts_.data(), vert_bytes);
+    // storage data: luma RAM and the gamma'd colour translation every frame,
+    // texture RAM when it changed
+    const rt::VideoMem &mem = video.gpu_mem();
+    const uint32_t data_at = 2 * layer_bytes + uint32_t(sizeof quad) + vert_bytes;
+    bool tex_changed = false;
+    if (mem.lumaram && mem.colorxlat && mem.tex0 && mem.tex1) {
+        std::memcpy(p + data_at, mem.lumaram, kLumaBytes);
+        xlat_table_.resize(kXlatEntries);
+        for (uint32_t i = 0; i < kXlatEntries; i++) xlat_table_[i] = gamma_[le16(mem.colorxlat, i) & 0xff];
+        std::memcpy(p + data_at + kLumaBytes, xlat_table_.data(), kXlatEntries * 4);
+        tex_changed = texram_copy_.size() != 2 * kSheetWords ||
+                      std::memcmp(texram_copy_.data(), mem.tex0, kSheetWords * 4) != 0 ||
+                      std::memcmp(texram_copy_.data() + kSheetWords, mem.tex1, kSheetWords * 4) != 0;
+        if (tex_changed) {
+            texram_copy_.resize(2 * kSheetWords);
+            std::memcpy(texram_copy_.data(), mem.tex0, kSheetWords * 4);
+            std::memcpy(texram_copy_.data() + kSheetWords, mem.tex1, kSheetWords * 4);
+            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4, texram_copy_.data(), kTexramBytes);
+        }
+    }
     SDL_UnmapGPUTransferBuffer(dev_, upload_);
 
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
@@ -299,6 +355,19 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
         SDL_GPUTransferBufferLocation vsrc{upload_, 2 * layer_bytes + uint32_t(sizeof quad)};
         SDL_GPUBufferRegion vdst{vbuf_, 0, vert_bytes};
         SDL_UploadToGPUBuffer(copy, &vsrc, &vdst, true);
+    }
+    if (mem.lumaram && mem.colorxlat) {
+        SDL_GPUTransferBufferLocation lsrc{upload_, data_at};
+        SDL_GPUBufferRegion ldst{luma_, 0, kLumaBytes};
+        SDL_UploadToGPUBuffer(copy, &lsrc, &ldst, true);
+        SDL_GPUTransferBufferLocation xsrc{upload_, data_at + kLumaBytes};
+        SDL_GPUBufferRegion xdst{xlat_, 0, kXlatEntries * 4};
+        SDL_UploadToGPUBuffer(copy, &xsrc, &xdst, true);
+    }
+    if (tex_changed) {
+        SDL_GPUTransferBufferLocation tsrc{upload_, data_at + kLumaBytes + kXlatEntries * 4};
+        SDL_GPUBufferRegion tdst{texram_, 0, kTexramBytes};
+        SDL_UploadToGPUBuffer(copy, &tsrc, &tdst, true);
     }
     SDL_EndGPUCopyPass(copy);
 
@@ -333,6 +402,8 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
         SDL_BindGPUGraphicsPipeline(pass, poly_pipe_);
         SDL_GPUBufferBinding vb{vbuf_, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBuffer *storage[3] = {texram_, luma_, xlat_};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, storage, 3);
         for (const Batch &b : batches_) {
             if (!b.count) continue;
             SDL_SetGPUScissor(pass, &b.clip);

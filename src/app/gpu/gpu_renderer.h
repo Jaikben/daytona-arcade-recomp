@@ -3,12 +3,13 @@
 // reference), around the tilemap layers the CPU still draws (Video's
 // external-3D mode: background and foreground layers).
 //
-// Stage 1: geometry. Polygons are projected exactly as model2_3d_project,
-// drawn as a fan from their first vertex in the rasterizer's order (window,
-// then z, newest first) and clipped to their window; the depth test stands in
-// for the rasterizer's "first polygon to fill a pixel wins". Colour is the
-// polygon's palette colour through the luma translation, as the rasterizer's
-// solid renderer; textures come in stage 2.
+// Polygons are projected exactly as model2_3d_project, drawn as a fan from
+// their first vertex in the rasterizer's order (window, then z, newest first)
+// and clipped to their window; the depth test stands in for the rasterizer's
+// "first polygon to fill a pixel wins". Solid polygons take their palette
+// colour from the CPU; textured ones are shaded per pixel by a port of the
+// rasterizer's draw_tex_span (m2.hlsl) reading texture RAM, the luma RAM and
+// the colour translation from storage buffers.
 #pragma once
 
 #include "runtime/video.h"
@@ -37,8 +38,9 @@ public:
 private:
     struct PolyVertex {
         float x, y, depth;
+        float ooz, uoz, voz; // render_one's p[0..2]: 1/z, u/z, v/z
         float r, g, b, a;
-        float checker;
+        uint32_t info[4], more[2]; // texture state (m2.hlsl PolyIn)
     };
     struct QuadVertex {
         float x, y, u, v;
@@ -55,6 +57,10 @@ private:
     SDL_GPUTexture *depth_ = nullptr;
     int depth_w_ = 0, depth_h_ = 0;
     SDL_GPUBuffer *vbuf_ = nullptr, *qbuf_ = nullptr;
+    // storage buffers: texture RAM (both sheets), luma RAM, colour translation with gamma
+    SDL_GPUBuffer *texram_ = nullptr, *luma_ = nullptr, *xlat_ = nullptr;
+    std::vector<uint32_t> texram_copy_; // what texram_ holds, to upload only on change
+    std::vector<uint32_t> xlat_table_;
     uint32_t vbuf_size_ = 0;
     SDL_GPUTransferBuffer *upload_ = nullptr;
     uint32_t upload_size_ = 0;
@@ -65,7 +71,8 @@ private:
     std::string error_;
 
     SDL_GPUShader *shader(const unsigned char *spv, size_t spv_len, const unsigned char *dxil, size_t dxil_len,
-                          const char *msl, const char *dxil_entry, SDL_GPUShaderStage stage, int uniforms, int samplers);
+                          const char *msl, const char *dxil_entry, SDL_GPUShaderStage stage, int uniforms, int samplers,
+                          int storage_buffers = 0);
     bool ensure(int w, int h, uint32_t vert_bytes);
     void build(const rt::Video &video, int w, int h);
 };
