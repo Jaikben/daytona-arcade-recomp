@@ -24,6 +24,7 @@
 #include "imgui.h"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h> // Windows: the WinMain entry point a WIN32 (GUI) program links against
 
 #include <algorithm>
 #include <cstdio>

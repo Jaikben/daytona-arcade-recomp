@@ -9,7 +9,11 @@ and CRC), so the likelier cause is a later step failing on Windows (the
 game's generated code has never been compiled there) under the wrong
 message. `recompile.py` now exits 3 only when `m2import` rejects the set;
 any other failure gets "ROM accepted, the build failed, see the errors
-above". Waiting on the tester's full output.
+above". The tester's next run confirmed it: the ROM was accepted and the
+generated code compiled (`m2run`, `m2native` built); the final build step
+still failed. Likely cause, not yet confirmed on Windows: `daytona` is a
+WIN32 (GUI) executable and `main.cpp` did not include `SDL3/SDL_main.h`,
+so nothing provided `WinMain`. Now included (no effect on macOS/Linux).
 
 **Widescreen (enhancement, off by default).** Launcher > Enhancements >
 Widescreen: Original (4:3), 16:10 (614x384), 16:9 (682x384), 21:9
