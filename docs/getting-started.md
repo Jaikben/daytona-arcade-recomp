@@ -80,10 +80,12 @@ The name ends in `.sh`: `./setup` on its own is "no such file".
 
 It installs Git, CMake, Ninja, Python and the Visual Studio 2022 Build
 Tools, with their Clang compiler, using winget. If you already have Visual
-Studio or the Build Tools, it adds the C++ and Clang tools to them. The
-game is built with Clang (`Compiler: Clang` in the output); without the
-Clang tools setup falls back to Microsoft's compiler. The Build Tools are a
-large download, and Windows may ask for permission. If it says Python "is
+Studio or the Build Tools, it adds the C++ and Clang tools to them: Windows
+asks for permission for that (the Visual Studio Installer needs administrator
+rights). The game is built with Clang (`Compiler: Clang` in the output). If
+the Clang tools cannot be added, setup stops and says what to add by hand;
+`setup.ps1 --msvc` builds with Microsoft's compiler instead. The Build Tools
+are a large download. If it says Python "is
 not on PATH yet", close PowerShell, open a new one and run the same command
 again.
 
@@ -159,6 +161,17 @@ its program is different.
 An older version of the project, built with Microsoft's compiler. Run
 `git pull`, then `setup.ps1` again: it installs the Clang tools and
 switches the build to Clang (both compilers work now).
+
+**Windows: `error C2099: initializer is not a constant` in SDL's
+`yuv_rgb_internal.h`**
+An older version of the project, built with Microsoft's compiler. Run
+`git pull`, then `setup.ps1` again.
+
+**Windows: "The Clang tools for Visual Studio are not installed"**
+Open the Visual Studio Installer, choose Modify on your Visual Studio or
+Build Tools, and under Individual components tick "C++ Clang Compiler for
+Windows" and "MSBuild support for LLVM (clang-cl) toolset". Then run
+`setup.ps1` again. Or run `setup.ps1 --msvc` to use Microsoft's compiler.
 
 **Start is greyed out in the launcher**
 The line under the ROM path says why. If it says files are missing or
