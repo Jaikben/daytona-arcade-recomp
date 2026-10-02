@@ -198,6 +198,11 @@ int main(int argc, char **argv) {
 
     // the name graphics overlays and drivers see (patches/sdl3: Vulkan's application name)
     SDL_SetAppMetadata("Daytona USA", nullptr, "daytona-recomp");
+#ifdef M2_MOBILE
+    // Mobile shells are landscape-only and always occupy the display.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    cfg.fullscreen = true;
+#endif
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
     if (cfg.legacy_logitech_wheels) { // before the joysticks start: SDL reads it when it finds the devices
         SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "0");
