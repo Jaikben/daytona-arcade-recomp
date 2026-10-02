@@ -180,15 +180,17 @@ target_link_libraries(m2sndrecomp PRIVATE m68k)
 # compiles all of it; the daytona executable itself also needs the generated
 # game code (below).
 if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
+    if(ANDROID)
+        # SDLActivity loads libSDL3.so before the game's libmain.so.
+        set(M2_SDL_TARGET SDL3::SDL3-shared)
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    else()
+        set(M2_SDL_TARGET SDL3::SDL3-static)
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    endif()
     if(NOT TARGET ${M2_SDL_TARGET})
-        if(ANDROID)
-            # SDLActivity loads libSDL3.so before the game's libmain.so.
-            set(SDL_SHARED ON CACHE BOOL "" FORCE)
-            set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-        else()
-            set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-            set(SDL_STATIC ON CACHE BOOL "" FORCE)
-        endif()
         set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
         # SDL builds with its own flags, not ours: MSVC's /fp:strict (our FP
@@ -197,11 +199,6 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
         set_directory_properties(PROPERTIES COMPILE_OPTIONS "")
         add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
         set_directory_properties(PROPERTIES COMPILE_OPTIONS "${M2_COMPILE_OPTIONS}")
-    endif()
-    if(ANDROID)
-        set(M2_SDL_TARGET SDL3::SDL3-shared)
-    else()
-        set(M2_SDL_TARGET ${M2_SDL_TARGET})
     endif()
 
     # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
