@@ -260,7 +260,7 @@ int main(int argc, char **argv) {
         game.reset();
         have_audio = false;
         native_fault = false;
-        native_active = cfg.native_audio && rt::kNativeAudioSupported; // daytona93 only, for now
+        native_active = cfg.native_audio;
         try {
             auto images = rt::import_rom_set(cfg.rom_path);
             if (native_active) {

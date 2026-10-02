@@ -303,17 +303,7 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             ImGui::SameLine();
             if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
-            ImGui::BeginDisabled(!rt::kNativeAudioSupported);
-            bool native = cfg_.native_audio && rt::kNativeAudioSupported;
-            if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &native)) {
-                cfg_.native_audio = native;
-                cfg_.save();
-            }
-            ImGui::EndDisabled();
-            if (!rt::kNativeAudioSupported) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("(daytona93 only for now; this set plays the reference audio)");
-            }
+            if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &cfg_.native_audio)) cfg_.save();
             ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
 
             ImGui::Spacing();

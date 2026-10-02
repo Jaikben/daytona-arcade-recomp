@@ -10,7 +10,6 @@
 #include "runtime/m2_board.h"
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace rt {
@@ -29,10 +28,6 @@ M2Board::Images import_rom_set(const std::string &zip_path);
 
 // The MAME name of the set this build was recompiled from.
 const char *rom_set_name();
-// Native audio (snd::NativeSoundEngine) reads tables at fixed addresses in
-// daytona93's sound program; Revision A's sound program moved and changed
-// them, so there only the reference audio (the recompiled 68000) plays.
-constexpr bool kNativeAudioSupported = std::string_view(M2_ROMSET) == "daytona93";
 
 // The TGP program the i960 uploads at boot, cut from main_data (CRC-checked).
 std::vector<uint8_t> tgp_program(const M2Board::Images &img);

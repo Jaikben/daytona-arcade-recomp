@@ -61,11 +61,14 @@ m2run and m2gpushot `--nvram DIR` load the app's saved EEPROM and backup RAM
 input script (races on all three courses, steering, test mode screens)
 runs with no missing code; race_basic plays through circuit select,
 transmission select, the rolling start and the race, with drive board
-commands. Native audio is daytona93-only (rt::kNativeAudioSupported): the
-native sequencer reads tables at fixed addresses in daytona93's sound
-program, which Revision A moved (some by 0x48) and changed; the launcher
-greys it out there and the reference audio (the recompiled 68000) plays,
-checked audible (attract, 3,000 frames).
+commands. Native audio works on Revision A too: its sound program has the
+native sequencer's tables from 0x505a on 0x48 bytes later, their pointers
+with them (sequence banks and engine sound tables unmoved); the sequencer
+detects the layout by those tables' first pointers. scripts/
+test_native_sound_oracle.sh takes the set from the ROM folder's name and
+M2_NVRAM=DIR: Revision A race, 6,000 frames: 4,892 of 4,893 notes the same
+as the reference audio (the extra one at the run's last instant), the same
+two pitch differences as daytona93, RMS ratio 1.02, no invalid data.
 Why: the arcade's wheels sit inside the wheel arches with a gap; ours (and
 MAME's) poke out over the wings. The car code and data are the same in both
 revisions (wheel table at 0x234af4 / 0x230d54: ±0.525, 0.32, 1.4125/-1.4;

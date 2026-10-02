@@ -61,6 +61,7 @@ private:
     };
     const std::vector<uint8_t> &program_;
     uint32_t output_rate_;
+    uint32_t shift_ = 0; // where the tables are: daytona93's layout, or Revision A's (0x48 on)
     Sink sink_ = nullptr;
     void *context_ = nullptr;
     Stats stats_;

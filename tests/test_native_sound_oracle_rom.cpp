@@ -118,6 +118,14 @@ int main(int argc, char **argv) {
         snd::NativeSoundEngine engine(program, pcm1, pcm2);
         rt::GameLoop game(dir, false);
         if (game.sound()) throw std::runtime_error("disabled GameLoop constructed reference sound");
+        if (const char *nv = std::getenv("M2_NVRAM")) { // the app's saved EEPROM and backup RAM
+            auto into = [&](const std::string &file, auto &dst) {
+                const auto d = load(std::string(nv) + "/" + file);
+                if (d.size() == dst.size()) std::copy(d.begin(), d.end(), dst.begin());
+            };
+            into("ioboard_eeprom.bin", game.board().io().eeprom);
+            into("backup_ram.bin", game.board().backup_ram());
+        }
         game.board().video().set_external_3d(true);
         uint64_t rendered = 0, nonzero = 0, fm_nonzero = 0, bytes_total = 0;
         // This timer includes audit/metering work; it is not a production benchmark.
