@@ -200,6 +200,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     target_link_libraries(gpurender PUBLIC runtime SDL3::SDL3-static)
     add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp src/app/ffb.cpp src/app/link_socket.cpp)
     target_link_libraries(daytona_app PRIVATE runtime imgui gpurender SDL3::SDL3-static)
+    if(WIN32)
+        target_link_libraries(daytona_app PUBLIC ws2_32) # link play's sockets
+    endif()
 endif()
 
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
@@ -214,11 +217,17 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     # The game on its own: native board runtime, no trace.
     add_executable(m2run tools/m2run/main.cpp src/app/link_socket.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2run PRIVATE runtime)
+    if(WIN32)
+        target_link_libraries(m2run PRIVATE ws2_32) # link play's sockets
+    endif()
 
     # The game in a window (needs the app objects below).
     if(TARGET daytona_app)
         add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
         target_link_libraries(daytona PRIVATE runtime imgui gpurender SDL3::SDL3-static)
+        if(WIN32)
+            target_link_libraries(daytona PRIVATE ws2_32) # link play's sockets
+        endif()
         # Headless frames through the hardware renderer, to compare with m2run's.
         add_executable(m2gpushot tools/m2gpushot/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
         target_link_libraries(m2gpushot PRIVATE runtime gpurender)
