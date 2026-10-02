@@ -126,8 +126,14 @@ else()
     endif()
     target_link_options(daytona_vita PRIVATE -Wl,--gc-sections)
     set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
+    set(VITA_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/icon0.png")
+    set(VITA_ICON_ARGS)
+    if(EXISTS "${VITA_ICON_FILE}")
+        set(VITA_ICON_ARGS FILE "${VITA_ICON_FILE}" "sce_sys/icon0.png")
+    endif()
     vita_create_self(eboot.bin daytona_vita UNSAFE)
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
+        ${VITA_ICON_ARGS}
         VERSION "01.23" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
         FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md")
