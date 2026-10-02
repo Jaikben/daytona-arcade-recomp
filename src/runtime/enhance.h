@@ -16,7 +16,8 @@ struct Enhance {
     static inline int draw_distance = 0;
 };
 
-// 0x17078, after the game has built its draw list of course cells: the count
+// 0x17078 (daytona93; 0x17508 in Revision A, the same code and RAM), after
+// the game has built its draw list of course cells: the count
 // at 0x5016c0 and the cell numbers from 0x5016c1, chosen from the 5x5 cells
 // around the car's (r8) in a grid 16 cells wide (cell = x + 16 y).
 void hook_draw_list(Cpu &c);

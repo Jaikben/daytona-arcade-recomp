@@ -37,11 +37,17 @@ alignment where the revision inserted code), then seed_scan.py --set
 daytona (239 more; 38,001 instructions reachable). Revision A does some
 float maths on the i960's FPU instead of the TGP: m2recomp gained addr, subr
 and modi (MAME's semantics; register forms only; daytona93's generated code
-unchanged). No hooks yet (draw distance does nothing there). Its default
-settings are a linked twin cabinet, which waits on the link at the settings
-screen: set a single cabinet in test mode (F2) once; m2gpushot `--nvram DIR`
-loads the app's saved EEPROM and backup RAM. Checked: 12,000 attract frames,
-no missing code.
+unchanged). Hooks: seeds/daytona_hooks.txt, draw distance at 0x17508
+(daytona93's draw-list routine moved by 0x490: the same masked instructions,
+RAM and boot-time budget); checked: -2 and +2 change the frames as on
+daytona93. Its default settings are a linked twin cabinet, which waits on the
+link at the settings screen: set a single cabinet in test mode (F2) once;
+m2run and m2gpushot `--nvram DIR` load the app's saved EEPROM and backup RAM
+(tools/common/nvram.h). Checked with that: 12,000 attract frames, and every
+input script (races on all three courses, steering, test mode screens)
+runs with no missing code; race_basic plays through circuit select,
+transmission select, the rolling start and the race, with drive board
+commands.
 Why: the arcade's wheels sit inside the wheel arches with a gap; ours (and
 MAME's) poke out over the wings. The car code and data are the same in both
 revisions (wheel table at 0x234af4 / 0x230d54: ±0.525, 0.32, 1.4125/-1.4;

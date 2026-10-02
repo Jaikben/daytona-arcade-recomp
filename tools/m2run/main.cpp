@@ -4,7 +4,10 @@
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
 //         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N] [--frame-skip N]
+//         [--nvram DIR]
 //
+// --nvram DIR starts from the app's saved settings EEPROM and backup RAM
+// (tools/common/nvram.h).
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
 // --wav writes the sound board's output (YM3438 + both MultiPCMs, mixed at
@@ -18,6 +21,7 @@
 
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
+#include "../common/nvram.h"
 
 #include <algorithm>
 #include <chrono>
@@ -70,7 +74,7 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, wav_path;
+    std::string dump_dir, inputs_path, wav_path, nvram_dir;
     uint64_t every = 0;
     double aspect = 0;
     int frame_skip = 0;
@@ -85,6 +89,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
         else if (!std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--aspect")) {
@@ -95,6 +100,7 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
+        if (!nvram_dir.empty()) tools::load_nvram(game, nvram_dir);
         game.set_frame_skip(frame_skip);
         if (aspect > 0) {
             game.set_aspect(aspect);

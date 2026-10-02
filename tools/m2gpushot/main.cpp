@@ -20,6 +20,7 @@
 #include "app/gpu/gpu_renderer.h"
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
+#include "../common/nvram.h"
 
 #include <SDL3/SDL.h>
 
@@ -29,8 +30,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -106,16 +105,7 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
-        if (!nvram_dir.empty()) { // the app's saved EEPROM and backup RAM, when present and the right size
-            auto load = [](const std::string &path, auto &into) {
-                std::ifstream f(path, std::ios::binary);
-                std::vector<uint8_t> d{std::istreambuf_iterator<char>(f), {}};
-                if (d.size() == into.size()) std::copy(d.begin(), d.end(), into.begin());
-                else std::fprintf(stderr, "m2gpushot: %s not loaded\n", path.c_str());
-            };
-            load(nvram_dir + "/ioboard_eeprom.bin", game.board().io().eeprom);
-            load(nvram_dir + "/backup_ram.bin", game.board().backup_ram());
-        }
+        if (!nvram_dir.empty()) tools::load_nvram(game, nvram_dir);
         game.board().video().set_external_3d(true, true);
         game.set_aspect(aspect);
         game.set_hud_edges(hud_edges);
