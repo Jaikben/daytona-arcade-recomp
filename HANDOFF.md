@@ -2,6 +2,19 @@
 
 ## Current state
 
+**Widescreen: scene or 2D screen, by window and coverage.** The margins'
+fill (stretched or sky behind a 3D scene, each row's edge colours on a 2D
+screen) was chosen by "the 3D covers half the screen". Attract and race
+camera shots that look at a lot of sky cover 36-49% (measured: daytona93
+attract frames 720-780, 6720-6860, 7020-7140, 8320-8460; Revision A the
+same kind), so those frames smeared their sky's edge colours sideways and
+then snapped to stretched when the camera moved. Video::scene(): one window
+and at least 15% coverage. Measured over attract and race_basic on both
+sets: daytona93's car and circuit select draw their 3D in 2-3 windows,
+Revision A's select screens have no 3D, titles none; every one-window frame
+with 15-49% is a scene. Checked: daytona93 attract frame 760 now stretched,
+circuit select still edge colours (16:10, stretch on).
+
 **Wheels, pedals and force feedback.** Controls gained a third binding
 column, Wheel / joystick: every SDL joystick is opened (app::Devices), and
 an action binds to an axis, button or hat direction of a device by GUID, so a

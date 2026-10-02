@@ -644,16 +644,15 @@ void Video::copy_front_hud_to_edges(std::vector<uint32_t> &out) {
 }
 
 // Widescreen side margins, under the 3D layer. On a 2D screen (car and
-// circuit select, titles: the 3D layer covers less than half the original
-// screen; measured races 69-100%, select screens about 23%) each row carries
-// its own edge colours out: the art covers only 496 columns. Behind a 3D
-// scene (the race) the margins are the sky's plain colour (the back layers'
+// circuit select, titles: see scene()) each row carries its own edge colours
+// out: the art covers only 496 columns. Behind a 3D scene (the race, the
+// attract's camera shots) the margins are the sky's plain colour (the back layers'
 // top-left pixel, open sky), or with "stretch tile background" the backdrop
 // as drawn for the 496 columns is stretched across the whole width, never
 // repeated: the race sky is one 512-pixel layer whose ends do not meet, so
 // drawing it further (tried, also with split pairs) showed a seam.
 void Video::fill_margins() {
-    const bool scene = coverage_ >= 50;
+    const bool scene = this->scene();
     const int out = width();
     const uint32_t sky = screen_[size_t(margin_)];
     if (scene && stretch_backdrop_) {

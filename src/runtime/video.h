@@ -87,7 +87,7 @@ public:
     const uint32_t *gpu_pens() const { return gpu_pens_.data(); }
     int margin() const { return margin_; }
     enum class Backdrop { Edges, Sky, Stretch }; // fill_margins' three cases
-    Backdrop backdrop() const { return coverage_ < 50 ? Backdrop::Edges : stretch_backdrop_ ? Backdrop::Stretch : Backdrop::Sky; }
+    Backdrop backdrop() const { return !scene() ? Backdrop::Edges : stretch_backdrop_ ? Backdrop::Stretch : Backdrop::Sky; }
     bool cpu_front() const { return hud_on_; }
     uint64_t instance() const { return instance_; } // tells a new Video from an old one at the same address
     bool external_3d() const { return external_3d_; }
@@ -181,6 +181,13 @@ private:
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching
     int coverage_ = 100;                       // widescreen: % of the screen the last 3D render covered
+    // Widescreen: is this frame a 3D scene (race, attract) rather than a 2D
+    // screen (titles, car and circuit select)? Scenes draw in one window and
+    // cover at least 15% of the screen; measured: scenes looking at a lot of
+    // sky 36-49% (so not "half the screen", which made those frames smear
+    // their edge colours and then snap to stretched), daytona93's select
+    // screens put their 3D in 2-3 windows, Revision A's have none, titles none.
+    bool scene() const { return gpu_windows_ <= 1 && coverage_ >= 15; }
     bool stretch_backdrop_ = false;
     void fill_margins();
     bool hud_edges_ = false;
