@@ -19,7 +19,8 @@ byte-identical frames, 0 pixels differ, over race_basic at 4:3, 16:9,
 16:9 stretched and 21:9 with the HUD at the edges, the advanced and expert
 courses, test mode and test drive (622 frames; the races use split modes
 and per-line scroll). race_basic 4:3: 400 -> 526 frames/s; game 1.82 ->
-1.03 ms, renderer CPU 0.53 -> 0.33 ms, GPU 0.16 -> 0.54 ms.
+1.03 ms, renderer CPU 0.53 -> 0.33 ms, GPU 0.16 -> 0.54 ms. Tested by the
+user on macOS (Metal), Windows and Linux.
 
 **Tilemaps, step 1: decode only changed tiles (both renderers).** Measured
 first (m2gpushot --bench now reads Video's own timers): of the hardware
@@ -615,10 +616,9 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Run `daytona` on Windows (Direct3D 12 and Vulkan) with the hardware
-   renderer; harvest the states `seed_scan.py` found in MAME (which state
-   the windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and
-   lockstep the newly seeded code against MAME.
+1. Harvest the states `seed_scan.py` found in MAME (which state the
+   windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep
+   the newly seeded code against MAME.
 2. Hardware renderer: exact pixels against the CPU reference (stage 4), then
    supersampling / internal resolution.
 3. Wheel support and control remapping.
