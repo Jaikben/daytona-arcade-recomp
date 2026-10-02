@@ -390,9 +390,7 @@ int run_app() {
             SDL_SetRenderDrawColor(renderer.get(), 0, 0, 0, 255);
             SDL_RenderClear(renderer.get());
             if (have_frame) {
-                // Preserve the same square-pixel framebuffer aspect as desktop.
-                const int width = kDisplayHeight * rt::GameLoop::kWidth / rt::GameLoop::kHeight;
-                const SDL_Rect destination{(kDisplayWidth - width) / 2, 0, width, kDisplayHeight};
+                const SDL_Rect destination{0, 0, kDisplayWidth, kDisplayHeight};
                 SDL_RenderCopy(renderer.get(), screen.get(), nullptr, &destination);
             }
         }
