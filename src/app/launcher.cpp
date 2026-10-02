@@ -57,39 +57,103 @@ void Launcher::browse() {
     SDL_ShowOpenFileDialog(dialog_done, this, window_, filters, 2, cfg_.rom_path.empty() ? nullptr : cfg_.rom_path.c_str(), false);
 }
 
+void Launcher::start_capture(int action, CaptureKind kind, const Devices &devices) {
+    capture_action_ = action;
+    capture_kind_ = kind;
+    joy_tracking_ = false;
+    joy_rest_.clear();
+    if (kind == CaptureJoy)
+        for (SDL_Joystick *j : devices.joys)
+            for (int i = 0; i < SDL_GetNumJoystickAxes(j); i++) joy_rest_[{SDL_GetJoystickID(j), i}] = SDL_GetJoystickAxis(j, i);
+}
+
 bool Launcher::handle_event(const SDL_Event &e) {
     if (capture_action_ < 0) return false;
     Binding &b = cfg_.controls.bind[capture_action_];
+    auto done = [&] {
+        capture_action_ = -1;
+        joy_tracking_ = false;
+        cfg_.save();
+    };
+    auto guid_of = [](SDL_JoystickID id) {
+        char g[64] = "";
+        SDL_GUIDToString(SDL_GetJoystickGUIDForID(id), g, sizeof g);
+        return std::string(g);
+    };
     if (e.type == SDL_EVENT_KEY_DOWN) {
         if (e.key.scancode == SDL_SCANCODE_ESCAPE) {
             capture_action_ = -1; // cancel
-        } else if (!capture_pad_) {
+            joy_tracking_ = false;
+        } else if (capture_kind_ == CaptureKey) {
             b.key = (e.key.scancode == SDL_SCANCODE_BACKSPACE || e.key.scancode == SDL_SCANCODE_DELETE) ? SDL_SCANCODE_UNKNOWN
                                                                                                          : e.key.scancode;
-            capture_action_ = -1;
-            cfg_.save();
+            done();
         }
         return true;
     }
-    if (capture_pad_ && e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+    if (capture_kind_ == CapturePad && e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
         b.pad.kind = PadInput::Button;
         b.pad.index = e.gbutton.button;
-        capture_action_ = -1;
-        cfg_.save();
+        done();
         return true;
     }
-    if (capture_pad_ && e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && std::abs(int(e.gaxis.value)) > 20000) {
+    if (capture_kind_ == CapturePad && e.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && std::abs(int(e.gaxis.value)) > 20000) {
         b.pad.kind = PadInput::Axis;
         b.pad.index = e.gaxis.axis;
         b.pad.dir = e.gaxis.value > 0 ? 1 : -1;
-        capture_action_ = -1;
-        cfg_.save();
+        done();
         return true;
     }
-    return e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP;
+    if (capture_kind_ == CaptureJoy && e.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && !joy_tracking_) {
+        b.joy = JoyInput{};
+        b.joy.kind = JoyInput::Button;
+        b.joy.guid = guid_of(e.jbutton.which);
+        b.joy.index = e.jbutton.button;
+        done();
+        return true;
+    }
+    if (capture_kind_ == CaptureJoy && e.type == SDL_EVENT_JOYSTICK_HAT_MOTION && !joy_tracking_) {
+        const int v = e.jhat.value;
+        if (v == SDL_HAT_UP || v == SDL_HAT_DOWN || v == SDL_HAT_LEFT || v == SDL_HAT_RIGHT) {
+            b.joy = JoyInput{};
+            b.joy.kind = JoyInput::Hat;
+            b.joy.guid = guid_of(e.jhat.which);
+            b.joy.index = e.jhat.hat;
+            b.joy.mask = v;
+            done();
+        }
+        return true;
+    }
+    if (capture_kind_ == CaptureJoy && e.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
+        // An axis binds once it has moved well away from where it rested and
+        // come back: its rest value and the furthest it went are its range.
+        const auto key = std::make_pair(e.jaxis.which, int(e.jaxis.axis));
+        const auto it = joy_rest_.find(key);
+        const int rest = it != joy_rest_.end() ? it->second : 0, v = e.jaxis.value;
+        if (!joy_tracking_) {
+            if (std::abs(v - rest) > 12000) {
+                joy_tracking_ = true;
+                joy_id_ = e.jaxis.which, joy_axis_ = e.jaxis.axis, joy_from_ = rest, joy_extreme_ = v;
+            }
+        } else if (e.jaxis.which == joy_id_ && e.jaxis.axis == joy_axis_) {
+            if (std::abs(v - joy_from_) > std::abs(joy_extreme_ - joy_from_)) joy_extreme_ = v;
+            if (std::abs(v - joy_from_) * 10 < std::abs(joy_extreme_ - joy_from_) * 3) { // let go: back within 30%
+                b.joy = JoyInput{};
+                b.joy.kind = JoyInput::Axis;
+                b.joy.guid = guid_of(joy_id_);
+                b.joy.index = joy_axis_;
+                b.joy.rest = joy_from_;
+                b.joy.full = joy_extreme_;
+                done();
+            }
+        }
+        return true;
+    }
+    return e.type == SDL_EVENT_KEY_UP || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP || e.type == SDL_EVENT_JOYSTICK_BUTTON_UP;
 }
 
-Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
+Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
+    SDL_Gamepad *pad = devices.pad;
     {
         std::lock_guard<std::mutex> g(dialog_mutex_);
         if (!dialog_result_.empty()) {
@@ -267,15 +331,21 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             Controls &c = cfg_.controls;
             ImGui::Spacing();
             ImGui::Text("Gamepad: %s", pad ? SDL_GetGamepadName(pad) : "none connected");
+            std::string joys;
+            for (SDL_Joystick *j : devices.joys) {
+                const char *n = SDL_GetJoystickName(j);
+                joys += (joys.empty() ? "" : ", ") + std::string(n ? n : "joystick");
+            }
+            ImGui::TextWrapped("Wheels and joysticks: %s", joys.empty() ? "none connected" : joys.c_str());
             // live meters
             const bool *keys = SDL_GetKeyboardState(nullptr);
-            const float steer = c.value(SteerRight, keys, pad) - c.value(SteerLeft, keys, pad);
+            const float steer = c.value(SteerRight, keys, devices) - c.value(SteerLeft, keys, devices);
             char label[32];
             std::snprintf(label, sizeof label, "%+.2f", c.steer_invert ? -steer : steer);
             ImGui::ProgressBar(0.5f + 0.5f * (c.steer_invert ? -steer : steer), ImVec2(200, 0), label);
             ImGui::SameLine();
             ImGui::TextUnformatted("Steering");
-            const float acc = c.value(Accelerate, keys, pad), brk = c.value(Brake, keys, pad);
+            const float acc = c.value(Accelerate, keys, devices), brk = c.value(Brake, keys, devices);
             ImGui::ProgressBar(acc, ImVec2(200, 0));
             ImGui::SameLine();
             ImGui::TextUnformatted("Accelerator");
@@ -286,12 +356,28 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             if (ImGui::SliderFloat("Dead zone", &c.deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
             ImGui::SameLine();
             if (ImGui::Checkbox("Invert steering", &c.steer_invert)) cfg_.save();
-            ImGui::TextDisabled("Triggers and sticks are analogue: bind the accelerator and brake to triggers for full travel.");
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::SliderFloat("Wheel dead zone", &c.joy_deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
+            ImGui::TextDisabled("Triggers, sticks, wheels and pedals are analogue. To bind a wheel or pedal axis,\n"
+                                "click its button, then turn the wheel or press the pedal as far as you want full\n"
+                                "lock or full travel to be, and let go: that sets its range.");
 
-            if (ImGui::BeginTable("binds", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
-                ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, 160);
-                ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed, 180);
-                ImGui::TableSetupColumn("Gamepad");
+            ImGui::SetNextItemWidth(200);
+            int ffb = int(cfg_.ffb_strength * 100.0f + 0.5f);
+            if (ImGui::SliderInt("Force feedback", &ffb, 0, 100, ffb ? "%d%%" : "Off")) {
+                cfg_.ffb_strength = float(ffb) / 100.0f;
+                cfg_.save();
+            }
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Invert force", &cfg_.ffb_invert)) cfg_.save();
+            ImGui::TextDisabled("The arcade wheel's motor (centring, friction, kerb rumble, the wheel pulling),\n"
+                                "on the device steering is bound to. Now: %s.", ffb_device_);
+
+            if (ImGui::BeginTable("binds", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, 130);
+                ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed, 130);
+                ImGui::TableSetupColumn("Gamepad", ImGuiTableColumnFlags_WidthFixed, 250);
+                ImGui::TableSetupColumn("Wheel / joystick");
                 ImGui::TableHeadersRow();
                 for (int a = 0; a < kNumActions; a++) {
                     ImGui::PushID(a);
@@ -299,16 +385,27 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted(action_name(Action(a)));
                     ImGui::TableNextColumn();
-                    const bool cap_key = capture_action_ == a && !capture_pad_;
+                    const bool cap_key = capture_action_ == a && capture_kind_ == CaptureKey;
                     const char *kn = c.bind[a].key == SDL_SCANCODE_UNKNOWN ? "-" : SDL_GetScancodeName(c.bind[a].key);
-                    if (ImGui::Button(cap_key ? "Press a key..." : kn, ImVec2(170, 0))) capture_action_ = a, capture_pad_ = false;
+                    if (ImGui::Button(cap_key ? "Press a key..." : kn, ImVec2(120, 0))) start_capture(a, CaptureKey, devices);
                     ImGui::TableNextColumn();
-                    const bool cap_pad = capture_action_ == a && capture_pad_;
-                    const std::string pn = cap_pad ? "Press a button or move an axis..." : c.bind[a].pad.describe();
-                    if (ImGui::Button(pn.c_str(), ImVec2(260, 0))) capture_action_ = a, capture_pad_ = true;
+                    const bool cap_pad = capture_action_ == a && capture_kind_ == CapturePad;
+                    const std::string pn = cap_pad ? "Press or move..." : c.bind[a].pad.describe();
+                    if (ImGui::Button(pn.c_str(), ImVec2(190, 0))) start_capture(a, CapturePad, devices);
                     ImGui::SameLine();
                     if (ImGui::SmallButton("clear")) {
                         c.bind[a].pad = PadInput{};
+                        cfg_.save();
+                    }
+                    ImGui::TableNextColumn();
+                    const bool cap_joy = capture_action_ == a && capture_kind_ == CaptureJoy;
+                    const std::string jn = !cap_joy ? c.bind[a].joy.describe(devices)
+                                           : joy_tracking_ ? "As far as you want, then let go..."
+                                                           : "Press, or move fully and let go...";
+                    if (ImGui::Button(jn.c_str(), ImVec2(300, 0))) start_capture(a, CaptureJoy, devices);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("clear##joy")) {
+                        c.bind[a].joy = JoyInput{};
                         cfg_.save();
                     }
                     ImGui::PopID();

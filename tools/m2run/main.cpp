@@ -31,6 +31,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -105,8 +106,10 @@ int main(int argc, char **argv) {
         if (!inputs_path.empty()) script.load(inputs_path);
         const auto t0 = std::chrono::steady_clock::now();
         std::vector<float> fm, pcm;
+        uint64_t drive_commands = 0, drive_kinds[16] = {}; // the force feedback drive board's commands, by type
         for (uint64_t f = 0; f < frames; f++) {
             game.run_frame(script.at(game.board().frame()));
+            for (uint8_t c : std::exchange(game.board().io().drive_commands, {})) ++drive_commands, ++drive_kinds[c >> 4];
             if (!wav_path.empty() && game.sound()) {
                 const auto a = game.sound()->take_fm(), b = game.sound()->take_pcm();
                 fm.insert(fm.end(), a.begin(), a.end());
@@ -127,6 +130,10 @@ int main(int argc, char **argv) {
                     game.frames(), game.instructions(), game.board().tgp().tgp_instructions(), game.interrupts(),
                     game.board().sound_bytes_total(), s, double(game.frames()) / s);
         std::printf("  last screen hash %016" PRIx64 "\n", game.board().video().screen_hash());
+        std::printf("  drive board: %" PRIu64 " commands (", drive_commands);
+        for (int k = 0, first = 1; k < 16; k++)
+            if (drive_kinds[k]) std::printf("%s%x-: %" PRIu64, first ? "" : ", ", k, drive_kinds[k]), first = 0;
+        std::printf(")\n");
         if (const snd::SoundBoard *sb = game.sound())
             std::printf("  sound board: %" PRIu64 " 68000 instructions (all native), %zu command bytes received\n", sb->instructions(),
                         sb->bytes_received());

@@ -14,6 +14,7 @@
 // toggles fullscreen. Controls are set in the launcher and saved.
 
 #include "app/config.h"
+#include "app/ffb.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
 #include "app/native_audio.h"
@@ -35,6 +36,7 @@
 #include <SDL3/SDL_main.h> // Windows: the WinMain entry point a WIN32 (GUI) program links against
 
 #include <algorithm>
+#include <utility>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -173,6 +175,7 @@ int main(int argc, char **argv) {
     SDL_SetAppMetadata("Daytona USA", nullptr, "daytona-recomp");
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
+    if (!SDL_InitSubSystem(SDL_INIT_HAPTIC)) std::fprintf(stderr, "daytona: no force feedback (%s)\n", SDL_GetError());
     Audio audio;
     app::NativeAudio<snd::NativeSoundEngine> native_audio;
     const bool audio_initialized = SDL_InitSubSystem(SDL_INIT_AUDIO);
@@ -241,6 +244,7 @@ int main(int argc, char **argv) {
     int shown_scale = 1;
 
     app::Launcher launcher(cfg, window);
+    app::ForceFeedback ffb; // the drive board on the steering device
     std::unique_ptr<rt::GameLoop> game;
     const std::string eeprom_path = pref_file("ioboard_eeprom.bin"), backup_path = pref_file("backup_ram.bin");
     auto save_nv = [&] {
@@ -250,6 +254,7 @@ int main(int argc, char **argv) {
     };
     auto start_game = [&] {
         save_nv();
+        ffb.stop();
         native_audio.close(); // joins callback before replacing its ROMs/engine
         audio.close();
         game.reset();
@@ -304,7 +309,7 @@ int main(int argc, char **argv) {
         }
     };
     sync_native_audio();
-    SDL_Gamepad *pad = nullptr;
+    app::Devices devices; // the gamepad and every joystick (wheels, pedals, shifters)
     uint64_t last = SDL_GetTicksNS();
     double pending = 0;
     const double frame_ns = 1e9 / kArcadeHz;
@@ -312,12 +317,9 @@ int main(int argc, char **argv) {
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            devices.handle_event(e);
             if (e.type == SDL_EVENT_QUIT) running = false;
-            else if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
-            else if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && e.gdevice.which == SDL_GetGamepadID(pad)) {
-                SDL_CloseGamepad(pad);
-                pad = nullptr;
-            } else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
+            else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
                 cfg.fullscreen = !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
                 SDL_SetWindowFullscreen(window, cfg.fullscreen);
                 cfg.save();
@@ -355,7 +357,7 @@ int main(int argc, char **argv) {
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             while (pending >= frame_ns) {
-                game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), pad));
+                game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices));
                 if (native_active) {
                     const auto bytes = game->board().take_sound_bytes();
                     if (!native_audio.send(bytes.data(), bytes.size())) {
@@ -369,12 +371,17 @@ int main(int argc, char **argv) {
                 new_frame = have_frame = true;
                 if (max_frames && game->frames() >= max_frames) running = false;
             }
+            // the drive board's commands this frame, as force feedback
+            ffb.update(std::exchange(game->board().io().drive_commands, {}), devices, cfg.controls, cfg.ffb_strength,
+                       cfg.ffb_invert);
+            launcher.set_ffb_device(ffb.device_kind());
             if (game->sound()) {
                 if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it
             }
         } else {
             pending = 0;
+            ffb.stop(); // paused in the launcher: let the wheel go
         }
 
         SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
@@ -433,7 +440,7 @@ int main(int argc, char **argv) {
             ImGui_ImplSDLGPU3_NewFrame();
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
-            switch (launcher.draw(game != nullptr, pad)) {
+            switch (launcher.draw(game != nullptr, devices)) {
             case app::Launcher::StartGame:
             case app::Launcher::Reset:
                 if (start_game()) in_launcher = false, have_frame = false;
@@ -510,7 +517,8 @@ int main(int argc, char **argv) {
     SDL_ReleaseWindowFromGPUDevice(dev, window);
     SDL_DestroyGPUDevice(dev);
     SDL_DestroyWindow(window);
-    if (pad) SDL_CloseGamepad(pad);
+    ffb.close();
+    devices.close_all();
     SDL_Quit();
     return 0;
 }

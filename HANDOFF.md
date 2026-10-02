@@ -2,6 +2,28 @@
 
 ## Current state
 
+**Wheels, pedals and force feedback.** Controls gained a third binding
+column, Wheel / joystick: every SDL joystick is opened (app::Devices), and
+an action binds to an axis, button or hat direction of a device by GUID, so a
+wheel, pedals and a shifter can be separate devices. An axis is calibrated
+when bound: the capture records where it rested and how far it was moved
+before being let go (pedals resting at either end or short of full range; a
+900-degree wheel's chosen lock). Saved as `<action>.joy=` lines, with
+`joy_deadzone`. Force feedback: the game writes the drive board's command to
+I/O board dual-port RAM byte 0x11 (found by logging its writes: 44 in a
+race, every type), which IoBoard queues; rt::DriveBoard decodes them (the
+command set of Sega's later drive boards, as Supermodel documents it:
+0x1- centring, 0x2- friction, 0x3- vibration, 0x5-/0x6- pull right/left, 0xc-
+reset; 0x0-/0x4- sequences and 0x7- not modelled) and app::ForceFeedback
+plays them on the steering device: SDL haptics (spring, friction, sine,
+constant force on the steering axis; only changed levels sent) or rumble.
+Launcher: Force feedback strength (70% default, Off) and Invert force; m2run
+prints the commands by type. Checked: tests/test_app_controls.cpp with SDL
+virtual joysticks (a wheel and pedals resting at +32767; config round trip;
+ADC values; a wheel paddle; unplugging; drive command decoding; rumble and
+its scaling and stop). Not checked: a real force feedback wheel (none here):
+the direction of the pull may need Invert force.
+
 **The 1994 set (daytona, Revision A) builds and runs, for comparison.**
 CMake `M2_ROMSET` (daytona93, the default, or daytona), one set per build
 directory: `scripts/recompile.py --set daytona --build-dir build-daytona`
@@ -663,7 +685,6 @@ Running the plugin (user's machine, with their ROM set):
    windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep
    the newly seeded code against MAME.
 2. Hardware renderer: exact pixels against the CPU reference (stage 4).
-3. Wheel support and control remapping.
 
 ## Open decisions
 

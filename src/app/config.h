@@ -28,6 +28,8 @@ struct Config {
     static constexpr double kMaxAspect = 21.0 / 9.0;
     double aspect_ratio() const; // width / height; 0 = original
     Controls controls;
+    float ffb_strength = 0.7f; // force feedback (the drive board) on the steering device: 0 off .. 1
+    bool ffb_invert = false;   // turn the wheel the other way
 
     Config() { controls.set_defaults(); }
     static std::string path();  // <pref path>/launcher.ini

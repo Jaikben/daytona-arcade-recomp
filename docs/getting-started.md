@@ -120,8 +120,17 @@ folder (see Starting again from scratch for where that is).
 A launcher opens first. On the **Game** tab, click **Browse...**, choose
 the same `roms/daytona93.zip`, and wait for the line under it to say "All
 30 files verified." Then click **Start**. The launcher remembers the file
-next time. **Controls** sets your keys and gamepad. In the game, **Esc**
-brings the launcher back.
+next time. **Controls** sets your keys, gamepad and wheel. In the game,
+**Esc** brings the launcher back.
+
+**Wheel and pedals** (optional): on the **Controls** tab, the **Wheel /
+joystick** column takes any wheel, pedal set or shifter, even as separate
+USB devices. Click the box next to **Steer left**, turn the wheel left as
+far as you want full lock to be, and let go; do the same for **Steer
+right**, then press each pedal fully and let go for **Accelerate** and
+**Brake**. The meters at the top show the result. **Force feedback** sets
+how strongly the wheel pushes back (Off turns it off); tick **Invert force**
+if the wheel pulls the wrong way.
 
 **Widescreen** (optional): in the launcher, under **Enhancements**, set
 **Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the

@@ -197,7 +197,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     add_library(gpurender STATIC src/app/gpu/gpu_renderer.cpp)
     target_include_directories(gpurender PUBLIC src)
     target_link_libraries(gpurender PUBLIC runtime SDL3::SDL3-static)
-    add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp)
+    add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp src/app/ffb.cpp)
     target_link_libraries(daytona_app PRIVATE runtime imgui gpurender SDL3::SDL3-static)
 endif()
 
@@ -301,6 +301,14 @@ add_test(NAME native_sample_mixer COMMAND test_native_sample_mixer)
 add_executable(test_native_sound_sequencer tests/test_native_sound_sequencer.cpp src/runtime/native_sound_sequencer.cpp)
 target_include_directories(test_native_sound_sequencer PRIVATE src)
 add_test(NAME native_sound_sequencer COMMAND test_native_sound_sequencer)
+
+# Wheel and pedal bindings against SDL virtual joysticks.
+if(TARGET SDL3::SDL3-static)
+    add_executable(test_app_controls tests/test_app_controls.cpp src/app/controls.cpp src/app/ffb.cpp)
+    target_include_directories(test_app_controls PRIVATE src)
+    target_link_libraries(test_app_controls PRIVATE runtime SDL3::SDL3-static)
+    add_test(NAME app_controls COMMAND test_app_controls)
+endif()
 
 if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/include/SDL3/SDL_audio.h)
     add_executable(test_app_native_audio tests/test_app_native_audio.cpp)

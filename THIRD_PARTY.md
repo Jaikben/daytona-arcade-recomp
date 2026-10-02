@@ -34,6 +34,11 @@ Vendored checkouts live in git-ignored `extern/` and are never committed.
 
 Fetch with `scripts/fetch_mame.sh`, which checks out exactly the commit above.
 
+Supermodel (https://github.com/trzy/Supermodel, GPL-3.0,
+`Src/Model3/DriveBoard/WheelBoard.cpp` at its master branch, read in October
+2026) is read as a reference only, for the meanings of Sega's drive board
+commands (`src/runtime/drive_board.h`). No code is taken from it.
+
 The Model 2 MiSTer core (https://github.com/alphanu1/sega-model2-mister,
 GPL-3.0-or-later, read at `591e148e87d27e03d50cbf7318bf0b1d1328c4bf`) is read as
 a reference only. Nothing is lifted from it; the project licence is undecided.

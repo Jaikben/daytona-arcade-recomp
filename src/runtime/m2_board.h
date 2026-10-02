@@ -37,7 +37,10 @@ struct Inputs {
 // The I/O board's side of the MB8421 dual-port RAM (2 KB): the game writes a
 // command to byte 0x20 and the board answers. 1: latch the inputs into bytes
 // 0-10. 3: copy the 128-byte settings EEPROM to bytes 0x100-0x17f. 2: store
-// bytes 0x100-0x17f to the EEPROM. The byte returns to 0 when done.
+// bytes 0x100-0x17f to the EEPROM. The byte returns to 0 when done. Byte 0x11
+// is the force feedback drive board's command (rt::DriveBoard): each byte
+// written is queued for the host (found by logging the game's writes: it
+// carries the drive board's command set).
 class IoBoard {
 public:
     uint8_t read(uint32_t index) const { return ram_[index & 0x7ff]; }
@@ -45,6 +48,8 @@ public:
     Inputs inputs;
     std::array<uint8_t, 128> eeprom;
     bool eeprom_dirty = false;
+    std::vector<uint8_t> drive_commands; // written to byte 0x11 since last taken (at most kMaxDrive kept)
+    static constexpr size_t kMaxDrive = 256;
     IoBoard() { ram_.fill(0); eeprom.fill(0xff); }
 
 private:

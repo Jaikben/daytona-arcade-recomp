@@ -23,6 +23,7 @@ namespace rt {
 void IoBoard::write(uint32_t index, uint8_t v) {
     index &= 0x7ff;
     ram_[index] = v;
+    if (index == 0x11 && drive_commands.size() < kMaxDrive) drive_commands.push_back(v); // to the drive board
     if (index != 0x20) return;
     switch (v) {
     case 1: // latch inputs

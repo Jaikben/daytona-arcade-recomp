@@ -39,12 +39,16 @@ void Config::load() {
         else if (k == "mute") mute = v == "1";
         else if (k == "native_audio") native_audio = v == "1";
         else if (k == "deadzone") controls.deadzone = std::strtof(v.c_str(), nullptr);
+        else if (k == "joy_deadzone") controls.joy_deadzone = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 0.4f);
         else if (k == "steer_invert") controls.steer_invert = v == "1";
+        else if (k == "ffb_strength") ffb_strength = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
+        else if (k == "ffb_invert") ffb_invert = v == "1";
         else
             for (int a = 0; a < kNumActions; a++) {
                 const std::string base = action_key(Action(a));
                 if (k == base + ".key") controls.bind[a].key = v.empty() ? SDL_SCANCODE_UNKNOWN : SDL_GetScancodeFromName(v.c_str());
                 else if (k == base + ".pad") controls.bind[a].pad = PadInput::parse(v);
+                else if (k == base + ".joy") controls.bind[a].joy = JoyInput::parse(v);
             }
     }
 }
@@ -67,11 +71,15 @@ void Config::save() const {
     f << "mute=" << (mute ? 1 : 0) << "\n";
     f << "native_audio=" << (native_audio ? 1 : 0) << "\n";
     f << "deadzone=" << controls.deadzone << "\n";
+    f << "joy_deadzone=" << controls.joy_deadzone << "\n";
     f << "steer_invert=" << (controls.steer_invert ? 1 : 0) << "\n";
+    f << "ffb_strength=" << ffb_strength << "\n";
+    f << "ffb_invert=" << (ffb_invert ? 1 : 0) << "\n";
     for (int a = 0; a < kNumActions; a++) {
         const Binding &b = controls.bind[a];
         f << action_key(Action(a)) << ".key=" << (b.key == SDL_SCANCODE_UNKNOWN ? "" : SDL_GetScancodeName(b.key)) << "\n";
         f << action_key(Action(a)) << ".pad=" << b.pad.save() << "\n";
+        f << action_key(Action(a)) << ".joy=" << b.joy.save() << "\n";
     }
 }
 
