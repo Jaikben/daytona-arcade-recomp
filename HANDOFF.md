@@ -38,6 +38,16 @@ other computer was not listening on 15113 (connection refused: its port was
 still the default 15112). The launcher's waiting status now says which half
 of the ring is missing (next cabinet reached or not; a cabinet connected to
 this port or not), and the help says every computer can use the same port.
+Then linked on two computers once the cabinets' settings matched (the game
+cancels the link, "CANCELLED", when they differ: one was DELUXE/USA, the
+other TWIN/JPN). Native audio then stopped the game: linked play's music
+turns on the MultiPCM LFO (MIDI controller 0x01, value 1, channels 0 and 5;
+found with the new m2run --native-audio-check on a headless linked pair,
+frames ~1,510), which the native mixer does not have, and the app treated
+any unsupported effect as a fault. Now it plays without the vibrato and
+says so once in the log; invalid data and callback failures still stop it.
+Open: the LFO in the native mixer (the driver's controller 0x01 handler to
+MultiPCM registers 6/7, MAME's multipcm LFO).
 
 **The seed_scan seeds checked against MAME (daytona93).** A local MAME
 build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the

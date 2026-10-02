@@ -4,13 +4,16 @@
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
 //         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N] [--frame-skip N]
-//         [--nvram DIR] [--save-nvram DIR] [--link-listen PORT --link-next HOST:PORT [--link-sync]]
+//         [--native-audio-check] [--nvram DIR] [--save-nvram DIR] [--link-listen PORT --link-next HOST:PORT [--link-sync]]
 //
 // --nvram DIR starts from the app's saved settings EEPROM and backup RAM
 // (tools/common/nvram.h). --link-listen/--link-next: link play (the
 // communication board, Revision A) over TCP, as the app does: listen for the
 // cabinet before this one, connect to the next; --link-sync holds each frame
 // to the master's. The link's state is printed at the end.
+// --native-audio-check: no reference sound board; the game's sound commands
+// go to the native audio engine as the app's would, and the first fault
+// stops the run with its frame and that frame's command bytes.
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
 // --wav writes the sound board's output (YM3438 + both MultiPCMs, mixed at
@@ -24,6 +27,7 @@
 
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
+#include "runtime/native_sound_engine.h"
 #include "../common/nvram.h"
 #include "app/link_socket.h"
 
@@ -81,7 +85,7 @@ int main(int argc, char **argv) {
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
     std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next;
     int link_listen = 0;
-    bool link_sync = false;
+    bool link_sync = false, native_check = false;
     uint64_t every = 0;
     double aspect = 0;
     int frame_skip = 0;
@@ -90,10 +94,11 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch_backdrop = true;
         if (!std::strcmp(argv[i], "--link-sync")) link_sync = true;
+        if (!std::strcmp(argv[i], "--native-audio-check")) native_check = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
-            !std::strcmp(argv[i], "--link-sync")) { i--; continue; }
+            !std::strcmp(argv[i], "--link-sync") || !std::strcmp(argv[i], "--native-audio-check")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
@@ -111,7 +116,17 @@ int main(int argc, char **argv) {
     }
 
     try {
-        rt::GameLoop game(dir);
+        rt::GameLoop game(dir, !native_check);
+        std::unique_ptr<snd::NativeSoundEngine> native;
+        if (native_check) {
+            auto file = [&](const char *name) {
+                std::ifstream f(dir + "/" + name, std::ios::binary);
+                return std::vector<uint8_t>{std::istreambuf_iterator<char>(f), {}};
+            };
+            native = std::make_unique<snd::NativeSoundEngine>(file("sound_program.bin"), file("pcm1.bin"), file("pcm2.bin"));
+        }
+        std::vector<float> native_out;
+        uint64_t native_rendered = 0;
         if (!nvram_dir.empty()) tools::load_nvram(game, nvram_dir);
         std::unique_ptr<app::TcpLink> link;
         if (link_listen > 0 || !link_next.empty()) {
@@ -134,6 +149,28 @@ int main(int argc, char **argv) {
         for (uint64_t f = 0; f < frames; f++) {
             game.run_frame(script.at(game.board().frame()));
             for (uint8_t c : std::exchange(game.board().io().drive_commands, {})) ++drive_commands, ++drive_kinds[c >> 4];
+            if (native) { // the app's native audio path, frame by frame
+                const auto bytes = game.board().take_sound_bytes();
+                const auto before = native->stats();
+                try {
+                    native->send(bytes.data(), bytes.size());
+                    const uint64_t due = uint64_t(double(game.frames()) * 48000.0 / rt::GameLoop::kFrameHz);
+                    native_out.resize(size_t(due - native_rendered) * 2);
+                    if (due > native_rendered) native->render(native_out.data(), size_t(due - native_rendered));
+                    native_rendered = due;
+                } catch (const std::exception &e) {
+                    std::fprintf(stderr, "m2run: native audio fault at frame %" PRIu64 ": %s\n", game.frames(), e.what());
+                }
+                const auto after = native->stats();
+                if (after.invalid != before.invalid || after.unsupported != before.unsupported || native->sequence_stats().invalid_data) {
+                    std::fprintf(stderr, "m2run: native audio at frame %" PRIu64 ": invalid %" PRIu64 " -> %" PRIu64
+                                 ", unsupported %" PRIu64 " -> %" PRIu64 "; bytes this frame:",
+                                 game.frames(), before.invalid, after.invalid, before.unsupported, after.unsupported);
+                    for (uint8_t b : bytes) std::fprintf(stderr, " %02x", b);
+                    std::fprintf(stderr, "\n");
+                    break;
+                }
+            }
             if (!wav_path.empty() && game.sound()) {
                 const auto a = game.sound()->take_fm(), b = game.sound()->take_pcm();
                 fm.insert(fm.end(), a.begin(), a.end());

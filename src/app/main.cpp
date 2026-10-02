@@ -365,7 +365,15 @@ int main(int argc, char **argv) {
         sync_native_audio();
         if (native_active) {
             const auto health = native_audio.stats();
-            if (health.failed || health.invalid || health.unsupported) {
+            // An effect the native mixer lacks (the MultiPCM LFO: vibrato, which
+            // linked play's music uses) plays without it: said once, not a fault.
+            static uint32_t unsupported_reported = 0;
+            if (health.unsupported > unsupported_reported) {
+                if (!unsupported_reported)
+                    std::fprintf(stderr, "daytona: native audio: an effect it does not have yet (vibrato); playing without it\n");
+                unsupported_reported = health.unsupported;
+            }
+            if (health.failed || health.invalid) {
                 native_audio.pause();
                 char message[192];
                 std::snprintf(message, sizeof message,
