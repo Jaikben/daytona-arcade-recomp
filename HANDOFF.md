@@ -2,6 +2,28 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Optional Vita CPU clock and fourth core (2026-10-02)
+
+GXM options now include CPU 500 MHz and a persisted fourth_core switch.
+Defaults remain 333 MHz and fourth core off. CPU requests are read back;
+rejected/ineffective 500 MHz requests fall back to a 444 MHz request, with
+actual frequency shown in options. An overclock plugin/profile may override
+application requests; selecting 500 alone is not proof it is active.
+
+Main probes USER_ALL | SYSTEM affinity and falls back to USER_ALL on failure.
+Reference sound jobs and both audio callback implementations adopt the shared
+mask once per change, with callback caches reset when reopening devices.
+No kernel patch/dependency is installed. A working core-unlock plugin is
+required. Existing threads can use the additional core; no game-loop
+parallelization or audio clock/pacing change is introduced.
+
+Host fallback tests and audio worker/lifecycle tests pass; complete CTest
+suite: 22 passes, two optional Lua skips. Vita release cross-build and VPK
+archive validation pass. Package: build/daytona-vita-500mhz-fourth-core.vpk.
+Actual plugin acceptance, stability and performance require hardware testing.
+Wide CPU tile fallback, GPU roads and double-buffer default are unchanged.
+Main and PSP remain untouched; no push.
+
 ## Wide tile recovery after hardware slowdown (2026-10-02)
 
 User reports moving tile composition onto GXM made the game slower. Disable

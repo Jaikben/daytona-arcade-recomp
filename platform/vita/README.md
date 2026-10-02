@@ -14,6 +14,19 @@ are not recorded yet.
 
 ## Build
 
+### Optional GXM CPU enhancements
+
+The GXM frontend options offer CPU 500 MHz and fourth-core scheduling.
+Both require compatible firmware/plugin support; no plugins are installed
+by the game. Defaults remain CPU 333 MHz and fourth core off.
+The CPU option shows actual frequency, and unsuccessful 500 MHz requests
+fall back to requesting 444 MHz. Check your overclock plugin's per-game
+profile if the actual frequency differs from the selection.
+Fourth-core access is verified through thread affinity readback. Rejected
+requests retain ordinary three-core scheduling and show unavailable.
+Game and audio threads may use the extra core; this does not split sequential
+game logic into additional workers or guarantee higher FPS.
+
 Use a homebrew-enabled Vita, a host C++20 toolchain and VitaSDK with its
 SDL2 development package. Reference SDK release: 2026.08. Set `VITASDK`
 and install the package with that release's package manager:

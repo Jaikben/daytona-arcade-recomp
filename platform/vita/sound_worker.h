@@ -1,4 +1,5 @@
 #pragma once
+#include "core_policy.h"
 
 #include <SDL.h>
 #include <cstdint>
@@ -178,6 +179,7 @@ private:
 
     static int SDLCALL entry(void *opaque) {
         auto &self = *static_cast<SoundWorker *>(opaque);
+        int applied_core_mask = 0;
 #ifdef __vita__
         const SceUID thread = sceKernelGetThreadId();
         self.affinity_before_ = sceKernelGetThreadCpuAffinityMask(thread);
@@ -201,6 +203,7 @@ private:
             Clock clock = self.queue_clock_;
             self.queued_ = false;
             SDL_UnlockMutex(self.mutex_);
+            apply_core_policy(applied_core_mask);
             const Result result = run(context, execute, output, queue, clock);
             SDL_LockMutex(self.mutex_);
             self.ticks_ = result.sound;

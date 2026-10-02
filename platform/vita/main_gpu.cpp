@@ -111,6 +111,9 @@ struct VitaSettings {
     int aspect = 0, draw_distance = 0, steer_curve = 0;
     int gpu_buffers = 2; // physical display surfaces, independent of frame skipping
     bool hud_edges = false;
+
+    bool fourth_core = false;
+    bool stretch_backdrop = false, skip_launcher = false;
     bool mute = false;
     bool native_audio = false; // explicitly selected while native fidelity is validated
     bool steer_invert = false;
@@ -121,9 +124,9 @@ struct VitaSettings {
             for (int i = 0; i < count; ++i) if (value == choices[i]) return value;
             return fallback;
         };
-        static const int cpus[] = {111, 222, 333, 444};
+        static const int cpus[] = {111, 222, 333, 444, 500};
         static const int gpus[] = {41, 77, 111, 166};
-        cpu_clock = valid(cpu_clock, cpus, 4, 333);
+        cpu_clock = valid(cpu_clock, cpus, 5, 333);
         gpu_clock = valid(gpu_clock, gpus, 4, 111);
         volume = std::clamp(volume, 0, 100);
         deadzone = std::clamp(deadzone, 0, 40);
@@ -138,7 +141,8 @@ struct VitaSettings {
         char line[96], key[40]; int value = 0;
         while (std::fgets(line, sizeof line, f)) {
             if (std::sscanf(line, "%39[^=]=%d", key, &value) != 2) continue;
-            if (!std::strcmp(key, "gpu_buffers")) gpu_buffers = value;
+            if (!std::strcmp(key, "fourth_core")) fourth_core = value != 0;
+            else if (!std::strcmp(key, "gpu_buffers")) gpu_buffers = value;
             else if (!std::strcmp(key, "stretch_backdrop")) stretch_backdrop = value != 0;
             else if (!std::strcmp(key, "skip_launcher")) skip_launcher = value != 0;
             else if (!std::strcmp(key, "steer_curve")) steer_curve = value;
@@ -161,7 +165,7 @@ struct VitaSettings {
         std::fprintf(f, "cpu_clock=%d\ngpu_clock=%d\nvolume=%d\nmute=%d\nnative_audio=%d\ndeadzone=%d\nsteer_invert=%d\n",
                      cpu_clock, gpu_clock, volume, int(mute), int(native_audio), deadzone, int(steer_invert));
         std::fprintf(f, "stretch_backdrop=%d\nskip_launcher=%d\n", int(stretch_backdrop), int(skip_launcher));
-        std::fprintf(f, "gpu_buffers=%d\n", gpu_buffers);
+        std::fprintf(f, "gpu_buffers=%d\nfourth_core=%d\n", gpu_buffers, int(fourth_core));
         std::fprintf(f, "steer_curve=%d\n", steer_curve);
         std::fprintf(f, "aspect=%d\ndraw_distance=%d\nhud_edges=%d\n", aspect, draw_distance, int(hud_edges));
         bool ok = std::fflush(f) == 0;
@@ -196,9 +200,10 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
         vita::gpu_text("CROSS SELECT  CIRCLE RESUME  START+SELECT MENU", 30, 516, white, 2, 74, 1);
         return;
     }
-    const char *values[20];
-    char cpu[32], gpu[32], volume[32], mute[32], deadzone[32], invert[32];
-    std::snprintf(cpu, sizeof cpu, "CPU CLOCK: %d MHz", settings.cpu_clock);
+    const char *values[21];
+    char cpu[64], gpu[32], volume[32], mute[32], deadzone[32], invert[32];
+    std::snprintf(cpu, sizeof cpu, "CPU CLOCK: %d MHz (ACTUAL %d)", settings.cpu_clock,
+                  scePowerGetArmClockFrequency());
     std::snprintf(gpu, sizeof gpu, "GPU CLOCK: %d MHz", settings.gpu_clock);
     std::snprintf(volume, sizeof volume, "VOLUME: %d%%", settings.volume);
     std::snprintf(mute, sizeof mute, "MUTE: %s", settings.mute ? "ON" : "OFF");
@@ -211,7 +216,9 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     static const char* aspects[] = {"ASPECT: ORIGINAL", "ASPECT: 16:10", "ASPECT: 16:9", "ASPECT: 21:9"};
     static const char* distances[] = {"DISTANCE: SHORTEST", "DISTANCE: SHORTER", "DISTANCE: DEFAULT", "DISTANCE: FURTHER", "DISTANCE: FURTHEST"};
     values[11]=aspects[settings.aspect]; values[12]=settings.hud_edges ? "HUD: SCREEN EDGES" : "HUD: CENTRED";
-    values[13]=distances[settings.draw_distance + 2]; values[18]="RESET DEFAULTS"; values[19]="BACK";
+    values[13]=distances[settings.draw_distance + 2]; values[19]="RESET DEFAULTS"; values[20]="BACK";
+    values[18]=!settings.fourth_core ? "4TH CORE: OFF" :
+        vita::fourth_core_active() ? "4TH CORE: ENABLED" : "4TH CORE: UNAVAILABLE (PLUGIN REQUIRED)";
     static const char *buffers[] = {"GPU BUFFER: SINGLE (MAY TEAR)", "GPU BUFFER: DOUBLE (DEFAULT)", "GPU BUFFER: TRIPLE"};
     values[17]=buffers[settings.gpu_buffers - 1];
     values[15]=settings.stretch_backdrop ? "STRETCH TILE BACKGROUND: ON" : "STRETCH TILE BACKGROUND: OFF";
@@ -219,7 +226,7 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     static const char* curves[] = {"STEERING CURVE: LINEAR", "STEERING CURVE: SOFT", "STEERING CURVE: EXTRA SOFT"};
     values[14]=curves[settings.steer_curve];
     const int first = std::max(0, selection - 11);
-    for (int i = first; i < std::min(first + 12, 20); ++i) {
+    for (int i = first; i < std::min(first + 12, 21); ++i) {
         std::string label = std::string(i == selection ? "> " : "  ") + values[i];
         vita::gpu_text(label, 42, 68 + (i - first) * 32, i == selection ? yellow : white, 2, 70, 1);
     }
@@ -241,7 +248,7 @@ int main(int, char **) {
     settings.load();
     const int arm_clock_before = scePowerGetArmClockFrequency();
     const int gpu_clock_before = scePowerGetGpuClockFrequency();
-    const int cpu_clock_result = scePowerSetArmClockFrequency(settings.cpu_clock);
+    const int cpu_clock_result = vita::set_cpu_clock(settings.cpu_clock);
     const int gpu_clock_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
     if (cpu_clock_result < 0 || gpu_clock_result < 0)
         log.fault("GPU25: clock request failed: cpu=%d gpu=%d\n", cpu_clock_result, gpu_clock_result);
@@ -341,7 +348,13 @@ int main(int, char **) {
         return true;
     };
 
+    int applied_core_setting = -1;
     auto apply_preferences = [&] {
+        if (applied_core_setting != int(settings.fourth_core)) {
+            if (!vita::configure_fourth_core(settings.fourth_core))
+                log.fault("CPU affinity request rejected; using ordinary application cores\n");
+            applied_core_setting = int(settings.fourth_core);
+        }
         // Called outside a drawing scene. The adapter drains GPU/display work
         // before changing surfaces; audio playback is never stopped here.
         if (daytona_vita2d_set_buffer_count(settings.gpu_buffers) < 0)
@@ -365,7 +378,7 @@ int main(int, char **) {
         perf_log.drain();
         int cpu_result = 0, gpu_result = 0;
         if (set_clocks) {
-            cpu_result = scePowerSetArmClockFrequency(settings.cpu_clock);
+            cpu_result = vita::set_cpu_clock(settings.cpu_clock);
             gpu_result = scePowerSetGpuClockFrequency(settings.gpu_clock);
         }
         if (cpu_result < 0 || gpu_result < 0)
@@ -470,7 +483,7 @@ int main(int, char **) {
         }
         if (menu && !wait_release) {
             if (options) {
-                constexpr int kOptionCount = 20;
+                constexpr int kOptionCount = 21;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
                 if (pressed & vita::Down) selection = (selection + 1) % kOptionCount;
                 if (pressed & vita::Circle) { options = false; selection = 2; wait_release = true; }
@@ -478,10 +491,10 @@ int main(int, char **) {
                     const int direction = (pressed & vita::Left) ? -1 : ((pressed & vita::Right) ? 1 : 0);
                     const bool activate = (pressed & vita::Cross) != 0;
                     bool changed = false, clocks_changed = false;
-                    static const int cpu_choices[] = {111, 222, 333, 444};
+                    static const int cpu_choices[] = {111, 222, 333, 444, 500};
                     static const int gpu_choices[] = {41, 77, 111, 166};
                     if (selection == 0 && (direction || activate)) {
-                        settings.cpu_clock = cycle_value(settings.cpu_clock, cpu_choices, 4, direction < 0 ? -1 : 1);
+                        settings.cpu_clock = cycle_value(settings.cpu_clock, cpu_choices, 5, direction < 0 ? -1 : 1);
                         changed = clocks_changed = true;
                     } else if (selection == 1 && (direction || activate)) {
                         settings.gpu_clock = cycle_value(settings.gpu_clock, gpu_choices, 4, direction < 0 ? -1 : 1);
@@ -525,13 +538,22 @@ int main(int, char **) {
                     } else if (selection == 17 && (direction || activate)) {
                         settings.gpu_buffers = (settings.gpu_buffers - 1 + (direction < 0 ? 2 : 1)) % 3 + 1;
                         changed = true;
-                    } else if (selection == 18 && activate) {
-                        settings.defaults(); changed = clocks_changed = true;
+                    } else if (selection == 18 && (direction || activate)) {
+                        settings.fourth_core = !settings.fourth_core; changed = true;
                     } else if (selection == 19 && activate) {
+                        settings.defaults(); changed = clocks_changed = true;
+                    } else if (selection == 20 && activate) {
                         options = false; selection = 2; wait_release = true;
                     }
                     if (changed) {
                         commit_settings(clocks_changed);
+                        if (selection == 18) status = !settings.fourth_core
+                            ? "4TH CORE OFF: ORDINARY THREE-CORE SCHEDULING."
+                            : vita::fourth_core_active()
+                                ? "4TH CORE ALLOWED FOR GAME AND AUDIO THREADS. NO EXTRA GAME WORKER."
+                                : "4TH CORE REJECTED. REQUIRES A WORKING CORE-UNLOCK PLUGIN.";
+                        if (selection == 0 && settings.cpu_clock == 500 && scePowerGetArmClockFrequency() != 500)
+                            status += " 500 NOT ACTIVE: CHECK OVERCLOCK PLUGIN/PROFILE.";
                         if (selection == 17) status = "PHYSICAL GXM BUFFERS; NO GAME OR AUDIO FRAME SKIPPING.";
                         if (selection == 13) status = "FURTHER DISTANCES ADD SCENERY AND MAY REDUCE FPS.";
                         if (selection == 6) status = "AUDIO ENGINE CHANGE SAVED. RESET GAME TO APPLY. NATIVE IS EXPERIMENTAL.";
