@@ -81,6 +81,16 @@ int main() {
     int frames = 0;
     for (int i = 0; i < 6000; ++i) frames += clock.advance(1.0 / 60.0);
     CHECK(frames == 5752);
+    // Shipping GXM loop permits only one simulation step per presentation.
+    // Fractional carry must still avoid an accidental half-refresh cap.
+    vita::FrameClock presentation_clock(16000000.0 / (656.0 * 424.0), 1);
+    int presented_frames = 0;
+    for (int i = 0; i < 6000; ++i) {
+        const int steps = presentation_clock.advance(1.0 / 60.0);
+        CHECK(steps >= 0 && steps <= 1);
+        presented_frames += steps;
+    }
+    CHECK(presented_frames == 5752);
     CHECK(clock.advance(20.0) <= 4);
     clock.reset(); CHECK(clock.advance(0) == 0);
     CHECK(clock.advance(-1) == 0);

@@ -93,7 +93,7 @@ else()
     set(VITA_SDL_TARGET SDL2::SDL2)
 endif()
 if(DAYTONA_VITA_GPU_FAST)
-    include("${CMAKE_CURRENT_SOURCE_DIR}/buffered_vita2d.cmake")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/pinned_vita2d.cmake")
     set(VITA_BUFFER_LICENSE FILE "${buffered_vita2d_source_SOURCE_DIR}/LICENSE" "licenses/libvita2d.txt")
 endif()
 

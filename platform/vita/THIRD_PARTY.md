@@ -45,10 +45,9 @@ Upstream: https://github.com/xerpi/libvita2d (MIT).
 Source pinned at a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed.
 Archive SHA-256:97b48d7955882b283d67450936e1ca04aad1549f733141d5b0fa7953cf805bbc.
 CMake fetches this MIT source into the ignored build directory and compiles
-it locally with its existing public homebrew shader objects. The project-owned
-display_buffers.inc adapter is injected before swap_buffers; the modulo uses
-the active physical ring size. Single mode finishes GPU work before direct
-presentation; ring changes drain queued work. No shader or matrix changes.
+it locally with its existing public homebrew shader objects. The custom
+display-ring adapter has been removed; presentation uses unmodified upstream
+swap_buffers and display synchronization. No shader or matrix changes.
 The compiler includes math.h for the upstream JPEG loader's ceil declaration.
 Upstream source and license are not edited; the license is included in the VPK.
 

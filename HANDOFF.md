@@ -2,6 +2,27 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Remove configurable Vita display buffering (2026-10-02)
+
+User reports 30 FPS and requests removal of single/double/triple settings.
+Removed the menu/config field, physical ring adapter and its obsolete tests.
+Old gpu_buffers keys are ignored and disappear on the next settings save.
+The same pinned libvita2d now builds without source injection, retaining
+upstream's normal three-surface queue and display synchronization. This
+removes custom buffering, not the framebuffer storage needed for scanout.
+
+Inspection found no explicit 30 FPS cap: FrameClock retains fractional time
+at native 57.524 Hz; the display callback waits one vblank, not two.
+Do not claim the reported slowdown is proven caused by buffer count, or
+force game logic to 60 Hz. Audio pacing, CPU/core options, renderer and
+wide tile fallback are unchanged. Hardware speed remains unverified.
+Package: build/daytona-vita-standard-presentation.vpk.
+Validation: release cross-build and archive check pass; ELF has upstream
+vita2d_swap_buffers and no custom daytona_vita2d symbols. Host CTest:
+21 passes and two optional Lua skips. New one-step GXM clock regression
+produces 5752 game steps over 6000 simulated 60 Hz display ticks (100 s).
+Deleted adapter/test sources remain recoverable in Git history.
+
 ## Optional Vita CPU clock and fourth core (2026-10-02)
 
 GXM options now include CPU 500 MHz and a persisted fourth_core switch.

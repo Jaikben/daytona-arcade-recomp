@@ -210,14 +210,13 @@ These options are not a promise of full-speed hardware performance.
 **Vita GPU buffering.** Upstream's Double Buffered / Single Buffered / Every
 Third Frame labels select frame skipping, not physical buffer counts. That
 Vita integration was withdrawn after hardware game/audio stutter reports.
-Vita retains its pre-integration VSync-paced loop and exposes a separate
-physical GXM display ring: single, double (default), or triple. All three
-surfaces remain allocated; double/triple use GXM display-queue sync objects.
-Changing the ring drains GPU and queued display work before rebinding scanout.
-Single mode waits for GPU completion and directly presents the sole surface;
-it can tear while that surface is rendered. No audio or board steps are
-skipped, and no shared software-renderer draw-mode setting is changed.
-Native audio stays device-clocked. Buffer choice is not a speedup guarantee.
+The subsequent configurable physical ring has also been removed after a
+hardware report of 30 FPS. Vita now uses unmodified upstream libvita2d
+presentation and its standard three-surface display queue, with one vblank
+wait in the display callback. There is no buffer selector, ring switching,
+single-surface path or software frame skipping. Old gpu_buffers settings are
+ignored. Native audio stays device-clocked and board timing stays native;
+this rollback is not evidence of 60 FPS on hardware.
 
 **Enhancements (all off by default)**
 
