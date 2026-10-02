@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(daytona_recomp LANGUAGES C CXX)
 
+# Mobile frontends use the same runtime/app code as desktop. Android needs
+# SDL's shared JNI library; iOS uses the static library in an app bundle.
+set(M2_MOBILE OFF)
+if(ANDROID OR IOS)
+    set(M2_MOBILE ON)
+endif()
+set(M2_GEN_ROOT "${CMAKE_BINARY_DIR}/gen" CACHE PATH
+    "Directory containing recompiled daytona93/daytona93_tgp/daytona93_snd sources")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -171,9 +180,15 @@ target_link_libraries(m2sndrecomp PRIVATE m68k)
 # compiles all of it; the daytona executable itself also needs the generated
 # game code (below).
 if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
-    if(NOT TARGET SDL3::SDL3-static)
-        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    if(NOT TARGET ${M2_SDL_TARGET})
+        if(ANDROID)
+            # SDLActivity loads libSDL3.so before the game's libmain.so.
+            set(SDL_SHARED ON CACHE BOOL "" FORCE)
+            set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+        else()
+            set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+            set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        endif()
         set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
         # SDL builds with its own flags, not ours: MSVC's /fp:strict (our FP
@@ -183,6 +198,12 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
         add_subdirectory(${CMAKE_SOURCE_DIR}/extern/sdl3 ${CMAKE_BINARY_DIR}/sdl3 EXCLUDE_FROM_ALL SYSTEM)
         set_directory_properties(PROPERTIES COMPILE_OPTIONS "${M2_COMPILE_OPTIONS}")
     endif()
+    if(ANDROID)
+        set(M2_SDL_TARGET SDL3::SDL3-shared)
+    else()
+        set(M2_SDL_TARGET ${M2_SDL_TARGET})
+    endif()
+
     # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
     set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
     add_library(imgui STATIC
@@ -190,16 +211,16 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
         ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/imgui_demo.cpp
         ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp)
     target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR})
-    target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
+    target_link_libraries(imgui PUBLIC ${M2_SDL_TARGET})
     if(NOT MSVC)
         target_compile_options(imgui PRIVATE -w)
     endif()
     # The hardware renderer (SDL_GPU), shared by the app and m2gpushot.
     add_library(gpurender STATIC src/app/gpu/gpu_renderer.cpp)
     target_include_directories(gpurender PUBLIC src)
-    target_link_libraries(gpurender PUBLIC runtime SDL3::SDL3-static)
+    target_link_libraries(gpurender PUBLIC runtime ${M2_SDL_TARGET})
     add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp src/app/ffb.cpp src/app/link_socket.cpp src/app/pacing.cpp)
-    target_link_libraries(daytona_app PRIVATE runtime imgui gpurender SDL3::SDL3-static)
+    target_link_libraries(daytona_app PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
     if(WIN32)
         target_link_libraries(daytona_app PUBLIC ws2_32) # link play's sockets
     endif()
@@ -207,9 +228,9 @@ endif()
 
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
 # committed). scripts/recompile.sh generates it and re-runs CMake.
-set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET})
-set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET}_tgp/tgp_gen.cpp)
-set(SND_GEN ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET}_snd/snd_gen.cpp)
+set(GEN_DIR ${M2_GEN_ROOT}/${M2_ROMSET})
+set(TGP_GEN ${M2_GEN_ROOT}/${M2_ROMSET}_tgp/tgp_gen.cpp)
+set(SND_GEN ${M2_GEN_ROOT}/${M2_ROMSET}_snd/snd_gen.cpp)
 if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     file(GLOB GEN_SOURCES ${GEN_DIR}/*.cpp)
     add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
@@ -223,8 +244,25 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
 
     # The game in a window (needs the app objects below).
     if(TARGET daytona_app)
-        add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
-        target_link_libraries(daytona PRIVATE runtime imgui gpurender SDL3::SDL3-static)
+        if(ANDROID)
+            # SDLActivity loads this as libmain.so and calls SDL_main from it.
+            add_library(daytona SHARED $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+            set_target_properties(daytona PROPERTIES OUTPUT_NAME main)
+        elseif(IOS)
+            add_executable(daytona MACOSX_BUNDLE $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+            set_target_properties(daytona PROPERTIES
+                MACOSX_BUNDLE_BUNDLE_NAME "Daytona USA"
+                MACOSX_BUNDLE_GUI_IDENTIFIER "com.boucydesigns.daytona"
+                MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1"
+                MACOSX_BUNDLE_BUNDLE_VERSION "1"
+                XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.boucydesigns.daytona"
+                XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+                XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "15.0"
+                XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+        else()
+            add_executable(daytona WIN32 $<TARGET_OBJECTS:daytona_app> ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+        endif()
+        target_link_libraries(daytona PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
         if(WIN32)
             target_link_libraries(daytona PRIVATE ws2_32) # link play's sockets
         endif()
