@@ -357,27 +357,28 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             ImGui::SameLine();
             if (ImGui::Checkbox("Invert steering", &c.steer_invert)) cfg_.save();
             ImGui::SetNextItemWidth(200);
-            if (ImGui::SliderFloat("Wheel dead zone", &c.joy_deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
+            if (ImGui::SliderFloat("Wheel dead zone (Experimental)", &c.joy_deadzone, 0.0f, 0.4f, "%.2f")) cfg_.save();
             ImGui::TextDisabled("Triggers, sticks, wheels and pedals are analogue. To bind a wheel or pedal axis,\n"
                                 "click its button, then turn the wheel or press the pedal as far as you want full\n"
                                 "lock or full travel to be, and let go: that sets its range.");
 
             ImGui::SetNextItemWidth(200);
             int ffb = int(cfg_.ffb_strength * 100.0f + 0.5f);
-            if (ImGui::SliderInt("Force feedback", &ffb, 0, 100, ffb ? "%d%%" : "Off")) {
+            if (ImGui::SliderInt("Force feedback (Experimental)", &ffb, 0, 100, ffb ? "%d%%" : "Off")) {
                 cfg_.ffb_strength = float(ffb) / 100.0f;
                 cfg_.save();
             }
             ImGui::SameLine();
             if (ImGui::Checkbox("Invert force", &cfg_.ffb_invert)) cfg_.save();
             ImGui::TextDisabled("The arcade wheel's motor (centring, friction, kerb rumble, the wheel pulling),\n"
-                                "on the device steering is bound to. Now: %s.", ffb_device_);
+                                "on the device steering is bound to. Now: %s. Wheels and force feedback\n"
+                                "are untested on real hardware so far: reports welcome.", ffb_device_);
 
             if (ImGui::BeginTable("binds", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
                 ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, 130);
                 ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed, 130);
                 ImGui::TableSetupColumn("Gamepad", ImGuiTableColumnFlags_WidthFixed, 250);
-                ImGui::TableSetupColumn("Wheel / joystick");
+                ImGui::TableSetupColumn("Wheel / joystick (Experimental)");
                 ImGui::TableHeadersRow();
                 for (int a = 0; a < kNumActions; a++) {
                     ImGui::PushID(a);

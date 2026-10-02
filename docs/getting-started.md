@@ -123,8 +123,9 @@ the same `roms/daytona93.zip`, and wait for the line under it to say "All
 next time. **Controls** sets your keys, gamepad and wheel. In the game,
 **Esc** brings the launcher back.
 
-**Wheel and pedals** (optional): on the **Controls** tab, the **Wheel /
-joystick** column takes any wheel, pedal set or shifter, even as separate
+**Wheel and pedals** (optional, experimental: not yet tested on a real
+wheel; reports welcome): on the **Controls** tab, the **Wheel / joystick**
+column takes any wheel, pedal set or shifter, even as separate
 USB devices. Click the box next to **Steer left**, turn the wheel left as
 far as you want full lock to be, and let go; do the same for **Steer
 right**, then press each pedal fully and let go for **Accelerate** and

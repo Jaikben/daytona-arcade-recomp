@@ -91,11 +91,11 @@ opens first:
   a draw distance slider for the scenery (default
   is the game's own; shorter runs faster). Start.
 - **Controls**: bind every arcade control to a key, a gamepad button or
-  axis, and a wheel or joystick input (click, then press). Triggers, sticks,
+  axis, and a wheel or joystick input (experimental; click, then press). Triggers, sticks,
   wheels and pedals are analogue. Wheels, pedals and shifters work as
   separate devices too; binding a wheel or pedal axis also sets its range
   (turn or press as far as full lock or full travel should be, and let go).
-  Force feedback: the arcade wheel's motor (centring, friction, rumble, the
+  Force feedback (experimental, untested on a real wheel so far): the arcade wheel's motor (centring, friction, rumble, the
   wheel pulling) plays on the device steering is bound to (a force feedback
   wheel, or a gamepad's rumble), with a strength slider. Live meters, dead
   zones, invert steering.

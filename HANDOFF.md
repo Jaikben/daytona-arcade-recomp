@@ -21,8 +21,9 @@ Launcher: Force feedback strength (70% default, Off) and Invert force; m2run
 prints the commands by type. Checked: tests/test_app_controls.cpp with SDL
 virtual joysticks (a wheel and pedals resting at +32767; config round trip;
 ADC values; a wheel paddle; unplugging; drive command decoding; rumble and
-its scaling and stop). Not checked: a real force feedback wheel (none here):
-the direction of the pull may need Invert force.
+its scaling and stop). Not checked: a real wheel or force feedback (none here; user
+testing): the launcher marks the wheel column, its dead zone and force
+feedback Experimental; the direction of the pull may need Invert force.
 
 **The 1994 set (daytona, Revision A) builds and runs, for comparison.**
 CMake `M2_ROMSET` (daytona93, the default, or daytona), one set per build
