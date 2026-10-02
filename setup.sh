@@ -70,7 +70,9 @@ Darwin)
     fi
     # SDL 3 needs only the system frameworks (Cocoa, Metal) on macOS
     brew install cmake ninja python git
-    [ "$BUILD_MAME" = 1 ] && brew install sdl2 sdl2_ttf
+    # MAME's build (validation only): its macOS front end is SDL 3, found
+    # through pkg-config (without it MAME looks for an SDL3 framework instead)
+    [ "$BUILD_MAME" = 1 ] && brew install sdl3 pkgconf
     ;;
 *)
     echo "setup.sh: $(uname -s) not supported here; on Windows run setup.ps1" >&2

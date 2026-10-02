@@ -2,6 +2,33 @@
 
 ## Current state
 
+**The seed_scan seeds checked against MAME (daytona93).** A local MAME
+build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the
+11 in scripts/inputs and two new ones, attract_long (9,000 frames of
+attract) and race_to_end (race_basic played on to 20,000 frames: out of
+time, game over and the screens after). All match MAME in every check:
+native i960 code (every device event and interrupt), the native
+geometrizer, the CPU 3D layer, the composed screen, the recompiled TGP and
+the sound 68000. race_to_end alone: 2.16 billion i960 instructions, 19,997
+frames, 20.2 million polygons, 597 million TGP and 261 million 68000
+instructions identical. Coverage (MAME's indirect-branch log against the
+seed list): the 11 old scenarios reach all 334 harvest seeds and none of the
+248 seed_scan seeds (they are the harvest's own scenarios); attract_long and
+race_to_end reach 81 of them (10 of 19 game modes, 13 of 29 task states, 3 of
+85 jump-table entries, 5 of 16 lda tables, 48 of 92 ROM-record handlers, 2 of
+7 data-ROM pointers), now checked. The other 167 need states no scenario
+reaches yet (other endings, name entry, link play). Found on the way:
+- An Apple silicon MAME differed from ours in the geometrizer's last bit
+  (attract frame 173): clang fuses a*b+c into FMA on arm64 by default;
+  build_mame.sh now builds it with -ffp-contract=off, like our code.
+- build_mame.sh picks a Python whose XML parser loads (Homebrew's Python
+  3.14 here had a pyexpat built against a newer libexpat: "No parsers
+  found"); setup.sh --build-mame on macOS installs sdl3 and pkgconf (MAME's
+  macOS front end is SDL 3, found through pkg-config), not sdl2.
+- The first m2_check run of race_to_end stopped at 6,897 frames (cause not
+  found: MAME's output goes to /dev/null there); run again by hand, MAME
+  recorded all 19,997 frames and every check matched.
+
 **Setup builds the 1994 set too.** scripts/setup.py builds every set it
 finds in roms/: daytona93 into build/ (as before), daytona (Revision A) into
 build-daytona/ (configured as the main build, with -DM2_ROMSET), and prints
@@ -716,9 +743,9 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Harvest the states `seed_scan.py` found in MAME (which state the
-   windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep
-   the newly seeded code against MAME.
+1. Scenarios that reach the other 167 seed_scan seeds (other endings, name
+   entry, link play), checked with scripts/m2_check.sh like attract_long and
+   race_to_end.
 2. Hardware renderer: exact pixels against the CPU reference (stage 4).
 
 ## Open decisions
