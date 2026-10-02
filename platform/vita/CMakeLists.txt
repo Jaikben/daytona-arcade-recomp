@@ -75,6 +75,7 @@ endforeach()
 add_library(vita_runtime STATIC ${RUNTIME_SOURCES})
 target_include_directories(vita_runtime PUBLIC "${DAYTONA_ROOT}/src")
 target_link_libraries(vita_runtime PUBLIC vita_trace vita_i960 vita_ymfm)
+target_compile_definitions(vita_runtime PUBLIC M2_ROMSET="daytona93") # the set the Vita build is made from
 option(DAYTONA_VITA_RENDER_OPT "Exact tile/layer caching and optimized CPU rasterizer" ON)
 if(DAYTONA_VITA_RENDER_OPT)
     # Public because the flag affects Video/Raster class layouts.

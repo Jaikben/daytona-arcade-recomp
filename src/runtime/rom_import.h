@@ -9,6 +9,12 @@
 
 #include "runtime/m2_board.h"
 
+// The ROM set this build is recompiled from (CMake's M2_ROMSET); builds that
+// do not say, such as the Vita's, are daytona93's.
+#ifndef M2_ROMSET
+#define M2_ROMSET "daytona93"
+#endif
+
 #include <string>
 #include <vector>
 
