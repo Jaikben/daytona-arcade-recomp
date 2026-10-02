@@ -1,4 +1,5 @@
 #include "app/launcher.h"
+#include "app/rom_file.h"
 
 #include "imgui.h"
 
@@ -51,19 +52,29 @@ void Launcher::check_rom() {
         rom_message_ = "Choose your " M2_ROMSET " ROM set (.zip or .7z).";
         return;
     }
-    // Keep the path absolute, so the saved setting works from any directory.
-    std::error_code ec;
-    const auto abs = std::filesystem::absolute(cfg_.rom_path, ec);
-    if (!ec && abs.string() != cfg_.rom_path && std::filesystem::exists(abs, ec)) {
-        cfg_.rom_path = abs.lexically_normal().string();
-        std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
-        cfg_.save();
-    }
     try {
-        checks_ = rt::check_rom_set(cfg_.rom_path);
+        // Android's picker grants access to a content URI, not a raw /sdcard
+        // path. Stage it through SDL's Android reader before the plain-file
+        // archive code verifies it. Invalid imports never replace a good copy.
+        RomFile selected(cfg_.rom_path);
+        checks_ = rt::check_rom_set(selected.path());
         int good = 0;
         for (const auto &c : checks_) good += c.ok;
-        rom_ok_ = good == int(checks_.size());
+        const bool verified = !checks_.empty() && good == int(checks_.size());
+        if (verified) {
+            std::string path = selected.commit();
+            // Keep ordinary paths absolute, including the saved Android copy.
+            std::error_code ec;
+            const auto abs = std::filesystem::absolute(path, ec);
+            if (!ec && std::filesystem::exists(abs, ec)) path = abs.lexically_normal().string();
+            if (cfg_.rom_path != path) {
+                cfg_.rom_path = path;
+                std::snprintf(path_buf_, sizeof path_buf_, "%s", path.c_str());
+                cfg_.save();
+            }
+        }
+        // Do not enable Start if committing the imported archive failed.
+        rom_ok_ = verified;
         rom_message_ = rom_ok_ ? "All " + std::to_string(good) + " files verified."
                                : std::to_string(int(checks_.size()) - good) + " of " + std::to_string(checks_.size()) +
                                      " files missing or wrong: this is not the " M2_ROMSET " set.";
@@ -211,6 +222,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
         if (ImGui::BeginTabItem("Game")) {
             ImGui::Spacing();
             ImGui::TextUnformatted("ROM set");
+#ifdef SDL_PLATFORM_ANDROID
+            ImGui::TextWrapped("Browse grants read access to your ZIP/7z. A verified copy is kept in app storage.");
+#endif
             ImGui::SetNextItemWidth(-200);
             if (ImGui::InputText("##rom", path_buf_, sizeof path_buf_, ImGuiInputTextFlags_EnterReturnsTrue)) {
                 cfg_.rom_path = path_buf_;
