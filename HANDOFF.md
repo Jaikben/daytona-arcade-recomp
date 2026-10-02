@@ -2,6 +2,23 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Wide tile recovery after hardware slowdown (2026-10-02)
+
+User reports moving tile composition onto GXM made the game slower. Disable
+the explicit wide GPU tile capability in the Vita frontend: widescreen now
+uses the existing CPU backdrop/foreground fallback. Original-aspect GPU tiles,
+GPU 3D, the road subdivision change, audio, clocks, physical double-buffer
+default and main3044f3b remain unchanged. No additional performance hypothesis
+is presented as established; the earlier CPU-only timing excluded GPU cost.
+
+This isolates wide tile composition from the road change, which also can add
+vertex work. If this build remains slow, measure/subtract that separately;
+do not advertise moving work to GXM as automatically faster. Hardware result
+for this comparison build remains pending. Main and PSP untouched; no push.
+Package:build/daytona-vita-wide-tile-recovery.vpk.
+Validation: VitaSDK build and21 CTest passes (2 optional Lua skips). The
+fallback composition and mode transitions are covered by renderer tests.
+
 ## Rebase onto GitHub main and GPU tile/road follow-up (2026-10-02)
 
 Fetched origin/main3044f3b and rebased psvita-native-frontend with merge history

@@ -236,6 +236,10 @@ drawing and wider scene geometry still cost time; real Vita FPS is unverified.
 
 ## GPU tiles after main 3044f3b
 
+Current recovery build disables wide GPU tile composition after a hardware
+slowdown report, using the CPU wide layers instead. Original-aspect GPU tiles
+and GPU 3D stay enabled. The implementation below is retained for profiling.
+
 The Vita branch includes the latest desktop GPU renderer but still uses GXM,
 not SDL_GPU's desktop shaders. Background and centred foreground tile layers
 are composed on GXM, including widescreen. Like desktop main, moving individual

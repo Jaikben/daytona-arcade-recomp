@@ -181,7 +181,13 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
 **Vita GXM presentation enhancements.** The Vita branch exposes the same
-aspect, scenery-distance and per-item HUD policies in its options. Original
+options described below, but the wide GPU tile capability is currently disabled
+after hardware feedback reported worse speed. Widescreen uses the CPU tile
+composition fallback; original-aspect GPU tiles and GPU 3D remain enabled.
+The GPU tile implementation is retained for profiling, not claimed faster.
+
+The retained implementation supports the same aspect, scenery-distance and
+per-item HUD policies. Original
 mode uses GPU System24 composition. Wide mode now uses the same GXM tile
 compositor for its backdrop, with only background destination x coordinates
 scaled when stretch is enabled. Unstretched margins use palette pen0, like
