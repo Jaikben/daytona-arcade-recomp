@@ -2,6 +2,13 @@
 
 ## Current state
 
+**Vita build: the ROM set.** The 1994 set's M2_ROMSET broke the Vita compile
+check (its CMake builds the runtime itself, without the define);
+platform/vita/CMakeLists.txt defines M2_ROMSET="daytona93", and
+rom_import.h falls back to daytona93 when a build does not say. Checked on
+the link-play branch's CI: Vita compile check passes (with link play's
+comm_board added to the Vita runtime there).
+
 **The seed_scan seeds checked against MAME (daytona93).** A local MAME
 build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the
 11 in scripts/inputs and two new ones, attract_long (9,000 frames of
