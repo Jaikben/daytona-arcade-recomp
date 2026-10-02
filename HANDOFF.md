@@ -1222,3 +1222,18 @@ M1 native (`tools/m2recomp`, `tools/m2native`, `src/runtime/lockstep`):
   harvest patch now logs IAC targets and the seeds include it.
 - Mutation check: the generator's addo template off by one when src1 == 1
   diverges at epoch 3.
+
+
+## Mobile Android — 2026-10-02
+
+- A previous Android build saved the Storage Access Framework picker result
+  (`content://...`) directly in the config. The first ROM-import implementation
+  then tried to reopen that URI from `Launcher` construction on the next app
+  start. On-device report: the updated APK crashed immediately when opening.
+- Startup now treats a saved Android `content://` value as stale migration
+  state: it clears the value, saves the config, and asks the user to select the
+  archive again. Document-provider URIs are only consumed immediately after a
+  Browse result; a verified archive is then staged into app-private storage and
+  the normal path is saved.
+- Device verification still required. If startup still crashes after this
+  migration fix, capture Android logcat before changing the import path again.
