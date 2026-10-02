@@ -169,6 +169,8 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--autostart")) autostart = true;
     }
 
+    // the name graphics overlays and drivers see (patches/sdl3: Vulkan's application name)
+    SDL_SetAppMetadata("Daytona USA", nullptr, "daytona-recomp");
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
     Audio audio;

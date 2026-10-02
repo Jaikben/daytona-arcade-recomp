@@ -85,7 +85,24 @@ def fetch(url, commit, dest):
     if not os.path.isdir(os.path.join(dest, ".git")):
         run(["git", "clone", "--no-checkout", url, dest])
     run(["git", "-C", dest, "fetch", "--depth", "1", "origin", commit], check=False)
-    run(["git", "-C", dest, "checkout", "--detach", commit])
+    if run(["git", "-C", dest, "checkout", "--detach", commit], check=False).returncode:
+        # our patches (patches/) changed files the new commit changes too: start
+        # clean at the commit; apply_patches puts them back
+        run(["git", "-C", dest, "checkout", "--force", "--detach", commit])
+
+
+def apply_patches(dest, name):
+    """Apply patches/<name>/*.patch to extern/<dest>, skipping ones already applied."""
+    dest = os.path.join(EXTERN, dest)
+    patches = os.path.join(ROOT, "patches", name)
+    for p in sorted(os.listdir(patches)):
+        if not p.endswith(".patch"):
+            continue
+        path = os.path.join(patches, p)
+        if subprocess.run(["git", "-C", dest, "apply", "--check", path], capture_output=True).returncode == 0:
+            run(["git", "-C", dest, "apply", path])
+        elif subprocess.run(["git", "-C", dest, "apply", "--reverse", "--check", path], capture_output=True).returncode:
+            print(f"setup: warning: patches/{name}/{p} does not apply to extern/{os.path.basename(dest)}")
 
 
 def fetch_mame(full):
@@ -105,12 +122,7 @@ def fetch_mame(full):
              "/src/mame/shared/segam1audio.cpp", "/src/mame/shared/segam1audio.h"])
     run(["git", "-C", dest, "fetch", "--depth", "1", "origin", MAME_COMMIT])
     run(["git", "-C", dest, "checkout", "--detach", MAME_COMMIT])
-    patches = os.path.join(ROOT, "patches", "mame")
-    for p in sorted(os.listdir(patches)):
-        if p.endswith(".patch"):
-            path = os.path.join(patches, p)
-            if subprocess.run(["git", "-C", dest, "apply", "--check", path], capture_output=True).returncode == 0:
-                run(["git", "-C", dest, "apply", path])
+    apply_patches("mame", "mame")
 
 
 VSWHERE = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
@@ -191,6 +203,7 @@ def main():
 
     say("Fetching SDL 3.4.16 (window, input, SDL_GPU: Vulkan / Direct3D 12 / Metal)")
     fetch(*SDL3, "sdl3")
+    apply_patches("sdl3", "sdl3")  # Vulkan application name (THIRD_PARTY.md)
 
     say("Fetching ymfm (the sound board's YM3438)")
     fetch(*YMFM, "ymfm")

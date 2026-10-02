@@ -2,6 +2,17 @@
 
 ## Current state
 
+**Vulkan application name (MangoHud showed "SDL").** SDL's Vulkan backend
+hard-codes VkApplicationInfo: no application name, engine "SDLGPU", which
+overlays such as MangoHud show instead of the API; SDL has no property to
+change it. `patches/sdl3/0001-vulkan-application-name.patch` (applied by
+setup.py's new apply_patches, shared with MAME's patches; already-applied
+patches are skipped; fetch forces the checkout if a patched file would block
+a new pin) reports SDL_SetAppMetadata's name ("Daytona USA", set by main)
+and no engine name. Checked: setup re-applies it after a revert and skips it
+when present; macOS builds and runs. The MangoHud result itself is untested
+here (no MangoHud on macOS).
+
 **Windows: the game's messages.** daytona is a WIN32 (GUI) program, so on
 Windows its output went nowhere and a command window returned at once; a
 tester could not see which renderer ran. It now attaches to the parent
