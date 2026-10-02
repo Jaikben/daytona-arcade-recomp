@@ -1,7 +1,12 @@
-// Hardware renderer (SDL_GPU): draws a frame of the Model 2 3D layer on the
-// GPU instead of the CPU rasterizer (src/runtime/raster.cpp, the exact
-// reference), around the tilemap layers the CPU still draws (Video's
-// external-3D mode: background and foreground layers).
+// Hardware renderer (SDL_GPU): draws a frame on the GPU instead of the CPU
+// rasterizer (src/runtime/raster.cpp, the exact reference) and tilemap
+// drawing (Video::draw): the back tilemap layers, the Model 2 3D layer, the
+// front tilemap layers (Video's external-3D desktop mode).
+//
+// The tilemap layers are composed per pixel (m2.hlsl ps_tiles_back,
+// ps_tiles_front) from the pixmaps the CPU decodes, uploaded by the rows of
+// tiles that changed, and the frame's tile registers and pens. With the HUD
+// moved to the widescreen edges the front layers come from the CPU instead.
 //
 // Polygons are projected exactly as model2_3d_project, drawn as a fan from
 // their first vertex in the rasterizer's order (window, then z, newest first)
@@ -51,15 +56,21 @@ private:
     };
 
     SDL_GPUDevice *dev_ = nullptr;
-    SDL_GPUGraphicsPipeline *poly_pipe_ = nullptr, *quad_pipe_ = nullptr;
+    SDL_GPUGraphicsPipeline *poly_pipe_ = nullptr, *quad_pipe_ = nullptr, *back_pipe_ = nullptr, *front_pipe_ = nullptr;
     SDL_GPUSampler *sampler_ = nullptr;
-    SDL_GPUTexture *layers_[2] = {nullptr, nullptr}; // background, foreground
+    SDL_GPUTexture *front_ = nullptr; // the front layers from the CPU (HUD at the edges)
     SDL_GPUTexture *depth_ = nullptr;
     int depth_w_ = 0, depth_h_ = 0;
     SDL_GPUBuffer *vbuf_ = nullptr, *qbuf_ = nullptr;
     // storage buffers: texture RAM (both sheets), luma RAM, colour translation with gamma
     SDL_GPUBuffer *texram_ = nullptr, *luma_ = nullptr, *xlat_ = nullptr;
     uint64_t texram_generation_ = ~0ull; // the texture RAM generation texram_ holds
+    // the tilemaps: pixmaps (4 x 512 x 512 u16), header + pens + tile words
+    SDL_GPUBuffer *tilepix_ = nullptr, *tiledata_ = nullptr;
+    uint64_t tile_instance_ = 0, tile_generation_ = 0; // the Video and its tile generation tilepix_ holds
+    struct Rows { uint32_t first, count; }; // pixmap rows (of pixels) to upload, per layer
+    Rows tile_rows_[4];
+    std::vector<uint32_t> tiledata_words_;
     std::vector<uint32_t> xlat_table_;
     uint32_t vbuf_size_ = 0;
     SDL_GPUTransferBuffer *upload_ = nullptr;

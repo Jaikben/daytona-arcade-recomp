@@ -62,20 +62,34 @@ public:
     }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
-    // cpu_layers: the desktop hardware renderer, which takes the tilemap
-    // layers as CPU bitmaps (background_layer, foreground_layer: width() wide,
-    // margins filled, HUD moved) and keeps widescreen; without it (Vita) the
-    // host draws the tiles itself, at 496.
-    void set_external_3d(bool enabled, bool cpu_layers = false) {
-        if (enabled == external_3d_ && cpu_layers == cpu_layers_) return;
-        if (enabled && !cpu_layers && margin_) set_wide_margin(0);
+    // desktop: the desktop hardware renderer, which draws the tilemap layers
+    // itself from the decoded pixmaps (system24_pixels, system24_flags, the
+    // tile generations) and this frame's snapshot (gpu_tile_words,
+    // gpu_pens), keeping widescreen; without it (Vita) the host draws the
+    // tiles at 496.
+    void set_external_3d(bool enabled, bool desktop = false) {
+        if (enabled == external_3d_ && desktop == desktop_) return;
+        if (enabled && !desktop && margin_) set_wide_margin(0);
         external_3d_ = enabled;
-        cpu_layers_ = cpu_layers;
+        desktop_ = desktop;
         render_done_ = false;
     }
     // External 3D with widescreen and the HUD at the edges: how far the
     // condition panel's overlay polygons move (0 = not at all), and which.
     int gpu_hud_shift() const { return external_3d_ && hud_on_ ? margin_ : 0; }
+    // Desktop hardware renderer, as of the last screen_update: tile RAM words
+    // kGpuTileFirst.. (line scroll tables, scroll registers, window masks) and
+    // the tilemaps' pens; the widescreen margin and how to fill it; whether the
+    // front layers come from the CPU (foreground_layer: the HUD moved to the
+    // edges) instead of the pixmaps.
+    static constexpr uint32_t kGpuTileFirst = 0x4000, kGpuTileWords = 0x3000, kGpuPens = 4096;
+    const uint16_t *gpu_tile_words() const { return gpu_tile_words_.data(); }
+    const uint32_t *gpu_pens() const { return gpu_pens_.data(); }
+    int margin() const { return margin_; }
+    enum class Backdrop { Edges, Sky, Stretch }; // fill_margins' three cases
+    Backdrop backdrop() const { return coverage_ < 50 ? Backdrop::Edges : stretch_backdrop_ ? Backdrop::Stretch : Backdrop::Sky; }
+    bool cpu_front() const { return hud_on_; }
+    uint64_t instance() const { return instance_; } // tells a new Video from an old one at the same address
     bool external_3d() const { return external_3d_; }
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
@@ -159,7 +173,10 @@ private:
     const std::vector<GeoPoly> *gpu_polys_ = nullptr;
     VideoMem gpu_mem_{};
     int gpu_windows_ = 0;
-    bool external_3d_ = false, cpu_layers_ = false;
+    bool external_3d_ = false, desktop_ = false;
+    std::vector<uint16_t> gpu_tile_words_;
+    std::vector<uint32_t> gpu_pens_;
+    uint64_t instance_;
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching

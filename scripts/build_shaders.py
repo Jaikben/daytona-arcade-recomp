@@ -25,7 +25,8 @@ DXC_URL = ("https://github.com/microsoft/DirectXShaderCompiler/releases/download
 
 # entry point, shader stage, profile
 ENTRIES = [("vs_poly", "vertex", "vs_6_0"), ("ps_poly", "fragment", "ps_6_0"),
-           ("vs_quad", "vertex", "vs_6_0"), ("ps_quad", "fragment", "ps_6_0")]
+           ("vs_quad", "vertex", "vs_6_0"), ("ps_quad", "fragment", "ps_6_0"),
+           ("ps_tiles_back", "fragment", "ps_6_0"), ("ps_tiles_front", "fragment", "ps_6_0")]
 
 
 def commands(dxc, spirv_cross):

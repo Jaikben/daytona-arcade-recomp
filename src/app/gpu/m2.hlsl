@@ -214,3 +214,142 @@ float4 ps_quad(QuadOut i) : SV_Target {
     if (all(c == 0.0)) discard;
     return float4(c.rgb, 1.0);
 }
+
+// The System 24 tilemap layers (runtime/video.cpp), composed per pixel:
+// segaic24 draw_common for one layer at one screen pixel, the window masks,
+// per-line scroll and the split modes included, then screen_update's order.
+// Two read-only storage buffers (space2):
+//   tilepix: the four layers' decoded 512x512 pixmaps, a u16 per pixel
+//            (pen = colour * 16 + pixel, pixel 0 transparent; category bit 15),
+//            two per word
+//   tiledata: [0] widescreen margin, [1] its fill (0 each row's edge colours,
+//            1 the sky's plain colour, 2 the backdrop stretched); [16..] the
+//            pens (0xAARRGGBB, 4096); [16 + 4096..] tile RAM words 0x4000 to
+//            0x6fff (line scroll tables, scroll registers, window masks), two
+//            per word
+[[vk::binding(0, 2)]] StructuredBuffer<uint> tilepix : register(t0, space2);
+[[vk::binding(1, 2)]] StructuredBuffer<uint> tiledata : register(t1, space2);
+
+static const uint kTilePens = 16u, kTileWords = 16u + 4096u;
+static const int kTileW = 496, kTileH = 384;
+
+uint tile_word(uint i) {
+    const uint j = i - 0x4000u;
+    const uint d = tiledata[kTileWords + (j >> 1)];
+    return (j & 1u) != 0u ? d >> 16 : d & 0xffffu;
+}
+
+uint tile_pixel(uint l, int x, int y) {
+    const uint i = l * 0x40000u + uint(y & 511) * 512u + uint(x & 511);
+    const uint d = tilepix[i >> 1];
+    return (i & 1u) != 0u ? d >> 16 : d & 0xffffu;
+}
+
+// draw(bitmap, layer, opaque ? DRAW_OPAQUE : 0) at (x, y): true if it writes
+// the pixel, with the pen it writes.
+bool tile_layer(uint layer, bool opaque, int x, int y, out uint pen) {
+    pen = 0u;
+    const uint l = layer >> 1, tpri = layer & 1u;
+    const uint hscr = tile_word(0x5000u + l);
+    const uint vscr = tile_word(0x5004u + l);
+    const uint ctrl = tile_word(0x5004u + (l & 2u));
+    if ((vscr & 0x8000u) != 0u) return false; // layer disable
+
+    if ((ctrl & 0x6000u) != 0u) { // special window/scroll modes: layers l and l ^ 1 split
+        if ((l & 1u) != 0u) return false;
+        const uint mode = (ctrl & 0x6000u) >> 13;
+        const int sy = int(vscr & 0x1ffu);
+        const int v = int((0u - vscr) & 0x1ffu);
+        const uint lv = ((0u - vscr) & 0x200u) != 0u ? l : l ^ 1u; // mode 1: the layer above v
+        uint src;
+        int sx;
+        if ((hscr & 0x8000u) != 0u) {
+            const uint hl = tile_word(0x4000u + 0x200u * l + uint(y));
+            const int h = int(hl & 0x1ffu);
+            sx = -h;
+            if (mode == 1u) src = y >= v ? lv ^ 1u : lv;
+            else {
+                const uint l1 = (hl & 0x200u) != 0u ? l : l ^ 1u;
+                src = x <= h - 1 ? l1 : l1 ^ 1u;
+            }
+        } else {
+            const int h = int(hscr & 0x1ffu);
+            sx = -h;
+            if (mode == 1u) src = y < v ? lv : lv ^ 1u;
+            else {
+                const uint lh = (hscr & 0x200u) != 0u ? l : l ^ 1u;
+                src = x < h ? lh : lh ^ 1u;
+            }
+        }
+        // tilemap_draw: the category must match, and the pixel be opaque unless drawing opaque
+        const uint p = tile_pixel(src, x + sx, y + sy);
+        if ((p >> 15) != tpri || (!opaque && (p & 15u) == 0u)) return false;
+        pen = p & 0xfffu;
+        return true;
+    }
+
+    // draw_rect: the 8-pixel window mask (inverted for odd layers), then the pixmap
+    uint m = tile_word(((layer & 4u) != 0u ? 0x6800u : 0x6000u) + uint(y) * 4u + uint(x >> 7));
+    if ((l & 1u) != 0u) m = ~m;
+    if ((m & (0x8000u >> uint((x >> 3) & 15))) != 0u) return false;
+    const int hs = (hscr & 0x8000u) != 0u ? int((0u - tile_word(0x4000u + 0x200u * l + uint(y))) & 0x1ffu)
+                                          : int((0u - hscr) & 0x1ffu);
+    const uint p = tile_pixel(l, x + hs, int(vscr & 0x1ffu) + y);
+    if (!opaque && ((p >> 15) != tpri || (p & 15u) == 0u)) return false;
+    pen = p & 0xfffu;
+    return true;
+}
+
+// screen_update's back layers: 3 and 2 opaque, then 1 and 0, the last drawn
+// winning; pen 0 where none draws.
+uint tile_back(int x, int y) {
+    uint pen;
+    if (tile_layer(0u, false, x, y, pen)) return pen;
+    if (tile_layer(2u, false, x, y, pen)) return pen;
+    if (tile_layer(4u, true, x, y, pen)) return pen;
+    if (tile_layer(6u, true, x, y, pen)) return pen;
+    return 0u;
+}
+
+float4 pen_color(uint argb) {
+    return float4(float((argb >> 16) & 0xffu), float((argb >> 8) & 0xffu), float(argb & 0xffu), 255.0) / 255.0;
+}
+
+// The back layers, behind the 3D layer, filling the target: 496 wide in the
+// centre, the widescreen margins as Video::fill_margins fills them.
+float4 ps_tiles_back(QuadOut i) : SV_Target {
+    const int margin = int(tiledata[0]);
+    const uint fill = tiledata[1];
+    const int out_w = kTileW + 2 * margin;
+    const int x = int(i.pos.x) - margin, y = int(i.pos.y);
+    if (margin > 0 && fill == 2u) { // stretched: column (x + 0.5) * W / out - 0.5, blended
+        const float u = clamp((float(x + margin) + 0.5) * float(kTileW) / float(out_w) - 0.5, 0.0, float(kTileW - 1));
+        const int a = int(u), b = min(a + 1, kTileW - 1);
+        const float f = u - float(a);
+        const uint ca = tiledata[kTilePens + tile_back(a, y)], cb = tiledata[kTilePens + tile_back(b, y)];
+        uint p = 0u;
+        for (uint k = 0u; k < 24u; k += 8u) {
+            const float c = float((ca >> k) & 0xffu) * (1.0 - f) + float((cb >> k) & 0xffu) * f;
+            p |= uint(c + 0.5) << k;
+        }
+        return pen_color(p);
+    }
+    int sx = x, sy = y;
+    if (x < 0 || x >= kTileW) {
+        if (fill == 1u) sx = 0, sy = 0; // the sky: the top-left pixel
+        else sx = x < 0 ? 0 : kTileW - 1;
+    }
+    return pen_color(tiledata[kTilePens + tile_back(sx, sy)]);
+}
+
+// The front layers, over the 3D layer: 3 to 0, the last drawn winning; holes
+// where none draws.
+float4 ps_tiles_front(QuadOut i) : SV_Target {
+    const int x = int(i.pos.x) - int(tiledata[0]), y = int(i.pos.y);
+    if (x < 0 || x >= kTileW) discard;
+    uint pen;
+    for (uint l = 1u; l < 8u; l += 2u)
+        if (tile_layer(l, false, x, y, pen)) return pen_color(tiledata[kTilePens + pen]);
+    discard;
+    return float4(0.0, 0.0, 0.0, 0.0);
+}

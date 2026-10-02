@@ -28,7 +28,10 @@ inline uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000u | (
 
 Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
     : tile_ram_(tile_ram), char_ram_(char_ram), screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
-      background_gpu_(size_t(W) * H), foreground_gpu_(size_t(W) * H) {
+      background_gpu_(size_t(W) * H), foreground_gpu_(size_t(W) * H), gpu_tile_words_(kGpuTileWords),
+      gpu_pens_(kGpuPens) {
+    static uint64_t instances = 0;
+    instance_ = ++instances;
     for (auto &p : pens_) p = rgb(0, 0, 0); // palette_device starts black
     for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
     for (int l = 0; l < 4; l++) pixmap_[l].assign(512 * 512, 0), flags_[l].assign(512 * 512, 0);
@@ -415,7 +418,34 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         system24_source_dirty_ = false;
     }
     profile_.tile_cache = ticks() - before;
-    if (external_3d_ && !cpu_layers_ && system24_gpu_compatible()) {
+#ifndef M2_VITA_RENDER_OPT
+    if (external_3d_ && desktop_) {
+        // Desktop hardware renderer: it draws the tilemap layers from the
+        // pixmaps, with this frame's registers and pens (the game may write
+        // them again before the frame is drawn). The CPU decides what the
+        // composition needs: how to fill the widescreen margins (the 3D
+        // coverage, estimated from the polygons: no CPU 3D layer here) and
+        // whether the HUD moves to the edges, which it does itself (the
+        // front layers drawn here; the condition panel's polygons move on
+        // the GPU, gpu_hud_shift).
+        rendered_now_ = false;
+        for (uint32_t i = 0; i < kGpuTileWords; ++i) gpu_tile_words_[i] = tile(kGpuTileFirst + i);
+        std::copy_n(pens_, kGpuPens, gpu_pens_.data());
+        if (margin_) coverage_ = polys.empty() ? 0 : raster_.coverage_estimate(polys, windows, crtc_x_ + margin_, crtc_y_);
+        hud_on_ = margin_ && hud_edges_ && raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
+        if (hud_on_) {
+            before = ticks();
+            std::fill(sys24_.begin(), sys24_.end(), 0u);
+            for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
+            foreground_gpu_.assign(size_t(width()) * H, 0u);
+            copy_front_hud_to_edges(foreground_gpu_);
+            ++foreground_generation_;
+            profile_.tile_draw += ticks() - before;
+        }
+        return;
+    }
+#endif
+    if (external_3d_ && !desktop_ && system24_gpu_compatible()) {
         // GXM composes the cached System-24 tile textures around the 3D
         // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
         rendered_now_ = false;
@@ -469,33 +499,6 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // Save the exact two System-24 layers separately. The Vita frontend
         // draws background -> GPU 3D -> foreground. No CPU polygon pixels are
         // produced in this mode, so raster_ms should remain zero.
-#ifndef M2_VITA_RENDER_OPT
-        if (cpu_layers_) {
-            // Desktop hardware renderer: both layers width() wide. Margins as
-            // the software path fills them, with the 3D coverage estimated
-            // from the polygons (no CPU 3D layer here); the HUD moved to the
-            // edges as there, and the condition panel's polygons with it on
-            // the GPU (gpu_hud_shift).
-            if (margin_) {
-                coverage_ = polys.empty() ? 0 : raster_.coverage_estimate(polys, windows, crtc_x_ + margin_, crtc_y_);
-                fill_margins();
-            }
-            background_gpu_.assign(screen_.begin(), screen_.end());
-            before = ticks();
-            std::fill(sys24_.begin(), sys24_.end(), 0u);
-            for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
-            profile_.tile_draw += ticks() - before;
-            foreground_gpu_.assign(screen_.size(), 0u);
-            hud_on_ = margin_ && hud_edges_ && raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
-            if (hud_on_) {
-                copy_front_hud_to_edges(foreground_gpu_);
-            } else {
-                for (int y = 0; y < H; ++y)
-                    std::copy_n(&sys24_[size_t(y) * W], W, &foreground_gpu_[size_t(y) * out_w + size_t(margin_)]);
-            }
-            return;
-        }
-#endif
         std::copy_n(screen_.data(), screen_.size(), background_gpu_.data());
 #ifndef M2_VITA_RENDER_OPT
         // Reference path has not drawn the post-3D tile pass yet.
@@ -686,7 +689,7 @@ void Video::set_wide_margin(int margin) {
 #ifdef M2_VITA_RENDER_OPT
     margin = 0; // the Vita compositor draws the 496-wide layers itself
 #endif
-    if (external_3d_ && !cpu_layers_) margin = 0;
+    if (external_3d_ && !desktop_) margin = 0;
     margin = std::max(margin, 0);
     if (margin == margin_) return;
     margin_ = margin;

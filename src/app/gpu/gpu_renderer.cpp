@@ -18,6 +18,9 @@ constexpr uint32_t kSheetWords = 0x80000;                 // one texture sheet (
 constexpr uint32_t kTexramBytes = kSheetWords * 4 * 2;    // both sheets
 constexpr uint32_t kLumaBytes = 0x20000;                  // luma RAM (one entry per dword)
 constexpr uint32_t kXlatEntries = 0x6000;                 // colour translation (0xc000 bytes of u16)
+constexpr uint32_t kTilePixBytes = 4 * 512 * 512 * 2;     // the four tilemap pixmaps, a u16 per pixel
+constexpr uint32_t kTileHeader = 16;                      // m2.hlsl tiledata: header, pens, tile words
+constexpr uint32_t kTileDataWords = kTileHeader + rt::Video::kGpuPens + rt::Video::kGpuTileWords / 2;
 
 } // namespace
 
@@ -59,8 +62,14 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
                                     k_vs_quad_msl, "vs_quad", SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
     SDL_GPUShader *ps_quad = shader(k_ps_quad_spv, sizeof k_ps_quad_spv, k_ps_quad_dxil, sizeof k_ps_quad_dxil,
                                     k_ps_quad_msl, "ps_quad", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1);
-    if (!vs_poly || !ps_poly || !vs_quad || !ps_quad) {
-        for (SDL_GPUShader *s : {vs_poly, ps_poly, vs_quad, ps_quad})
+    SDL_GPUShader *ps_back = shader(k_ps_tiles_back_spv, sizeof k_ps_tiles_back_spv, k_ps_tiles_back_dxil,
+                                    sizeof k_ps_tiles_back_dxil, k_ps_tiles_back_msl, "ps_tiles_back",
+                                    SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 2);
+    SDL_GPUShader *ps_front = shader(k_ps_tiles_front_spv, sizeof k_ps_tiles_front_spv, k_ps_tiles_front_dxil,
+                                     sizeof k_ps_tiles_front_dxil, k_ps_tiles_front_msl, "ps_tiles_front",
+                                     SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 2);
+    if (!vs_poly || !ps_poly || !vs_quad || !ps_quad || !ps_back || !ps_front) {
+        for (SDL_GPUShader *s : {vs_poly, ps_poly, vs_quad, ps_quad, ps_back, ps_front})
             if (s) SDL_ReleaseGPUShader(dev_, s);
         return false;
     }
@@ -122,9 +131,14 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     qi.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
     qi.target_info.has_depth_stencil_target = true; // same pass as the polygons
     quad_pipe_ = SDL_CreateGPUGraphicsPipeline(dev_, &qi);
+    // Tilemap layers: the same quad, composed per pixel.
+    qi.fragment_shader = ps_back;
+    back_pipe_ = SDL_CreateGPUGraphicsPipeline(dev_, &qi);
+    qi.fragment_shader = ps_front;
+    front_pipe_ = SDL_CreateGPUGraphicsPipeline(dev_, &qi);
 
-    for (SDL_GPUShader *s : {vs_poly, ps_poly, vs_quad, ps_quad}) SDL_ReleaseGPUShader(dev_, s);
-    if (!poly_pipe_ || !quad_pipe_) {
+    for (SDL_GPUShader *s : {vs_poly, ps_poly, vs_quad, ps_quad, ps_back, ps_front}) SDL_ReleaseGPUShader(dev_, s);
+    if (!poly_pipe_ || !quad_pipe_ || !back_pipe_ || !front_pipe_) {
         error_ = std::string("SDL_CreateGPUGraphicsPipeline: ") + SDL_GetError();
         shutdown();
         return false;
@@ -148,7 +162,11 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
     luma_ = SDL_CreateGPUBuffer(dev_, &sb);
     sb.size = kXlatEntries * 4;
     xlat_ = SDL_CreateGPUBuffer(dev_, &sb);
-    if (!sampler_ || !qbuf_ || !texram_ || !luma_ || !xlat_) {
+    sb.size = kTilePixBytes;
+    tilepix_ = SDL_CreateGPUBuffer(dev_, &sb);
+    sb.size = kTileDataWords * 4;
+    tiledata_ = SDL_CreateGPUBuffer(dev_, &sb);
+    if (!sampler_ || !qbuf_ || !texram_ || !luma_ || !xlat_ || !tilepix_ || !tiledata_) {
         error_ = std::string("SDL_GPU setup: ") + SDL_GetError();
         shutdown();
         return false;
@@ -159,16 +177,17 @@ bool GpuRenderer::init(SDL_GPUDevice *dev, SDL_GPUTextureFormat format) {
 void GpuRenderer::shutdown() {
     if (!dev_) return;
     if (poly_pipe_) SDL_ReleaseGPUGraphicsPipeline(dev_, poly_pipe_), poly_pipe_ = nullptr;
-    if (quad_pipe_) SDL_ReleaseGPUGraphicsPipeline(dev_, quad_pipe_), quad_pipe_ = nullptr;
+    for (SDL_GPUGraphicsPipeline **p : {&quad_pipe_, &back_pipe_, &front_pipe_})
+        if (*p) SDL_ReleaseGPUGraphicsPipeline(dev_, *p), *p = nullptr;
     if (sampler_) SDL_ReleaseGPUSampler(dev_, sampler_), sampler_ = nullptr;
-    for (auto &t : layers_)
-        if (t) SDL_ReleaseGPUTexture(dev_, t), t = nullptr;
+    if (front_) SDL_ReleaseGPUTexture(dev_, front_), front_ = nullptr;
     if (depth_) SDL_ReleaseGPUTexture(dev_, depth_), depth_ = nullptr;
     if (vbuf_) SDL_ReleaseGPUBuffer(dev_, vbuf_), vbuf_ = nullptr;
     if (qbuf_) SDL_ReleaseGPUBuffer(dev_, qbuf_), qbuf_ = nullptr;
-    for (SDL_GPUBuffer **b : {&texram_, &luma_, &xlat_})
+    for (SDL_GPUBuffer **b : {&texram_, &luma_, &xlat_, &tilepix_, &tiledata_})
         if (*b) SDL_ReleaseGPUBuffer(dev_, *b), *b = nullptr;
     texram_generation_ = ~0ull;
+    tile_instance_ = 0;
     if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_), upload_ = nullptr;
     vbuf_size_ = upload_size_ = 0;
     depth_w_ = depth_h_ = 0;
@@ -177,8 +196,7 @@ void GpuRenderer::shutdown() {
 // Textures and buffers big enough for this frame.
 bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
     if (w != depth_w_ || h != depth_h_) {
-        for (auto &t : layers_)
-            if (t) SDL_ReleaseGPUTexture(dev_, t), t = nullptr;
+        if (front_) SDL_ReleaseGPUTexture(dev_, front_), front_ = nullptr;
         if (depth_) SDL_ReleaseGPUTexture(dev_, depth_), depth_ = nullptr;
         SDL_GPUTextureCreateInfo ti{};
         ti.type = SDL_GPU_TEXTURETYPE_2D;
@@ -188,11 +206,11 @@ bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
         ti.num_levels = 1;
         ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM; // the layers' 0xAARRGGBB words
         ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        for (auto &t : layers_) t = SDL_CreateGPUTexture(dev_, &ti);
+        front_ = SDL_CreateGPUTexture(dev_, &ti);
         ti.format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
         ti.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
         depth_ = SDL_CreateGPUTexture(dev_, &ti);
-        if (!layers_[0] || !layers_[1] || !depth_) return false;
+        if (!front_ || !depth_) return false;
         depth_w_ = w, depth_h_ = h;
     }
     if (vert_bytes > vbuf_size_) {
@@ -204,8 +222,8 @@ bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
         vbuf_ = SDL_CreateGPUBuffer(dev_, &bi);
         if (!vbuf_) return false;
     }
-    const uint32_t need = uint32_t(w) * uint32_t(h) * 4 * 2 + uint32_t(sizeof(QuadVertex) * 6) + vert_bytes +
-                          kTexramBytes + kLumaBytes + kXlatEntries * 4;
+    const uint32_t need = uint32_t(w) * uint32_t(h) * 4 + uint32_t(sizeof(QuadVertex) * 6) + vert_bytes +
+                          kTexramBytes + kLumaBytes + kXlatEntries * 4 + kTilePixBytes + kTileDataWords * 4;
     if (need > upload_size_) {
         if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_);
         upload_size_ = need * 2;
@@ -327,71 +345,112 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     const uint32_t vert_bytes = uint32_t(verts_.size() * sizeof(PolyVertex));
     if (!ensure(w, h, vert_bytes)) return;
 
-    // upload: both layers, the layer quad, the polygon vertices
+    // The tilemap pixmaps' rows to upload, per layer: the span of the tile
+    // rows changed since tilepix_ was filled (everything for a new Video).
+    const uint64_t tile_generation = video.system24_texture_generation();
+    const bool all_tiles = video.instance() != tile_instance_ || tile_generation < tile_generation_;
+    for (int l = 0; l < 4; l++) {
+        int first = 64, last = -1;
+        for (unsigned r = 0; r < 64; r++) {
+            bool changed = all_tiles;
+            for (unsigned t = r * 64; !changed && t < r * 64 + 64; t++)
+                changed = video.system24_tile_generation(l, t) > tile_generation_;
+            if (changed) first = std::min(first, int(r)), last = int(r);
+        }
+        tile_rows_[l] = last < 0 ? Rows{0, 0} : Rows{uint32_t(first) * 8, uint32_t(last - first + 1) * 8};
+    }
+    tile_instance_ = video.instance();
+    tile_generation_ = tile_generation;
+
+    // upload: the CPU front layers (HUD at the edges only), the layer quad,
+    // the polygon vertices, the storage data
+    const bool cpu_front = video.cpu_front();
     const uint32_t layer_bytes = uint32_t(w) * uint32_t(h) * 4;
     auto *p = static_cast<uint8_t *>(SDL_MapGPUTransferBuffer(dev_, upload_, true));
-    const std::vector<uint32_t> *layers[2] = {&video.background_layer(), &video.foreground_layer()};
-    for (int l = 0; l < 2; l++) {
-        const size_t n = std::min(layers[l]->size() * 4, size_t(layer_bytes));
-        std::memcpy(p + l * layer_bytes, layers[l]->data(), n);
+    uint32_t at = 0;
+    if (cpu_front) {
+        const std::vector<uint32_t> &front = video.foreground_layer();
+        std::memcpy(p, front.data(), std::min(front.size() * 4, size_t(layer_bytes)));
+        at = layer_bytes;
     }
     const float fw = float(w), fh = float(h);
     const QuadVertex quad[6] = {{0, 0, 0, 0}, {fw, 0, 1, 0}, {0, fh, 0, 1}, {fw, 0, 1, 0}, {fw, fh, 1, 1}, {0, fh, 0, 1}};
-    std::memcpy(p + 2 * layer_bytes, quad, sizeof quad);
-    if (vert_bytes) std::memcpy(p + 2 * layer_bytes + sizeof quad, verts_.data(), vert_bytes);
-    // storage data: luma RAM and the gamma'd colour translation every frame,
-    // texture RAM when it changed
+    const uint32_t quad_at = at;
+    std::memcpy(p + quad_at, quad, sizeof quad);
+    const uint32_t verts_at = quad_at + uint32_t(sizeof quad);
+    if (vert_bytes) std::memcpy(p + verts_at, verts_.data(), vert_bytes);
+    at = verts_at + vert_bytes;
+    // luma RAM and the gamma'd colour translation every frame, texture RAM when it changed
     const rt::VideoMem &mem = video.gpu_mem();
-    const uint32_t data_at = 2 * layer_bytes + uint32_t(sizeof quad) + vert_bytes;
+    const uint32_t data_at = at;
+    const bool have_mem = mem.lumaram && mem.colorxlat && mem.tex0 && mem.tex1;
     bool tex_changed = false;
-    if (mem.lumaram && mem.colorxlat && mem.tex0 && mem.tex1) {
+    if (have_mem) {
         std::memcpy(p + data_at, mem.lumaram, kLumaBytes);
         xlat_table_.resize(kXlatEntries);
         for (uint32_t i = 0; i < kXlatEntries; i++) xlat_table_[i] = gamma_[le16(mem.colorxlat, i) & 0xff];
         std::memcpy(p + data_at + kLumaBytes, xlat_table_.data(), kXlatEntries * 4);
+        at += kLumaBytes + kXlatEntries * 4;
         tex_changed = mem.tex_generation != texram_generation_; // the board counts texture RAM writes
         if (tex_changed) {
             texram_generation_ = mem.tex_generation;
-            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4, mem.tex0, kSheetWords * 4);
-            std::memcpy(p + data_at + kLumaBytes + kXlatEntries * 4 + kSheetWords * 4, mem.tex1, kSheetWords * 4);
+            std::memcpy(p + at, mem.tex0, kSheetWords * 4);
+            std::memcpy(p + at + kSheetWords * 4, mem.tex1, kSheetWords * 4);
+            at += kTexramBytes;
         }
     }
+    // tilemaps: the changed pixmap rows, packed as m2.hlsl reads them (pen, category in bit 15)
+    uint32_t rows_at[4];
+    for (int l = 0; l < 4; l++) {
+        rows_at[l] = at;
+        const uint32_t n = tile_rows_[l].count * 512;
+        if (!n) continue;
+        const uint16_t *pixels = video.system24_pixels(l) + size_t(tile_rows_[l].first) * 512;
+        const uint8_t *flags = video.system24_flags(l) + size_t(tile_rows_[l].first) * 512;
+        uint16_t *dst = reinterpret_cast<uint16_t *>(p + at);
+        for (uint32_t i = 0; i < n; i++) dst[i] = uint16_t(pixels[i] | (flags[i] & 1) << 15);
+        at += n * 2;
+    }
+    // the header (widescreen margin and its fill), pens, tile words
+    tiledata_words_.assign(kTileDataWords, 0);
+    tiledata_words_[0] = uint32_t(video.margin());
+    tiledata_words_[1] = uint32_t(video.backdrop()); // Edges 0, Sky 1, Stretch 2, as m2.hlsl
+    std::memcpy(&tiledata_words_[kTileHeader], video.gpu_pens(), rt::Video::kGpuPens * 4);
+    std::memcpy(&tiledata_words_[kTileHeader + rt::Video::kGpuPens], video.gpu_tile_words(), rt::Video::kGpuTileWords * 2);
+    const uint32_t tiledata_at = at;
+    std::memcpy(p + tiledata_at, tiledata_words_.data(), kTileDataWords * 4);
     SDL_UnmapGPUTransferBuffer(dev_, upload_);
 
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
-    for (int l = 0; l < 2; l++) {
+    // cycle: the whole buffer is replaced, so a buffer still in use may be swapped for a fresh one
+    auto upload_buffer = [&](uint32_t from, SDL_GPUBuffer *buffer, uint32_t offset, uint32_t size, bool cycle = true) {
+        SDL_GPUTransferBufferLocation src{upload_, from};
+        SDL_GPUBufferRegion dst{buffer, offset, size};
+        SDL_UploadToGPUBuffer(copy, &src, &dst, cycle);
+    };
+    if (cpu_front) {
         SDL_GPUTextureTransferInfo src{};
         src.transfer_buffer = upload_;
-        src.offset = uint32_t(l) * layer_bytes;
         src.pixels_per_row = Uint32(w);
         SDL_GPUTextureRegion dst{};
-        dst.texture = layers_[l];
+        dst.texture = front_;
         dst.w = Uint32(w);
         dst.h = Uint32(h);
         dst.d = 1;
         SDL_UploadToGPUTexture(copy, &src, &dst, true);
     }
-    SDL_GPUTransferBufferLocation qsrc{upload_, 2 * layer_bytes};
-    SDL_GPUBufferRegion qdst{qbuf_, 0, sizeof quad};
-    SDL_UploadToGPUBuffer(copy, &qsrc, &qdst, true);
-    if (vert_bytes) {
-        SDL_GPUTransferBufferLocation vsrc{upload_, 2 * layer_bytes + uint32_t(sizeof quad)};
-        SDL_GPUBufferRegion vdst{vbuf_, 0, vert_bytes};
-        SDL_UploadToGPUBuffer(copy, &vsrc, &vdst, true);
+    upload_buffer(quad_at, qbuf_, 0, sizeof quad);
+    if (vert_bytes) upload_buffer(verts_at, vbuf_, 0, vert_bytes);
+    if (have_mem) {
+        upload_buffer(data_at, luma_, 0, kLumaBytes);
+        upload_buffer(data_at + kLumaBytes, xlat_, 0, kXlatEntries * 4);
+        if (tex_changed) upload_buffer(data_at + kLumaBytes + kXlatEntries * 4, texram_, 0, kTexramBytes);
     }
-    if (mem.lumaram && mem.colorxlat) {
-        SDL_GPUTransferBufferLocation lsrc{upload_, data_at};
-        SDL_GPUBufferRegion ldst{luma_, 0, kLumaBytes};
-        SDL_UploadToGPUBuffer(copy, &lsrc, &ldst, true);
-        SDL_GPUTransferBufferLocation xsrc{upload_, data_at + kLumaBytes};
-        SDL_GPUBufferRegion xdst{xlat_, 0, kXlatEntries * 4};
-        SDL_UploadToGPUBuffer(copy, &xsrc, &xdst, true);
-    }
-    if (tex_changed) {
-        SDL_GPUTransferBufferLocation tsrc{upload_, data_at + kLumaBytes + kXlatEntries * 4};
-        SDL_GPUBufferRegion tdst{texram_, 0, kTexramBytes};
-        SDL_UploadToGPUBuffer(copy, &tsrc, &tdst, true);
-    }
+    for (int l = 0; l < 4; l++)
+        if (tile_rows_[l].count)
+            upload_buffer(rows_at[l], tilepix_, (uint32_t(l) * 512 * 512 + tile_rows_[l].first * 512) * 2,
+                          tile_rows_[l].count * 512 * 2, false); // rows: the rest must stay
+    upload_buffer(tiledata_at, tiledata_, 0, kTileDataWords * 4);
     SDL_EndGPUCopyPass(copy);
 
     SDL_GPUColorTargetInfo ct{};
@@ -413,16 +472,22 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     SDL_PushGPUVertexUniformData(cmd, 0, screen, sizeof screen);
     const SDL_Rect full{0, 0, w, h};
 
-    auto draw_layer = [&](int l) {
-        SDL_BindGPUGraphicsPipeline(pass, quad_pipe_);
+    // a full-frame quad through `pipe`: the tilemap layers, or the CPU front layers
+    auto draw_quad = [&](SDL_GPUGraphicsPipeline *pipe) {
+        SDL_BindGPUGraphicsPipeline(pass, pipe);
         SDL_SetGPUScissor(pass, &full);
         SDL_GPUBufferBinding qb{qbuf_, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &qb, 1);
-        SDL_GPUTextureSamplerBinding tsb{layers_[l], sampler_};
-        SDL_BindGPUFragmentSamplers(pass, 0, &tsb, 1);
+        if (pipe == quad_pipe_) {
+            SDL_GPUTextureSamplerBinding tsb{front_, sampler_};
+            SDL_BindGPUFragmentSamplers(pass, 0, &tsb, 1);
+        } else {
+            SDL_GPUBuffer *storage[2] = {tilepix_, tiledata_};
+            SDL_BindGPUFragmentStorageBuffers(pass, 0, storage, 2);
+        }
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
     };
-    draw_layer(0); // background
+    draw_quad(back_pipe_);
     if (!verts_.empty()) {
         SDL_BindGPUGraphicsPipeline(pass, poly_pipe_);
         SDL_GPUBufferBinding vb{vbuf_, 0};
@@ -435,7 +500,7 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
             SDL_DrawGPUPrimitives(pass, b.count, 1, b.first, 0);
         }
     }
-    draw_layer(1); // foreground
+    draw_quad(cpu_front ? quad_pipe_ : front_pipe_);
     SDL_EndGPURenderPass(pass);
 }
 

@@ -2,6 +2,25 @@
 
 ## Current state
 
+**Tilemaps, step 2: drawn on the GPU (hardware renderer).** m2.hlsl
+ps_tiles_back / ps_tiles_front compose the System 24 layers per pixel with
+Video::draw's rules (window masks, per-line scroll, the split modes, the
+back pass's opaque 3 and 2), then the widescreen margins as fill_margins
+(edge colours, the sky's colour, or stretched). Inputs: the decoded pixmaps
+(a u16 per pixel, pen and category; uploaded by the span of tile rows
+changed since the last upload, by the tile generations; never with
+SDL's cycle flag, which would drop the rows not sent), and a per-frame
+snapshot Video takes at screen_update of tile RAM 0x4000-0x6fff and the
+4,096 pens. Video's external-3D `cpu_layers` is now `desktop`: the CPU only
+estimates the 3D coverage (margin fill) and, with the HUD at the edges in a
+race, still draws the front layers and moves the HUD blobs (uploaded as a
+texture then). Checked against the previous build (CPU-drawn layers):
+byte-identical frames, 0 pixels differ, over race_basic at 4:3, 16:9,
+16:9 stretched and 21:9 with the HUD at the edges, the advanced and expert
+courses, test mode and test drive (622 frames; the races use split modes
+and per-line scroll). race_basic 4:3: 400 -> 526 frames/s; game 1.82 ->
+1.03 ms, renderer CPU 0.53 -> 0.33 ms, GPU 0.16 -> 0.54 ms.
+
 **Tilemaps, step 1: decode only changed tiles (both renderers).** Measured
 first (m2gpushot --bench now reads Video's own timers): of the hardware
 frame's 2.2 ms game time, the CPU tilemaps took 1.27 ms: decoding the four
@@ -596,18 +615,13 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Next, in order
 
-1. Draw distance for the road: the 14-section window (see Current state)
-   is shared with game logic; extending only what is drawn needs the draw
-   side of it separated. Then the game's own 4:3 object culling, if
-   widescreen shows pop-in.
-2. Run `daytona` on Windows (Direct3D 12 and Vulkan) and fix whatever MSVC
-   rejects. macOS (Metal) is done (Current state).
-   Harvest the states `seed_scan.py` found in MAME (which state the windowed
-   game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep them.
-3. GPU rasterizer for the 3D layer (SDL_GPU pipelines; shaders compiled to
-   SPIR-V, DXIL and MSL), measured against the CPU reference.
-4. Wheel support and control remapping; resolution options (widescreen is
-   done).
+1. Run `daytona` on Windows (Direct3D 12 and Vulkan) with the hardware
+   renderer; harvest the states `seed_scan.py` found in MAME (which state
+   the windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and
+   lockstep the newly seeded code against MAME.
+2. Hardware renderer: exact pixels against the CPU reference (stage 4), then
+   supersampling / internal resolution.
+3. Wheel support and control remapping.
 
 ## Open decisions
 
