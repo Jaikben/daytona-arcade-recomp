@@ -2,6 +2,14 @@
 
 ## Current state
 
+**Setup builds the 1994 set too.** scripts/setup.py builds every set it
+finds in roms/: daytona93 into build/ (as before), daytona (Revision A) into
+build-daytona/ (configured as the main build, with -DM2_ROMSET), and prints
+how to start each. The rejection and no-ROM messages name both sets.
+getting-started.md and the README describe both, including Revision A's
+first run (a single cabinet set in test mode). Checked: setup.py from a
+configured tree with both sets in roms/: both games built, tests pass.
+
 **Widescreen: scene or 2D screen, by window and coverage.** The margins'
 fill (stretched or sky behind a 3D scene, each row's edge colours on a 2D
 screen) was chosen by "the 3D covers half the screen". Attract and race

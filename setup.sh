@@ -6,7 +6,8 @@
 #
 # Linux: apt (Debian/Ubuntu), dnf (Fedora/RHEL), pacman (Arch) or zypper
 # (openSUSE); uses sudo. macOS: Xcode command line tools and Homebrew.
-# Put your own ROM set at roms/daytona93.zip to have the game recompiled too.
+# Put your own ROM set at roms/daytona93.zip (Deluxe '93) and/or
+# roms/daytona.zip (Revision A, 1994) to have the game recompiled too.
 set -eu
 cd "$(dirname "$0")"
 

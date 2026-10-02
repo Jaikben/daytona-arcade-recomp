@@ -6,16 +6,20 @@ builds it. You run one command; it takes a while the first time.
 
 ## What you need
 
-1. **Your own `daytona93` ROM set.** This is *Daytona USA Deluxe '93*, the
-   set MAME calls `daytona93`, as a `.zip` or `.7z`. No game data comes
-   with this project: the game is built from your copy.
+1. **Your own Daytona USA ROM set**, as a `.zip` or `.7z`, one of these
+   two (or both: each is built as its own game). No game data comes with
+   this project: the game is built from your copy.
 
-   It must be that exact set. Other Daytona USA sets (`daytona`,
-   `daytonas`, `daytonat` and so on) have different program ROMs and are
-   rejected, even if you rename the file. You can tell `daytona93` apart:
-   it contains `epr-16530a.12`, `epr-16531a.13`, `epr-16534a.6` and
-   `epr-16535a.7`. A set that has `epr-16722a.12` instead is a different
-   version.
+   - **`daytona93`**: *Daytona USA Deluxe '93*, the set MAME calls
+     `daytona93`. It contains `epr-16530a.12`, `epr-16531a.13`,
+     `epr-16534a.6` and `epr-16535a.7`.
+   - **`daytona`**: *Daytona USA Revision A* (1994), the set MAME calls
+     `daytona`. It contains `epr-16722a.12`, `epr-16723a.13`,
+     `epr-16724a.6` and `epr-16725a.7`.
+
+   Other Daytona USA sets (`daytonas`, `daytonat`, `daytonase` and so on)
+   have different program ROMs and are rejected, even if you rename the
+   file.
 
 2. **A 64-bit computer** running Windows 10 or 11, macOS, or a common Linux
    distribution (Debian/Ubuntu, Fedora, Arch or openSUSE), with an internet
@@ -41,11 +45,13 @@ Stay in this folder for every command below.
 ## 2. Put your ROM set in place
 
 Make a folder called `roms` inside the project and copy your set into it,
-named **exactly** `daytona93.zip` (or `daytona93.7z`):
+named **exactly** after the set: `daytona93.zip` for Deluxe '93,
+`daytona.zip` for Revision A (or `.7z`). Both can be there.
 
     daytona-arcade-recomp/
         roms/
             daytona93.zip
+            daytona.zip       (optional: Revision A, 1994)
 
 macOS and Linux:
 
@@ -93,9 +99,15 @@ Setup prints each step. It is done when you see:
 
     == Done
 
-    The game is built. Start it with:
+    Daytona USA Deluxe '93 (daytona93) is built. Start it with:
 
         build/daytona
+
+With Revision A in `roms/` too, it is built as well, in its own folder:
+
+    Daytona USA Revision A, 1994 (daytona) is built. Start it with:
+
+        build-daytona/daytona
 
 If it stops before that, see [Troubleshooting](#troubleshooting).
 
@@ -117,9 +129,13 @@ have the window wait until the game closes, use
 shortcut, the game writes its messages to `daytona.log` in its settings
 folder (see Starting again from scratch for where that is).
 
+Revision A is `build-daytona/daytona` (`build-daytona\Release\daytona.exe`
+on Windows); it keeps its own settings and saves.
+
 A launcher opens first. On the **Game** tab, click **Browse...**, choose
-the same `roms/daytona93.zip`, and wait for the line under it to say "All
-30 files verified." Then click **Start**. The launcher remembers the file
+the same `roms/daytona93.zip` (`roms/daytona.zip` for Revision A), and
+wait for the line under it to say "All 30 files verified." Then click
+**Start**. The launcher remembers the file
 next time. **Controls** sets your keys, gamepad and wheel. In the game,
 **Esc** brings the launcher back.
 
@@ -162,6 +178,11 @@ Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).
 
+**Revision A, first run:** its factory settings are a linked twin
+cabinet, so it waits at the settings screen for a second cabinet. Press
+**F2** (Test), go to the game settings, set the cabinet to a single cabinet
+(and the link off), and leave test mode. That is saved, once.
+
 To skip the launcher, tick **Skip launcher** on the Game tab: from then on
 the game starts straight away (Esc still brings the launcher back, where you
 can untick it). If the ROM set is missing or wrong, the launcher shows
@@ -187,17 +208,19 @@ The script is `./setup.sh`.
 
 **`No ROM set: the tools are built, the game is not`**, or
 **`build/daytona: no such file or directory`**
-Setup did not find `roms/daytona93.zip` or `roms/daytona93.7z`. Check the
-folder is called `roms`, is inside the project folder, and the file has
-exactly that name (not `daytona.zip`, not `daytona93.zip.zip`: Windows can
-hide the extension). Setup lists any archives it found in `roms/`. Fix it
-and run setup again.
+Setup did not find `roms/daytona93.zip` or `roms/daytona.zip` (or `.7z`).
+Check the folder is called `roms`, is inside the project folder, and the
+file is named exactly after its set (`daytona93.zip` for Deluxe '93,
+`daytona.zip` for Revision A; not `daytona93.zip.zip`: Windows can hide the
+extension). Setup lists any archives it found in `roms/` under other names.
+Fix it and run setup again.
 
 **`m2import: missing epr-16530a.12`** (or another file), then
-**`your ROM set was rejected`**
-The file is not the `daytona93` set, or is incomplete. See
-[What you need](#what-you-need). Renaming a different set does not help:
-its program is different.
+**`your daytona93 ROM set ... was rejected`**
+The file is not the set its name says (`daytona93.zip` must be Deluxe '93,
+`daytona.zip` Revision A), or is incomplete. See
+[What you need](#what-you-need). A set under the other name works; a
+different set renamed does not: its program is different.
 
 **`your ROM set was accepted, but recompiling or building the game
 failed`**
@@ -229,7 +252,8 @@ Windows" and "MSBuild support for LLVM (clang-cl) toolset". Then run
 
 **Start is greyed out in the launcher**
 The line under the ROM path says why. If it says files are missing or
-wrong, the file you chose is not the `daytona93` set. If it cannot open the
+wrong, the file you chose is not the set this build is for (`daytona93`
+for `build/daytona`, `daytona` for `build-daytona/daytona`). If it cannot open the
 file, click **Browse...** and choose it again.
 
 **The game closes straight away, mentioning `SDL_CreateGPUDevice`**
@@ -250,9 +274,14 @@ below. They say which graphics driver and renderer are in use (for example
 `daytona: renderer hardware (GPU)`), and why the hardware renderer could not
 start if it could not.
 
+**Revision A stays on a screen of settings (LINK ID, CABINET TWIN)**
+It is waiting for a second, linked cabinet. Set a single cabinet in test
+mode (F2), as under [Play](#4-play).
+
 **Starting again from scratch**
-Delete the `build` folder and run setup again. Your ROM set in `roms/` is
-kept. Launcher settings, the game's settings EEPROM and backup RAM are in:
+Delete the `build` folder (and `build-daytona`) and run setup again. Your
+ROM sets in `roms/` are kept. Launcher settings, the game's settings EEPROM
+and backup RAM are in (`daytona` instead of `daytona93` for Revision A):
 
 - macOS: `~/Library/Application Support/daytona-recomp/daytona93/`
 - Windows: `%APPDATA%\daytona-recomp\daytona93\`

@@ -6,8 +6,9 @@ and the fixed-function hardware (geometrizer, rasterizer, tilemaps) is native
 C++. No interpreter, no emulation core. MAME is used only as a test oracle.
 See `docs/daytona-usa-recomp-design.md` and `HANDOFF.md`.
 
-No game data is in this repository. You need your own `daytona93` ROM set
-(a MAME-format `.zip` or `.7z`).
+No game data is in this repository. You need your own ROM set (a
+MAME-format `.zip` or `.7z`): `daytona93` (Daytona USA Deluxe '93) or
+`daytona` (Revision A, 1994), or both.
 
 ## Setup
 
@@ -16,9 +17,10 @@ by step for Windows, macOS and Linux, with fixes for the usual problems.
 
 In short:
 
-1. Copy your `daytona93` ROM set to `roms/daytona93.zip` (or `.7z`) in the
-   project folder, with exactly that name. Only the `daytona93` set (Daytona
-   USA Deluxe '93) works; other Daytona sets are rejected.
+1. Copy your ROM set into `roms/` in the project folder, named exactly after
+   the set: `roms/daytona93.zip` (Daytona USA Deluxe '93) and/or
+   `roms/daytona.zip` (Revision A, 1994), or `.7z`. Each is built as its own
+   game; other Daytona sets are rejected.
 2. Run setup. Linux or macOS:
 
        ./setup.sh
@@ -52,7 +54,8 @@ Visual Studio 2022 Build Tools on Windows, Homebrew packages on macOS, your
 distribution's packages on Linux), fetch the pinned dependencies into
 `extern/`, build, and run the tests. Put your ROM set at
 `roms/daytona93.zip` (or `.7z`) first and the game code is recompiled as well (into
-`build/`, never committed). Already have a toolchain? Run
+`build/`, never committed); Revision A at `roms/daytona.zip` is recompiled
+into `build-daytona/`. Already have a toolchain? Run
 `python3 scripts/setup.py` directly.
 
 Options: `--msvc` (setup.ps1 only: Microsoft's compiler), `--test-extras`
@@ -60,12 +63,11 @@ Options: `--msvc` (setup.ps1 only: Microsoft's compiler), `--test-extras`
 test), `--build-mame` (the patched MAME that records validation traces;
 Linux and macOS).
 
-After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
-The 1994 set (`daytona`, Revision A) can be built alongside, for comparison:
-put it at `roms/daytona.7z` (or .zip) and run
-`python3 scripts/recompile.py --set daytona --build-dir build-daytona`;
-the game is then `build-daytona/daytona`. Its default settings are a linked
-twin cabinet: set a single cabinet once in test mode (F2).
+After changing the recompiler or the seeds: `python3 scripts/recompile.py`
+(and `python3 scripts/recompile.py --set daytona --build-dir build-daytona`
+for Revision A). Revision A is `build-daytona/daytona`, with its own
+settings and saves. Its factory settings are a linked twin cabinet, which
+waits for a second cabinet: set a single cabinet once in test mode (F2).
 
 ## Playing
 
