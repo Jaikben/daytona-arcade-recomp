@@ -126,6 +126,12 @@ private:
     void tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int minx, int maxx, int miny, int maxy, int flags);
 
     uint64_t ticks() const { return profile_clock_ ? profile_clock_() : 0; }
+#ifndef M2_VITA_RENDER_OPT
+    void decode_layers();                      // build_layer for changed tiles only
+    std::vector<uint8_t> dec_chars_, dec_char_dirty_; // char RAM as last decoded; characters changed since
+    std::vector<uint16_t> dec_tiles_;          // tile values as last decoded
+    bool dec_valid_ = false;
+#endif
     ProfileClock profile_clock_ = nullptr;
     VideoProfile profile_;
 #ifdef M2_VITA_RENDER_OPT

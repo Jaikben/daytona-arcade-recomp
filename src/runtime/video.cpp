@@ -33,6 +33,11 @@ Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
     for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
     for (int l = 0; l < 4; l++) pixmap_[l].assign(512 * 512, 0), flags_[l].assign(512 * 512, 0);
     system24_tile_generations_.resize(4 * 4096);
+#ifndef M2_VITA_RENDER_OPT
+    dec_chars_.resize(0x80000);
+    dec_char_dirty_.resize(0x4000);
+    dec_tiles_.resize(4 * 4096);
+#endif
 #ifdef M2_VITA_RENDER_OPT
     character_copy_.resize(0x80000);
     character_dirty_.resize(0x4000);
@@ -77,6 +82,11 @@ void Video::build_layer(int layer) {
             (val & 0x8000 ? foreground_dirty_ : background_dirty_) = true;
         }
         previous = val;
+#else
+        // Desktop: only tiles whose value or character changed (decode_layers).
+        uint16_t &previous = dec_tiles_[base + t];
+        if (dec_valid_ && previous == val && !dec_char_dirty_[code]) continue;
+        previous = val;
 #endif
         ++profile_.tiles_rebuilt;
         system24_source_dirty_ = true;
@@ -95,6 +105,36 @@ void Video::build_layer(int layer) {
             }
     }
 }
+
+#ifndef M2_VITA_RENDER_OPT
+// The four layers' pixmaps, re-decoding only tiles whose tile value or
+// character changed since the last frame: the same pixmaps as decoding all
+// 16,384 tiles every frame, at a fraction of the cost (in a race only the
+// HUD's digits change). Characters are compared (256-byte pages, then 32-byte
+// characters) only on frames the game wrote character RAM.
+void Video::decode_layers() {
+    if (dec_valid_ && (character_memory_touched_ || !write_tracking_)) {
+        std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+        constexpr size_t kPage = 256;
+        for (size_t page = 0; page < dec_chars_.size(); page += kPage) {
+            if (std::memcmp(char_ram_ + page, dec_chars_.data() + page, kPage) == 0) continue;
+            for (size_t c = page / 32; c < (page + kPage) / 32; ++c)
+                if (std::memcmp(char_ram_ + c * 32, dec_chars_.data() + c * 32, 32) != 0) {
+                    dec_char_dirty_[c] = 1;
+                    ++profile_.characters_changed;
+                }
+            std::memcpy(dec_chars_.data() + page, char_ram_ + page, kPage);
+        }
+    } else if (dec_valid_) {
+        std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+    } else {
+        std::memcpy(dec_chars_.data(), char_ram_, dec_chars_.size());
+    }
+    for (int l = 0; l < 4; l++) build_layer(l);
+    dec_valid_ = true;
+    character_memory_touched_ = tile_memory_touched_ = false;
+}
+#endif
 
 #ifdef M2_VITA_RENDER_OPT
 void Video::update_tile_cache() {
@@ -368,7 +408,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
 #ifdef M2_VITA_RENDER_OPT
     update_tile_cache();
 #else
-    for (int l = 0; l < 4; l++) build_layer(l);
+    decode_layers();
 #endif
     if (system24_source_dirty_) {
         ++system24_texture_generation_;

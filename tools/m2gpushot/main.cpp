@@ -103,12 +103,22 @@ int main(int argc, char **argv) {
         if (bench) {
             using clk = std::chrono::steady_clock;
             double t_game = 0, t_cpu = 0, t_wait = 0;
+            // the CPU tilemap work inside the game's frame (Video's own timers, nanoseconds)
+            game.board().video().set_profile_clock([]() -> uint64_t {
+                return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            });
+            double t_tile_cache = 0, t_tile_draw = 0, t_composite = 0;
             SDL_GPUFence *last = nullptr;
             const auto t0 = clk::now();
             for (uint64_t f = 0; f < frames; f++) {
                 const auto a = clk::now();
                 game.run_frame(script.at(game.board().frame()));
                 const auto b = clk::now();
+                const rt::VideoProfile &vp = game.board().video().last_profile();
+                t_tile_cache += double(vp.tile_cache) * 1e-9;
+                t_tile_draw += double(vp.tile_draw) * 1e-9;
+                t_composite += double(vp.composite) * 1e-9;
                 if (last) { // one frame in flight, as a window would have
                     SDL_WaitForGPUFences(dev, true, &last, 1);
                     SDL_ReleaseGPUFence(dev, last);
@@ -128,6 +138,10 @@ int main(int argc, char **argv) {
                         "renderer CPU %.2f ms, waiting for the GPU %.2f ms\n",
                         frames, total, double(frames) / total, t_game * 1e3 / double(frames),
                         t_cpu * 1e3 / double(frames), t_wait * 1e3 / double(frames));
+            std::printf("m2gpushot: of the game's time, CPU tilemaps per frame: decoding layers %.2f ms, "
+                        "drawing them %.2f ms, composing %.2f ms\n",
+                        t_tile_cache * 1e3 / double(frames), t_tile_draw * 1e3 / double(frames),
+                        t_composite * 1e3 / double(frames));
             gpu.shutdown();
             SDL_DestroyGPUDevice(dev);
             return 0;

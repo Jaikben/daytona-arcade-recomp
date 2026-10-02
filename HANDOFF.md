@@ -2,6 +2,18 @@
 
 ## Current state
 
+**Tilemaps, step 1: decode only changed tiles (both renderers).** Measured
+first (m2gpushot --bench now reads Video's own timers): of the hardware
+frame's 2.2 ms game time, the CPU tilemaps took 1.27 ms: decoding the four
+512x512 layers 0.55 ms (all 16,384 tiles, every frame), drawing them with the
+scroll/split/mask rules 0.63 ms, composing 0.09 ms. Video::decode_layers
+(desktop; the Vita path keeps its own cache) re-decodes only tiles whose
+value or character changed, comparing character RAM (256-byte pages, then
+32-byte characters) only on frames the game wrote it. Same pixmaps: race,
+time attack, test mode and attract screen hashes unchanged. Decoding 0.55 ->
+0.02 ms; hardware 343 -> 409 frames/s, software race 189 -> 204. Next: the
+layers drawn on the GPU (0.65 ms drawing + 0.09 composing).
+
 **Vulkan application name (MangoHud showed "SDL").** SDL's Vulkan backend
 hard-codes VkApplicationInfo: no application name, engine "SDLGPU", which
 overlays such as MangoHud show instead of the API; SDL has no property to
