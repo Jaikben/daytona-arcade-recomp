@@ -31,7 +31,7 @@ linked attract (通信システム 2人まで対戦できます), both through t
 course and transmission select, a race with POSITION /2 on both, red car
 (car 1) and blue car (car 2); "cabinet 1 of 2" / "2 of 2"; the link lost
 when the other cabinet quits. Not checked: two computers, Wi-Fi, frame
-sync, more than two cabinets, the windowed app linked (built, not run).
+sync, more than three cabinets.
 First two-computer try (Mac 192.168.1.52 slave, port 15112, next
 192.168.1.2:15113; the other the master): NETWORK CHECKING, because the
 other computer was not listening on 15113 (connection refused: its port was
@@ -48,6 +48,8 @@ any unsupported effect as a fault. Now it plays without the vibrato and
 says so once in the log; invalid data and callback failures still stop it.
 Open: the LFO in the native mixer (the driver's controller 0x01 handler to
 MultiPCM registers 6/7, MAME's multipcm LFO).
+Tested by the user: three computers linked (Windows, macOS and Linux), all
+played well.
 
 **The seed_scan seeds checked against MAME (daytona93).** A local MAME
 build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the
