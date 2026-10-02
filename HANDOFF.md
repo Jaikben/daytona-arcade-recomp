@@ -2,6 +2,21 @@
 
 ## Current state
 
+**Super sampling (hardware renderer).** Launcher > Game > Super sampling:
+Off, 2x, 3x, 4x (`supersampling=` in launcher.ini; m2gpushot
+`--scale N`). GpuRenderer::render draws into a target `scale` times the
+frame: vertices stay in original pixels (the viewport scales them), clip
+rectangles and the depth buffer scale, the tile shaders map target pixels
+back to original ones (tiledata[2]; tile pixels repeated), and textures
+take a finer mip level, log2(scale) levels (texlod + 128 log2(scale); the
+rasterizer picks levels from z, not screen size). The checker pattern is
+per target pixel. main draws it into its own texture with mip levels and
+shows the level nearest the window's size, so a frame bigger than the
+window is averaged down (supersampling). 1x: byte-identical to before (104
+race frames, 16:9). race_basic 16:9 headless (Metal): 455 / 389 / 295 /
+265 frames/s at 1x / 2x / 3x / 4x. Checked: a 3x race frame (no cracks,
+HUD in place) and the app at 3x (700 frames).
+
 **Tilemaps, step 2: drawn on the GPU (hardware renderer).** m2.hlsl
 ps_tiles_back / ps_tiles_front compose the System 24 layers per pixel with
 Video::draw's rules (window masks, per-line scroll, the split modes, the
@@ -619,8 +634,7 @@ Running the plugin (user's machine, with their ROM set):
 1. Harvest the states `seed_scan.py` found in MAME (which state the
    windowed game was in at `0x1d8c`, what reaches `0x2266f8`) and lockstep
    the newly seeded code against MAME.
-2. Hardware renderer: exact pixels against the CPU reference (stage 4), then
-   supersampling / internal resolution.
+2. Hardware renderer: exact pixels against the CPU reference (stage 4).
 3. Wheel support and control remapping.
 
 ## Open decisions

@@ -24,6 +24,7 @@ struct Config {
     bool stretch_backdrop = false; // with widescreen, in-game: the tile backdrop stretched across the width, else plain sky
     int draw_distance = 0;     // scenery: 0 = the game's own, -2..+2 (rt::Enhance)
     int draw_mode = 0;         // 0 double buffered (every frame), 1 single buffered (every 2nd), 2 every third frame
+    int supersampling = 1;     // hardware renderer: drawn at 1 (off) to 4 times the original resolution
     static constexpr double kMaxAspect = 21.0 / 9.0;
     double aspect_ratio() const; // width / height; 0 = original
     Controls controls;

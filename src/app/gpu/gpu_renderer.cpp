@@ -190,28 +190,34 @@ void GpuRenderer::shutdown() {
     tile_instance_ = 0;
     if (upload_) SDL_ReleaseGPUTransferBuffer(dev_, upload_), upload_ = nullptr;
     vbuf_size_ = upload_size_ = 0;
-    depth_w_ = depth_h_ = 0;
+    depth_w_ = depth_h_ = front_w_ = front_h_ = 0;
 }
 
 // Textures and buffers big enough for this frame.
-bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
-    if (w != depth_w_ || h != depth_h_) {
+bool GpuRenderer::ensure(int w, int h, int scale, uint32_t vert_bytes) {
+    SDL_GPUTextureCreateInfo ti{};
+    ti.type = SDL_GPU_TEXTURETYPE_2D;
+    ti.layer_count_or_depth = 1;
+    ti.num_levels = 1;
+    if (w != front_w_ || h != front_h_) {
         if (front_) SDL_ReleaseGPUTexture(dev_, front_), front_ = nullptr;
-        if (depth_) SDL_ReleaseGPUTexture(dev_, depth_), depth_ = nullptr;
-        SDL_GPUTextureCreateInfo ti{};
-        ti.type = SDL_GPU_TEXTURETYPE_2D;
         ti.width = Uint32(w);
         ti.height = Uint32(h);
-        ti.layer_count_or_depth = 1;
-        ti.num_levels = 1;
         ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM; // the layers' 0xAARRGGBB words
         ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
         front_ = SDL_CreateGPUTexture(dev_, &ti);
+        if (!front_) return false;
+        front_w_ = w, front_h_ = h;
+    }
+    if (w * scale != depth_w_ || h * scale != depth_h_) {
+        if (depth_) SDL_ReleaseGPUTexture(dev_, depth_), depth_ = nullptr;
+        ti.width = Uint32(w * scale);
+        ti.height = Uint32(h * scale);
         ti.format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
         ti.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
         depth_ = SDL_CreateGPUTexture(dev_, &ti);
-        if (!front_ || !depth_) return false;
-        depth_w_ = w, depth_h_ = h;
+        if (!depth_) return false;
+        depth_w_ = w * scale, depth_h_ = h * scale;
     }
     if (vert_bytes > vbuf_size_) {
         if (vbuf_) SDL_ReleaseGPUBuffer(dev_, vbuf_);
@@ -237,7 +243,7 @@ bool GpuRenderer::ensure(int w, int h, uint32_t vert_bytes) {
 }
 
 // The polygons as triangles, in the rasterizer's order, batched by clip rectangle.
-void GpuRenderer::build(const rt::Video &video, int w, int h) {
+void GpuRenderer::build(const rt::Video &video, int w, int h, int scale) {
     verts_.clear();
     batches_.clear();
     const std::vector<rt::GeoPoly> &polys = video.gpu_polys();
@@ -252,6 +258,9 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
     const float *hud_box = video.raster().hud_box();
     const uint16_t hud_z = video.raster().hud_z();
     if (polys.empty() || !mem.palram || !mem.colorxlat) return;
+    // internal resolution: the mip level the rasterizer picks from z, less
+    // log2(scale) (its levels are 128 units of fast_log2)
+    const int lod_bias = int(std::lround(128.0 * std::log2(double(scale))));
 
     // Raster::render: windows from the last down to 0, low z first, newest first within z.
     order_.resize(polys.size());
@@ -317,7 +326,7 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
         info[1] = (32u * (th2 & 0x3f)) | (32u * ((th2 >> 6) & 0x1f)) << 16;
         info[2] = (((th2 >> 13) & 1) * 128) | (((th2 >> 14) & 3) * 128) << 16;
         info[3] = ((th1 & 0xff) << 7) | uint32_t(poly.luma) << 16;
-        more[0] = uint32_t(poly.texlod);
+        more[0] = uint32_t(poly.texlod + lod_bias);
         more[1] = le16(mem.palram, colorbase + 0x1000) & 0x7fff;
 
         // model2_3d_project, then a fan from vertex 0 (the polygon is convex)
@@ -339,11 +348,13 @@ void GpuRenderer::build(const rt::Video &video, int w, int h) {
     }
 }
 
-void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int w, int h, const rt::Video &video) {
+void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int w, int h, const rt::Video &video,
+                         int scale) {
     if (!ok()) return;
-    build(video, w, h);
+    scale = std::clamp(scale, 1, 4);
+    build(video, w, h, scale);
     const uint32_t vert_bytes = uint32_t(verts_.size() * sizeof(PolyVertex));
-    if (!ensure(w, h, vert_bytes)) return;
+    if (!ensure(w, h, scale, vert_bytes)) return;
 
     // The tilemap pixmaps' rows to upload, per layer: the span of the tile
     // rows changed since tilepix_ was filled (everything for a new Video).
@@ -415,6 +426,7 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     tiledata_words_.assign(kTileDataWords, 0);
     tiledata_words_[0] = uint32_t(video.margin());
     tiledata_words_[1] = uint32_t(video.backdrop()); // Edges 0, Sky 1, Stretch 2, as m2.hlsl
+    tiledata_words_[2] = uint32_t(scale);
     std::memcpy(&tiledata_words_[kTileHeader], video.gpu_pens(), rt::Video::kGpuPens * 4);
     std::memcpy(&tiledata_words_[kTileHeader + rt::Video::kGpuPens], video.gpu_tile_words(), rt::Video::kGpuTileWords * 2);
     const uint32_t tiledata_at = at;
@@ -466,11 +478,13 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
     dt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     dt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
-    const SDL_GPUViewport viewport{0, 0, float(w), float(h), 0, 1}; // the target may be wider than this frame
+    // the target may be bigger than this frame; positions are in original
+    // pixels (screen), the viewport and clip rectangles in the target's
+    const SDL_GPUViewport viewport{0, 0, float(w * scale), float(h * scale), 0, 1};
     SDL_SetGPUViewport(pass, &viewport);
     const float screen[4] = {fw, fh, 0, 0};
     SDL_PushGPUVertexUniformData(cmd, 0, screen, sizeof screen);
-    const SDL_Rect full{0, 0, w, h};
+    const SDL_Rect full{0, 0, w * scale, h * scale};
 
     // a full-frame quad through `pipe`: the tilemap layers, or the CPU front layers
     auto draw_quad = [&](SDL_GPUGraphicsPipeline *pipe) {
@@ -496,7 +510,8 @@ void GpuRenderer::render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int 
         SDL_BindGPUFragmentStorageBuffers(pass, 0, storage, 3);
         for (const Batch &b : batches_) {
             if (!b.count) continue;
-            SDL_SetGPUScissor(pass, &b.clip);
+            const SDL_Rect clip{b.clip.x * scale, b.clip.y * scale, b.clip.w * scale, b.clip.h * scale};
+            SDL_SetGPUScissor(pass, &clip);
             SDL_DrawGPUPrimitives(pass, b.count, 1, b.first, 0);
         }
     }

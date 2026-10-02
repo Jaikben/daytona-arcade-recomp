@@ -223,8 +223,9 @@ float4 ps_quad(QuadOut i) : SV_Target {
 //            (pen = colour * 16 + pixel, pixel 0 transparent; category bit 15),
 //            two per word
 //   tiledata: [0] widescreen margin, [1] its fill (0 each row's edge colours,
-//            1 the sky's plain colour, 2 the backdrop stretched); [16..] the
-//            pens (0xAARRGGBB, 4096); [16 + 4096..] tile RAM words 0x4000 to
+//            1 the sky's plain colour, 2 the backdrop stretched), [2] the
+//            internal resolution (target pixels per original pixel); [16..]
+//            the pens (0xAARRGGBB, 4096); [16 + 4096..] tile RAM words 0x4000 to
 //            0x6fff (line scroll tables, scroll registers, window masks), two
 //            per word
 [[vk::binding(0, 2)]] StructuredBuffer<uint> tilepix : register(t0, space2);
@@ -320,8 +321,9 @@ float4 pen_color(uint argb) {
 float4 ps_tiles_back(QuadOut i) : SV_Target {
     const int margin = int(tiledata[0]);
     const uint fill = tiledata[1];
+    const int scale = int(tiledata[2]);
     const int out_w = kTileW + 2 * margin;
-    const int x = int(i.pos.x) - margin, y = int(i.pos.y);
+    const int x = int(i.pos.x) / scale - margin, y = int(i.pos.y) / scale;
     if (margin > 0 && fill == 2u) { // stretched: column (x + 0.5) * W / out - 0.5, blended
         const float u = clamp((float(x + margin) + 0.5) * float(kTileW) / float(out_w) - 0.5, 0.0, float(kTileW - 1));
         const int a = int(u), b = min(a + 1, kTileW - 1);
@@ -345,7 +347,8 @@ float4 ps_tiles_back(QuadOut i) : SV_Target {
 // The front layers, over the 3D layer: 3 to 0, the last drawn winning; holes
 // where none draws.
 float4 ps_tiles_front(QuadOut i) : SV_Target {
-    const int x = int(i.pos.x) - int(tiledata[0]), y = int(i.pos.y);
+    const int scale = int(tiledata[2]);
+    const int x = int(i.pos.x) / scale - int(tiledata[0]), y = int(i.pos.y) / scale;
     if (x < 0 || x >= kTileW) discard;
     uint pen;
     for (uint l = 1u; l < 8u; l += 2u)

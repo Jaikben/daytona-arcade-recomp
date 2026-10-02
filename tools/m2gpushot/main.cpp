@@ -3,8 +3,11 @@
 // m2run, whose dumps come from the software renderer: compare the two.
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
-//             [--aspect W:H [--hud-edges] [--stretch-backdrop]]
-//   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...]
+//             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N]
+//   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...] [--scale N]
+//
+// --scale N: the internal resolution enhancement (1-4); dumps are N times
+// wider and taller.
 //
 // --bench draws every frame through the GPU, with no readback, and reports
 // the time in the game (logic, geometrizer, CPU tilemap layers), in the
@@ -18,6 +21,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cinttypes>
 #include <cstdio>
@@ -34,6 +38,7 @@ int main(int argc, char **argv) {
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
     std::string dump_dir, inputs_path;
     uint64_t every = 0;
+    int scale = 1;
     double aspect = 0;
     bool hud_edges = false, stretch = false, bench = false;
     for (int i = 3; i < argc; i++) {
@@ -51,6 +56,7 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--scale")) scale = std::clamp(std::atoi(argv[i + 1]), 1, 4);
     }
     if (!bench && (dump_dir.empty() || !every)) {
         std::fprintf(stderr, "m2gpushot: --dump DIR and --every N (or --bench) are needed\n");
@@ -74,18 +80,19 @@ int main(int argc, char **argv) {
     }
     constexpr int H = rt::GameLoop::kHeight;
     const int W = rt::GameLoop::kWidth + 2 * rt::GameLoop::wide_margin(aspect);
+    const int SW = W * scale, SH = H * scale; // the target
     SDL_GPUTextureCreateInfo ti{};
     ti.type = SDL_GPU_TEXTURETYPE_2D;
     ti.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
     ti.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ti.width = Uint32(W);
-    ti.height = H;
+    ti.width = Uint32(SW);
+    ti.height = Uint32(SH);
     ti.layer_count_or_depth = 1;
     ti.num_levels = 1;
     SDL_GPUTexture *target = SDL_CreateGPUTexture(dev, &ti);
     SDL_GPUTransferBufferCreateInfo tbi{};
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
-    tbi.size = Uint32(W) * H * 4;
+    tbi.size = Uint32(SW) * Uint32(SH) * 4;
     SDL_GPUTransferBuffer *download = SDL_CreateGPUTransferBuffer(dev, &tbi);
     if (!target || !download) {
         std::fprintf(stderr, "m2gpushot: %s\n", SDL_GetError());
@@ -125,7 +132,7 @@ int main(int argc, char **argv) {
                 }
                 const auto c = clk::now();
                 SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-                gpu.render(cmd, target, W, H, game.board().video());
+                gpu.render(cmd, target, W, H, game.board().video(), scale);
                 last = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
                 const auto d = clk::now();
                 t_game += std::chrono::duration<double>(b - a).count();
@@ -150,16 +157,16 @@ int main(int argc, char **argv) {
             game.run_frame(script.at(game.board().frame()));
             if (game.board().frame() % every) continue;
             SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-            gpu.render(cmd, target, W, H, game.board().video());
+            gpu.render(cmd, target, W, H, game.board().video(), scale);
             SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);
             SDL_GPUTextureRegion src{};
             src.texture = target;
-            src.w = Uint32(W);
-            src.h = H;
+            src.w = Uint32(SW);
+            src.h = Uint32(SH);
             src.d = 1;
             SDL_GPUTextureTransferInfo dst{};
             dst.transfer_buffer = download;
-            dst.pixels_per_row = Uint32(W);
+            dst.pixels_per_row = Uint32(SW);
             SDL_DownloadFromGPUTexture(copy, &src, &dst);
             SDL_EndGPUCopyPass(copy);
             SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
@@ -169,7 +176,7 @@ int main(int argc, char **argv) {
             std::snprintf(path, sizeof path, "%s/run_%05" PRIu64 ".rgb", dump_dir.c_str(), game.board().frame());
             if (FILE *d = std::fopen(path, "wb")) {
                 const void *p = SDL_MapGPUTransferBuffer(dev, download, false);
-                std::fwrite(p, 4, size_t(W) * H, d);
+                std::fwrite(p, 4, size_t(SW) * size_t(SH), d);
                 SDL_UnmapGPUTransferBuffer(dev, download);
                 std::fclose(d);
             }

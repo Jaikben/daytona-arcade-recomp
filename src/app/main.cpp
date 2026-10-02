@@ -231,6 +231,14 @@ int main(int argc, char **argv) {
     tbi.size = Uint32(kMaxW) * H * 4;
     SDL_GPUTransferBuffer *upload = SDL_CreateGPUTransferBuffer(dev, &tbi);
     if (!screen || !upload) return fail("SDL_CreateGPUTexture");
+    // The hardware renderer at a higher internal resolution (launcher >
+    // Super sampling) draws into its own texture, made when the scale changes,
+    // with mip levels: the window shows the level nearest its size, so a
+    // frame bigger than the window is averaged down (supersampled).
+    SDL_GPUTexture *hires = nullptr;
+    int hires_scale = 1, hires_levels = 1;
+    SDL_GPUTexture *shown = screen; // the last frame's texture, and its scale
+    int shown_scale = 1;
 
     app::Launcher launcher(cfg, window);
     std::unique_ptr<rt::GameLoop> game;
@@ -378,7 +386,26 @@ int main(int argc, char **argv) {
         }
         if (new_frame && hardware) {
             screen_w = game->screen_width();
-            gpu.render(cmd, screen, screen_w, H, game->board().video());
+            const int scale = std::clamp(cfg.supersampling, 1, 4);
+            if (scale > 1 && scale != hires_scale) {
+                if (hires) SDL_ReleaseGPUTexture(dev, hires);
+                SDL_GPUTextureCreateInfo hi = ti;
+                hi.width = Uint32(kMaxW * scale);
+                hi.height = Uint32(H * scale);
+                hires_levels = scale >= 4 ? 3 : 2;
+                hi.num_levels = Uint32(hires_levels);
+                hires = SDL_CreateGPUTexture(dev, &hi);
+                hires_scale = hires ? scale : 1;
+                if (!hires) std::fprintf(stderr, "daytona: %dx super sampling unavailable: %s\n", scale, SDL_GetError());
+            }
+            if (scale > 1 && hires) {
+                gpu.render(cmd, hires, screen_w, H, game->board().video(), scale);
+                SDL_GenerateMipmapsForGPUTexture(cmd, hires);
+                shown = hires, shown_scale = scale;
+            } else {
+                gpu.render(cmd, screen, screen_w, H, game->board().video());
+                shown = screen, shown_scale = 1;
+            }
             new_frame = false;
         }
         if (new_frame) {
@@ -397,6 +424,7 @@ int main(int argc, char **argv) {
             dst.d = 1;
             SDL_UploadToGPUTexture(copy, &src, &dst, true);
             SDL_EndGPUCopyPass(copy);
+            shown = screen, shown_scale = 1;
             new_frame = false;
         }
 
@@ -427,10 +455,15 @@ int main(int argc, char **argv) {
             if (have_frame) { // the game's screen at its own shape, letterboxed
                 const double scale = std::min(double(sw) / screen_w, double(sh) / H);
                 const Uint32 dw = Uint32(screen_w * scale), dh = Uint32(H * scale);
+                // a higher resolution frame: from its smallest level still at least the window's size
+                Uint32 level = 0;
+                while (shown == hires && int(level) + 1 < hires_levels && Uint32((H * shown_scale) >> (level + 1)) >= dh)
+                    ++level;
                 SDL_GPUBlitInfo blit{};
-                blit.source.texture = screen;
-                blit.source.w = Uint32(screen_w);
-                blit.source.h = H;
+                blit.source.texture = shown;
+                blit.source.mip_level = level;
+                blit.source.w = Uint32(screen_w * shown_scale) >> level;
+                blit.source.h = Uint32(H * shown_scale) >> level;
                 blit.destination.texture = swap;
                 blit.destination.x = (sw - dw) / 2;
                 blit.destination.y = (sh - dh) / 2;
@@ -473,6 +506,7 @@ int main(int argc, char **argv) {
     ImGui::DestroyContext();
     SDL_ReleaseGPUTransferBuffer(dev, upload);
     SDL_ReleaseGPUTexture(dev, screen);
+    if (hires) SDL_ReleaseGPUTexture(dev, hires);
     SDL_ReleaseWindowFromGPUDevice(dev, window);
     SDL_DestroyGPUDevice(dev);
     SDL_DestroyWindow(window);

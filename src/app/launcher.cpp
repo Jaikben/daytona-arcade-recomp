@@ -186,7 +186,17 @@ Launcher::Result Launcher::draw(bool game_running, SDL_Gamepad *pad) {
             }
             ImGui::TextDisabled("Double buffered draws every frame, as the game does. Single buffered draws\n"
                                 "every 2nd frame, every third frame every 3rd: faster, the game itself is not slowed.");
-            ImGui::TextDisabled("Resolution and upscaling options: coming later.");
+            static const char *supersampling[] = {"Off", "2x", "3x", "4x"};
+            ImGui::BeginDisabled(cfg_.renderer != "hardware");
+            ImGui::SetNextItemWidth(200);
+            int ss = std::clamp(cfg_.supersampling, 1, 4) - 1;
+            if (ImGui::Combo("Super sampling", &ss, supersampling, 4)) {
+                cfg_.supersampling = ss + 1;
+                cfg_.save();
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Hardware renderer: the 3D drawn at 2 to 4 times the original resolution, with\n"
+                                "sharper textures; the window shows it scaled to fit, which smooths the edges.");
 
             ImGui::Spacing();
             ImGui::Separator();

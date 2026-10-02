@@ -35,10 +35,13 @@ public:
     bool ok() const { return poly_pipe_ != nullptr; }
     const std::string &error() const { return error_; }
 
-    // Draws the frame into `target` (w x h, created with COLOR_TARGET usage):
-    // the background layer, the 3D polygons, the foreground layer, all from
-    // `video` in external-3D mode.
-    void render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int w, int h, const rt::Video &video);
+    // Draws the frame into `target` (at least w x h times `scale`, created
+    // with COLOR_TARGET usage): the back tilemap layers, the 3D polygons, the
+    // front tilemap layers, all from `video` in external-3D mode. scale > 1
+    // (the internal resolution enhancement): the 3D drawn at w x h times
+    // scale, textures a mip level finer per doubling, the tilemaps' pixels
+    // repeated.
+    void render(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *target, int w, int h, const rt::Video &video, int scale = 1);
 
 private:
     struct PolyVertex {
@@ -60,7 +63,7 @@ private:
     SDL_GPUSampler *sampler_ = nullptr;
     SDL_GPUTexture *front_ = nullptr; // the front layers from the CPU (HUD at the edges)
     SDL_GPUTexture *depth_ = nullptr;
-    int depth_w_ = 0, depth_h_ = 0;
+    int depth_w_ = 0, depth_h_ = 0, front_w_ = 0, front_h_ = 0;
     SDL_GPUBuffer *vbuf_ = nullptr, *qbuf_ = nullptr;
     // storage buffers: texture RAM (both sheets), luma RAM, colour translation with gamma
     SDL_GPUBuffer *texram_ = nullptr, *luma_ = nullptr, *xlat_ = nullptr;
@@ -84,8 +87,8 @@ private:
     SDL_GPUShader *shader(const unsigned char *spv, size_t spv_len, const unsigned char *dxil, size_t dxil_len,
                           const char *msl, const char *dxil_entry, SDL_GPUShaderStage stage, int uniforms, int samplers,
                           int storage_buffers = 0);
-    bool ensure(int w, int h, uint32_t vert_bytes);
-    void build(const rt::Video &video, int w, int h);
+    bool ensure(int w, int h, int scale, uint32_t vert_bytes);
+    void build(const rt::Video &video, int w, int h, int scale);
 };
 
 } // namespace app

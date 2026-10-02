@@ -136,6 +136,12 @@ the arcade game does. **Single buffered** draws every second frame and
 **Every third frame** every third: much less work for slower machines. The
 game itself still runs at full speed; only the picture updates less often.
 
+**Super sampling** (on the Game tab, with **Renderer** set to **Hardware**):
+**Off** by default; **2x**, **3x** or **4x** draws the 3D at that many times the original
+resolution, with sharper textures; the HUD and text keep their pixel-art
+look. On a screen smaller than the picture it is scaled down, which also
+smooths jagged edges. Higher settings need a stronger GPU.
+
 **Draw distance** (optional): the slider under **Enhancements** sets how far
 ahead trees, rocks and buildings are drawn. **Default** is the game's own.
 **Shorter** and **Shortest** draw less and run faster, which helps slower

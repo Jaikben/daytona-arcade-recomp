@@ -71,7 +71,9 @@ opens first:
 
 - **Game**: choose your `daytona93` ROM set, `.zip` or `.7z` (Browse, or type the path); every file
   is checked against the ROM set this build was recompiled from. Graphics API
-  (automatic, Vulkan, Direct3D 12, Metal), fullscreen, Draw mode (double buffered,
+  (automatic, Vulkan, Direct3D 12, Metal), Renderer (software, the exact
+  CPU renderer; or hardware, on the GPU, experimental), Super sampling
+  (hardware renderer: off, or the 3D drawn at 2x to 4x the original resolution), fullscreen, Draw mode (double buffered,
   as the game; single buffered or every third frame draw less often, for slower
   machines; the game itself runs at full speed), and Skip launcher (start
   the game straight away next time; Esc still opens the launcher). Enhancements
@@ -91,8 +93,7 @@ opens first:
 In the game, Esc brings the launcher back (Resume, Reset, Quit). Settings
 are saved as they change, with the settings EEPROM and backup RAM, in your
 user data folder (`launcher.ini`). Options: `--rom FILE.zip --autostart
---gpu vulkan|direct3d12|metal --fullscreen`. Resolution and upscaling
-options are to come.
+--gpu vulkan|direct3d12|metal --fullscreen`.
 
 Default controls:
 
