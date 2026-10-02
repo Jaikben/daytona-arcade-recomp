@@ -136,6 +136,17 @@ void M2Board::vblank_start() {
         intreq_ |= 1;
         irq_update();
     }
+    if (comm_board_) comm_board_->vblank(); // MAME check_vint_irq
+}
+
+void M2Board::set_link(LinkTransport *transport, bool framesync) {
+    if (!transport) {
+        comm_board_.reset();
+        return;
+    }
+    comm_board_ = std::make_unique<CommBoard>(comm_.data());
+    comm_board_->set_transport(transport);
+    comm_board_->set_framesync(framesync);
 }
 
 void M2Board::set_wide_margin(int pixels) {
@@ -233,7 +244,11 @@ uint32_t M2Board::dev_read(uint32_t addr, uint32_t mask) {
         return uint32_t(id[o]) | uint32_t(id[o + 1]) << 8 | uint32_t(id[o + 2]) << 16 | uint32_t(id[o + 3]) << 24;
     }
     if (addr >= 0x00f00000 && addr <= 0x00f0000f) return timervals_[(addr >> 2) & 3];
-    if ((addr & ~0x10000u) == 0x01a04000) return uint32_t(comm_cn_ | 0xfe) | uint32_t(comm_fg_) << 16; // cn_r, fg_r
+    if ((addr & ~0x10000u) == 0x01a04000) { // cn_r, fg_r
+        if (comm_board_) // fg_r takes frames in: only when that lane is read
+            return uint32_t(comm_board_->cn_r()) | ((mask & 0xff0000) ? uint32_t(comm_board_->fg_r()) << 16 : 0);
+        return uint32_t(comm_cn_ | 0xfe) | uint32_t(comm_fg_) << 16;
+    }
     if (addr >= 0x01c00000 && addr <= 0x01c00fff) { // MB8421 through umask 0x00ff00ff
         const uint32_t i = ((addr & 0xfff) >> 2) * 2;
         return uint32_t(io_.read(i)) | uint32_t(io_.read(i + 1)) << 16;
@@ -276,6 +291,11 @@ void M2Board::dev_write(uint32_t addr, uint32_t data, uint32_t mask) {
     if ((addr & ~0x100000u) == 0x01040000) { if (mask & 0xffff) video_->xhout_w(uint16_t(data)); return; }
     if ((addr & ~0x100000u) == 0x01060000) { if (mask & 0xffff) video_->xvout_w(uint16_t(data)); return; }
     if ((addr & ~0x10000u) == 0x01a04000) {
+        if (comm_board_) {
+            if (mask & 0xff) comm_board_->cn_w(uint8_t(data));
+            if (mask & 0xff0000) comm_board_->fg_w(uint8_t(data >> 16));
+            return;
+        }
         if (mask & 0xff) comm_cn_ = uint8_t(data & 1);
         if (mask & 0xff0000) comm_fg_ = uint8_t(data >> 16);
         return;

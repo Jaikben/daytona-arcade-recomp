@@ -8,13 +8,15 @@
 //
 //   daytona [--rom FILE.zip] [--autostart] [--gpu vulkan|direct3d12|metal]
 //           (the launcher's "Skip launcher" is a saved --autostart)
-//           [--fullscreen] [--frames N] [--audio native|reference]
+//           [--fullscreen] [--frames N] [--audio native|reference] [--profile NAME]
+//           (--profile: a separate data folder, e.g. a second cabinet for link play)
 //
 // In the game: Esc opens the launcher (resume, reset, controls), F11
 // toggles fullscreen. Controls are set in the launcher and saved.
 
 #include "app/config.h"
 #include "app/ffb.h"
+#include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
 #include "app/native_audio.h"
@@ -107,12 +109,21 @@ private:
     int fm_rate_ = 1;
 };
 
-std::string pref_file(const char *name) {
-    char *base = SDL_GetPrefPath("daytona-recomp", M2_ROMSET); // per ROM set: settings, EEPROM, backup RAM
-    std::string p = base ? std::string(base) + name : std::string(name);
-    SDL_free(base);
-    return p;
+// The launcher's link play status line.
+std::string link_status(const rt::CommBoard *board, bool wanted) {
+    if (!wanted) return "off";
+    if (!board) return "not started";
+    switch (board->link()) {
+    case rt::CommBoard::Link::Off: return "on (the game has not started the link: set LINK ID in test mode)";
+    case rt::CommBoard::Link::Waiting: return "waiting for the other cabinets";
+    case rt::CommBoard::Link::Up:
+        return "linked: cabinet " + std::to_string(board->id()) + " of " + std::to_string(board->count());
+    case rt::CommBoard::Link::Lost: return "lost (reset to try again)";
+    }
+    return "";
 }
+
+std::string pref_file(const char *name) { return app::Config::pref_dir() + name; } // per ROM set and profile
 template <typename C> void load_file(const std::string &path, C &into) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return;
@@ -151,6 +162,8 @@ void open_log() {
 }
 
 int main(int argc, char **argv) {
+    for (int i = 1; i + 1 < argc; i++) // before anything reads or writes the data folder
+        if (!std::strcmp(argv[i], "--profile")) app::Config::profile = argv[i + 1];
     open_log();
     app::Config cfg;
     cfg.load();
@@ -169,6 +182,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = std::strtoull(argv[++i], nullptr, 10);
         else if (!std::strcmp(argv[i], "--fullscreen")) cfg.fullscreen = true;
         else if (!std::strcmp(argv[i], "--autostart")) autostart = true;
+        else if (!std::strcmp(argv[i], "--profile") && i + 1 < argc) ++i; // read above
     }
 
     // the name graphics overlays and drivers see (patches/sdl3: Vulkan's application name)
@@ -245,6 +259,7 @@ int main(int argc, char **argv) {
 
     app::Launcher launcher(cfg, window);
     app::ForceFeedback ffb; // the drive board on the steering device
+    std::unique_ptr<app::TcpLink> link; // link play (declared first: outlives the game, which holds it)
     std::unique_ptr<rt::GameLoop> game;
     const std::string eeprom_path = pref_file("ioboard_eeprom.bin"), backup_path = pref_file("backup_ram.bin");
     auto save_nv = [&] {
@@ -258,6 +273,7 @@ int main(int argc, char **argv) {
         native_audio.close(); // joins callback before replacing its ROMs/engine
         audio.close();
         game.reset();
+        link.reset();
         have_audio = false;
         native_fault = false;
         native_active = cfg.native_audio;
@@ -280,12 +296,19 @@ int main(int argc, char **argv) {
                 ? "native (experimental, 48000 Hz device clock; no reference sound board)" : "reference");
             load_file(eeprom_path, game->board().io().eeprom);
             load_file(backup_path, game->board().backup_ram());
+            if (cfg.link) { // link play: the communication board on TCP
+                link = std::make_unique<app::TcpLink>(uint16_t(cfg.link_port), cfg.link_next);
+                if (!link->error().empty()) throw std::runtime_error("Link play: " + link->error());
+                game->board().set_link(link.get(), cfg.link_framesync);
+                std::printf("daytona: link play: listening on port %d, next cabinet %s\n", cfg.link_port, cfg.link_next.c_str());
+            }
             launcher.set_error("");
             return true;
         } catch (const std::exception &e) {
             native_audio.close();
             audio.close();
             game.reset();
+            link.reset();
             launcher.set_error(e.what());
             return false;
         }
@@ -375,6 +398,7 @@ int main(int argc, char **argv) {
             ffb.update(std::exchange(game->board().io().drive_commands, {}), devices, cfg.controls, cfg.ffb_strength,
                        cfg.ffb_invert);
             launcher.set_ffb_device(ffb.device_kind());
+            launcher.set_link_status(link_status(game->board().comm_board(), cfg.link));
             if (game->sound()) {
                 if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it

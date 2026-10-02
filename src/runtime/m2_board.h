@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "runtime/comm_board.h"
+
 namespace rt {
 
 struct Inputs {
@@ -97,6 +99,10 @@ public:
     std::vector<uint8_t> take_sound_bytes() { sound_total_ += uart_out_.size(); return std::exchange(uart_out_, {}); }
     uint64_t sound_bytes_total() const { return sound_total_ + uart_out_.size(); }
     std::vector<uint8_t> &backup_ram() { return backup_; }
+    // Link play: the communication board on a host transport (CommBoard;
+    // nullptr: no link, the registers stay plain). Set before the game runs.
+    void set_link(LinkTransport *transport, bool framesync = false);
+    const CommBoard *comm_board() const { return comm_board_.get(); }
 
 private:
     enum Kind : uint8_t { Unmapped, Rom, Ram, Tex, Dev };
@@ -128,6 +134,7 @@ private:
     std::unique_ptr<Geo> geo_;
     std::unique_ptr<Video> video_;
     IoBoard io_;
+    std::unique_ptr<CommBoard> comm_board_; // link play only
     Cpu *cpu_ = nullptr;
     int frame_skip_ = 0;
     uint64_t tex_generation_ = 0; // texture RAM writes so far

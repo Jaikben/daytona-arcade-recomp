@@ -183,6 +183,21 @@ cabinet, so it waits at the settings screen for a second cabinet. Press
 **F2** (Test), go to the game settings, set the cabinet to a single cabinet
 (and the link off), and leave test mode. That is saved, once.
 
+**Link play (Revision A, experimental):** two or more computers on the same
+network (Wi-Fi or wired) race each other, like linked arcade cabinets. On
+each one: Game tab, **Link to other cabinets**; **This cabinet's port** (any
+free port, e.g. 15112); **Next cabinet**: the next computer's address and
+port, e.g. `192.168.1.20:15112` (the cabinets form a ring: with two, each one's
+next is the other). Then in test mode (F2) > GAME SYSTEM set **LINK ID** to
+MASTER on one and SLAVE on the others, and a different **CAR NUMBER** on each
+(the factory setting is MASTER, car 1). Reset. The Game tab shows the link's
+state ("linked: cabinet 1 of 2"). The attract screen says 通信システム
+(communication system) when the link is up. To try it on one computer, start
+a second copy with `build-daytona/daytona --profile 2` (its own settings and
+saves), with port 15113 and next `127.0.0.1:15112`, and the first with port
+15112 and next `127.0.0.1:15113`. A firewall may ask to allow the
+connections.
+
 To skip the launcher, tick **Skip launcher** on the Game tab: from then on
 the game starts straight away (Esc still brings the launcher back, where you
 can untick it). If the ROM set is missing or wrong, the launcher shows

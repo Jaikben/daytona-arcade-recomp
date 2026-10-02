@@ -69,6 +69,18 @@ for Revision A). Revision A is `build-daytona/daytona`, with its own
 settings and saves. Its factory settings are a linked twin cabinet, which
 waits for a second cabinet: set a single cabinet once in test mode (F2).
 
+## Link play (the 1994 set)
+
+Revision A (`daytona`) can link two or more cabinets over a network, Wi-Fi
+or wired, as linked arcade machines race each other (experimental). On each
+computer, in the launcher's Game tab, tick **Link to other cabinets**, give
+this cabinet's port and the next cabinet's `host:port` (the cabinets form a
+ring; with two, each one's next is the other), then in test mode (F2) >
+GAME SYSTEM set **LINK ID** (one MASTER, the others SLAVE) and a different
+**CAR NUMBER** on each. Two on one computer: start the second with
+`--profile 2` (its own settings and saves) and give the two different ports,
+e.g. 15112 and 15113, each the other's as next.
+
 ## Playing
 
     build/daytona

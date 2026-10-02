@@ -4,10 +4,13 @@
 //
 //   m2run IMAGES_DIR FRAMES [--inputs scripts/inputs/X.txt] [--dump DIR --every N] [--wav FILE]
 //         [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--draw-distance N] [--frame-skip N]
-//         [--nvram DIR]
+//         [--nvram DIR] [--save-nvram DIR] [--link-listen PORT --link-next HOST:PORT [--link-sync]]
 //
 // --nvram DIR starts from the app's saved settings EEPROM and backup RAM
-// (tools/common/nvram.h).
+// (tools/common/nvram.h). --link-listen/--link-next: link play (the
+// communication board, Revision A) over TCP, as the app does: listen for the
+// cabinet before this one, connect to the next; --link-sync holds each frame
+// to the master's. The link's state is printed at the end.
 // --aspect widens the screen (the widescreen enhancement, e.g. 16:9); dumps
 // are then wider than 496 (the width is printed).
 // --wav writes the sound board's output (YM3438 + both MultiPCMs, mixed at
@@ -22,6 +25,7 @@
 #include "runtime/game_loop.h"
 #include "../common/input_script.h"
 #include "../common/nvram.h"
+#include "app/link_socket.h"
 
 #include <algorithm>
 #include <chrono>
@@ -35,6 +39,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -74,7 +79,9 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path, wav_path, nvram_dir;
+    std::string dump_dir, inputs_path, wav_path, nvram_dir, save_nvram_dir, link_next;
+    int link_listen = 0;
+    bool link_sync = false;
     uint64_t every = 0;
     double aspect = 0;
     int frame_skip = 0;
@@ -82,14 +89,19 @@ int main(int argc, char **argv) {
     for (int i = 3; i < argc; i++) {
         if (!std::strcmp(argv[i], "--hud-edges")) hud_edges = true;
         if (!std::strcmp(argv[i], "--stretch-backdrop")) stretch_backdrop = true;
+        if (!std::strcmp(argv[i], "--link-sync")) link_sync = true;
     }
     for (int i = 3; i + 1 < argc; i += 2) {
-        if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop")) { i--; continue; }
+        if (!std::strcmp(argv[i], "--hud-edges") || !std::strcmp(argv[i], "--stretch-backdrop") ||
+            !std::strcmp(argv[i], "--link-sync")) { i--; continue; }
         if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--wav")) wav_path = argv[i + 1];
         else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--save-nvram")) save_nvram_dir = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--link-listen")) link_listen = std::atoi(argv[i + 1]);
+        else if (!std::strcmp(argv[i], "--link-next")) link_next = argv[i + 1];
         else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
         else if (!std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[i + 1]);
         else if (!std::strcmp(argv[i], "--aspect")) {
@@ -101,6 +113,12 @@ int main(int argc, char **argv) {
     try {
         rt::GameLoop game(dir);
         if (!nvram_dir.empty()) tools::load_nvram(game, nvram_dir);
+        std::unique_ptr<app::TcpLink> link;
+        if (link_listen > 0 || !link_next.empty()) {
+            link = std::make_unique<app::TcpLink>(uint16_t(link_listen), link_next);
+            if (!link->error().empty()) throw std::runtime_error("link: " + link->error());
+            game.board().set_link(link.get(), link_sync);
+        }
         game.set_frame_skip(frame_skip);
         if (aspect > 0) {
             game.set_aspect(aspect);
@@ -130,12 +148,19 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        if (!save_nvram_dir.empty()) tools::save_nvram(game, save_nvram_dir);
         const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         std::printf("m2run: %" PRIu64 " frames, %" PRIu64 " i960 instructions (all native), %" PRIu64
                     " TGP instructions, %d interrupts, %" PRIu64 " bytes to the sound board; %.2f s (%.0f frames/s)\n",
                     game.frames(), game.instructions(), game.board().tgp().tgp_instructions(), game.interrupts(),
                     game.board().sound_bytes_total(), s, double(game.frames()) / s);
         std::printf("  last screen hash %016" PRIx64 "\n", game.board().video().screen_hash());
+        if (const rt::CommBoard *cb = game.board().comm_board()) {
+            static const char *states[] = {"off (the game never started the board)", "waiting for the other cabinets", "up", "lost"};
+            std::printf("  link: %s", states[int(cb->link())]);
+            if (cb->link() == rt::CommBoard::Link::Up) std::printf(", cabinet %d of %d", cb->id(), cb->count());
+            std::printf("\n");
+        }
         std::printf("  drive board: %" PRIu64 " commands (", drive_commands);
         for (int k = 0, first = 1; k < 16; k++)
             if (drive_kinds[k]) std::printf("%s%x-: %" PRIu64, first ? "" : ", ", k, drive_kinds[k]), first = 0;

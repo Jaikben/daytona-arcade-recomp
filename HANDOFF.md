@@ -2,6 +2,30 @@
 
 ## Current state
 
+**Link play (branch link-play).** Revision A's communication board
+(837-10537), from MAME's m2comm simulation: src/runtime/comm_board.{h,cpp}
+(the protocol: shared RAM set-up at cn_w, the master's 0xff/0xfe numbering
+tokens round the ring, every frame each cabinet's 0xe00-byte block from
+shared 0x2000 to the next, landing at 0x21c0, and the master's 0xfc vsync;
+frame sync optional, off by default as in MAME). M2Board::set_link attaches
+it to a LinkTransport; with none (the default, and daytona93) the comm
+registers stay plain, so nothing changes. src/app/link_socket.cpp: TCP, this
+cabinet listens, connects to the next (retried until it answers), non-
+blocking reads, whole-frame sends with a 2 s limit, POSIX or Winsock. App:
+launcher Game tab "Link play" (on/off, port, next host:port, frame sync,
+status line); daytona --profile NAME for a second cabinet on one computer;
+m2run --link-listen/--link-next/--link-sync and --save-nvram. Master and
+slave are the game's own settings (test mode > GAME SYSTEM: LINK ID, CAR
+NUMBER; factory: MASTER, car 1, twin). Checked: tests/test_comm_board.cpp
+(two boards in memory: numbering, data both ways, frames in pieces, loss);
+two headless m2run cabinets on localhost (master: factory EEPROM; slave: one
+set to LINK ID SLAVE, CAR NUMBER 2 through test mode by script): the
+linked attract (通信システム 2人まで対戦できます), both through the linked
+course and transmission select, a race with POSITION /2 on both, red car
+(car 1) and blue car (car 2); "cabinet 1 of 2" / "2 of 2"; the link lost
+when the other cabinet quits. Not checked: two computers, Wi-Fi, frame
+sync, more than two cabinets, the windowed app linked (built, not run).
+
 **The seed_scan seeds checked against MAME (daytona93).** A local MAME
 build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the
 11 in scripts/inputs and two new ones, attract_long (9,000 frames of

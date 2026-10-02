@@ -12,6 +12,7 @@ namespace app {
 
 Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window) {
     std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
+    std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
     check_rom();
 }
 
@@ -305,6 +306,29 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
             if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &cfg_.native_audio)) cfg_.save();
             ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextUnformatted("Link play (Experimental, Reset Required)");
+            if (ImGui::Checkbox("Link to other cabinets", &cfg_.link)) cfg_.save();
+            ImGui::BeginDisabled(!cfg_.link);
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::InputInt("This cabinet's port", &cfg_.link_port, 0, 0)) {
+                cfg_.link_port = std::clamp(cfg_.link_port, 1, 65535);
+                cfg_.save();
+            }
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::InputText("Next cabinet (host:port)", link_next_buf_, sizeof link_next_buf_)) {
+                cfg_.link_next = link_next_buf_;
+                cfg_.save();
+            }
+            if (ImGui::Checkbox("Frame sync (every cabinet waits for the master)", &cfg_.link_framesync)) cfg_.save();
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Link: %s", link_status_.c_str());
+            ImGui::TextDisabled("Cabinets link in a ring over the network (Wi-Fi or wired): each listens on its\n"
+                                "port and connects to the next; with two, each one's next is the other. In test\n"
+                                "mode (F2) > GAME SYSTEM set LINK ID (one MASTER, the others SLAVE) and a\n"
+                                "different CAR NUMBER on each. The 1994 set (Revision A) has link play.");
 
             ImGui::Spacing();
             ImGui::Separator();

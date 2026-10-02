@@ -105,6 +105,7 @@ add_library(runtime STATIC
     src/runtime/native_sound_sequencer.cpp
     src/runtime/native_sound_engine.cpp
     src/runtime/enhance.cpp
+    src/runtime/comm_board.cpp
 )
 target_include_directories(runtime PUBLIC src)
 target_compile_definitions(runtime PUBLIC M2_ROMSET="${M2_ROMSET}")
@@ -197,7 +198,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     add_library(gpurender STATIC src/app/gpu/gpu_renderer.cpp)
     target_include_directories(gpurender PUBLIC src)
     target_link_libraries(gpurender PUBLIC runtime SDL3::SDL3-static)
-    add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp src/app/ffb.cpp)
+    add_library(daytona_app OBJECT src/app/main.cpp src/app/launcher.cpp src/app/config.cpp src/app/controls.cpp src/app/ffb.cpp src/app/link_socket.cpp)
     target_link_libraries(daytona_app PRIVATE runtime imgui gpurender SDL3::SDL3-static)
 endif()
 
@@ -211,7 +212,7 @@ if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2native PRIVATE runtime)
     # The game on its own: native board runtime, no trace.
-    add_executable(m2run tools/m2run/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
+    add_executable(m2run tools/m2run/main.cpp src/app/link_socket.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})
     target_link_libraries(m2run PRIVATE runtime)
 
     # The game in a window (needs the app objects below).
@@ -301,6 +302,11 @@ add_test(NAME native_sample_mixer COMMAND test_native_sample_mixer)
 add_executable(test_native_sound_sequencer tests/test_native_sound_sequencer.cpp src/runtime/native_sound_sequencer.cpp)
 target_include_directories(test_native_sound_sequencer PRIVATE src)
 add_test(NAME native_sound_sequencer COMMAND test_native_sound_sequencer)
+
+# Link play's communication board, two boards wired in memory (no ROM, no network).
+add_executable(test_comm_board tests/test_comm_board.cpp src/runtime/comm_board.cpp)
+target_include_directories(test_comm_board PRIVATE src)
+add_test(NAME comm_board COMMAND test_comm_board)
 
 # Wheel and pedal bindings against SDL virtual joysticks.
 if(TARGET SDL3::SDL3-static)

@@ -32,6 +32,7 @@ public:
     bool rom_ok() const { return rom_ok_; }
     void set_error(const std::string &e) { error_ = e; }
     void set_ffb_device(const char *kind) { ffb_device_ = kind; } // what force feedback is playing on
+    void set_link_status(const std::string &s) { link_status_ = s; } // link play, for the Game tab
 
 private:
     void check_rom();
@@ -44,6 +45,8 @@ private:
     bool rom_ok_ = false;
     std::string rom_message_, error_;
     const char *ffb_device_ = "none";
+    std::string link_status_ = "off";
+    char link_next_buf_[256] = {};
     char path_buf_[1024] = {};
 
     std::mutex dialog_mutex_;

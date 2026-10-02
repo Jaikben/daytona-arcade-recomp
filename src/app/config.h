@@ -28,11 +28,22 @@ struct Config {
     static constexpr double kMaxAspect = 21.0 / 9.0;
     double aspect_ratio() const; // width / height; 0 = original
     Controls controls;
+    // Link play (the communication board; Revision A): this cabinet listens
+    // for the one before it in the ring and connects to the next. Master or
+    // slave, and the car number, are the game's own settings (test mode).
+    bool link = false;
+    int link_port = 15112;               // where the cabinet before this one connects
+    std::string link_next = "127.0.0.1:15113"; // host:port of the next cabinet
+    bool link_framesync = false;         // hold every cabinet to the master's frame
     float ffb_strength = 0.7f; // force feedback (the drive board) on the steering device: 0 off .. 1
     bool ffb_invert = false;   // turn the wheel the other way
 
     Config() { controls.set_defaults(); }
     static std::string path();  // <pref path>/launcher.ini
+    // --profile NAME: a separate data folder (settings, EEPROM, backup RAM),
+    // e.g. a second cabinet on the same computer for link play.
+    static inline std::string profile;
+    static std::string pref_dir(); // where this set's (and profile's) data lives, with a trailing separator
     void load();
     void save() const;
 };
