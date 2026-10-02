@@ -1,8 +1,10 @@
-// Load the user's daytona93 ROM set (a MAME-format zip or 7z) into the memory
-// images the board runs from, in memory: every file CRC-checked against
-// MAME's ROM_START(daytona93), then laid out as MAME loads it
-// (ROM_LOAD32_WORD interleave, ROM_COPY mirrors). The same table as
-// scripts/m2import.py, which the build uses; this one is for the game.
+// Load the user's ROM set (a MAME-format zip or 7z) into the memory images
+// the board runs from, in memory: every file CRC-checked against MAME's
+// ROM_START for the set this build was recompiled from (M2_ROMSET:
+// daytona93, the default, or daytona, Revision A), then laid out as MAME
+// loads it (ROM_LOAD32_WORD interleave, ROM_COPY mirrors). The build's
+// importer (tools/m2import) uses the same tables; scripts/m2import.py is the
+// zip-only daytona93 reference they were checked against.
 #pragma once
 
 #include "runtime/m2_board.h"
@@ -23,5 +25,11 @@ std::vector<RomCheck> check_rom_set(const std::string &zip_path);
 
 // Load and lay out the images. Throws ZipError naming the first problem.
 M2Board::Images import_rom_set(const std::string &zip_path);
+
+// The MAME name of the set this build was recompiled from.
+const char *rom_set_name();
+
+// The TGP program the i960 uploads at boot, cut from main_data (CRC-checked).
+std::vector<uint8_t> tgp_program(const M2Board::Images &img);
 
 } // namespace rt

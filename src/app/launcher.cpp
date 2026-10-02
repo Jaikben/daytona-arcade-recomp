@@ -19,7 +19,7 @@ void Launcher::check_rom() {
     checks_.clear();
     rom_ok_ = false;
     if (cfg_.rom_path.empty()) {
-        rom_message_ = "Choose your daytona93 ROM set (.zip or .7z).";
+        rom_message_ = "Choose your " M2_ROMSET " ROM set (.zip or .7z).";
         return;
     }
     // Keep the path absolute, so the saved setting works from any directory.
@@ -37,7 +37,7 @@ void Launcher::check_rom() {
         rom_ok_ = good == int(checks_.size());
         rom_message_ = rom_ok_ ? "All " + std::to_string(good) + " files verified."
                                : std::to_string(int(checks_.size()) - good) + " of " + std::to_string(checks_.size()) +
-                                     " files missing or wrong: this is not the daytona93 set.";
+                                     " files missing or wrong: this is not the " M2_ROMSET " set.";
     } catch (const std::exception &e) {
         rom_message_ = e.what();
     }

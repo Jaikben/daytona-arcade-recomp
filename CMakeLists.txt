@@ -75,6 +75,15 @@ target_include_directories(trace PUBLIC src)
 # Runtime the recompiled game runs on: i960 context and services (call/ret,
 # interrupts, memory; MAME's semantics, transplanted, BSD-3), replay bus and
 # lockstep. No instruction interpreter.
+# The ROM set the game is recompiled from: daytona93 (Daytona USA Deluxe '93,
+# the default) or daytona (Revision A, 1994). One set per build directory:
+# its generated code, seeds and saves are its own.
+set(M2_ROMSET daytona93 CACHE STRING "MAME ROM set to recompile: daytona93 or daytona")
+set_property(CACHE M2_ROMSET PROPERTY STRINGS daytona93 daytona)
+if(NOT M2_ROMSET MATCHES "^(daytona93|daytona)$")
+    message(FATAL_ERROR "M2_ROMSET must be daytona93 or daytona, not ${M2_ROMSET}")
+endif()
+
 add_library(runtime STATIC
     src/runtime/cpu.cpp
     src/runtime/tgp.cpp
@@ -98,6 +107,7 @@ add_library(runtime STATIC
     src/runtime/enhance.cpp
 )
 target_include_directories(runtime PUBLIC src)
+target_compile_definitions(runtime PUBLIC M2_ROMSET="${M2_ROMSET}")
 # 7z ROM sets: the 7-Zip LZMA SDK's decoder (public-domain files only),
 # fetched by scripts/setup.py into extern/lzma.
 set(LZMA_DIR ${CMAKE_SOURCE_DIR}/extern/lzma/C)
@@ -193,9 +203,9 @@ endif()
 
 # Recompiled game code lives in build/gen/<set>/ (derived from the game: never
 # committed). scripts/recompile.sh generates it and re-runs CMake.
-set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/daytona93)
-set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_tgp/tgp_gen.cpp)
-set(SND_GEN ${CMAKE_BINARY_DIR}/gen/daytona93_snd/snd_gen.cpp)
+set(GEN_DIR ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET})
+set(TGP_GEN ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET}_tgp/tgp_gen.cpp)
+set(SND_GEN ${CMAKE_BINARY_DIR}/gen/${M2_ROMSET}_snd/snd_gen.cpp)
 if(EXISTS ${GEN_DIR}/gen_table.cpp AND EXISTS ${TGP_GEN} AND EXISTS ${SND_GEN})
     file(GLOB GEN_SOURCES ${GEN_DIR}/*.cpp)
     add_executable(m2native tools/m2native/main.cpp ${GEN_SOURCES} ${TGP_GEN} ${SND_GEN})

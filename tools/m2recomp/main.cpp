@@ -285,7 +285,13 @@ struct Emitter {
             case 0x70b: two("t1 == 0 ? 0u : t2 / t1"); break;              // divo (MAME: 0 on divide by zero)
             case 0x741: two("uint32_t(int32_t(t2) * int32_t(t1))"); break; // muli
             case 0x748: two("uint32_t(int32_t(t2) % int32_t(t1))"); break; // remi
+            case 0x749: two("uint32_t([](int32_t a, int32_t b) { int32_t r = a - (a / b) * b; "
+                            "if ((b ^ a) < 0 && r != 0) r += b; return r; }(int32_t(t2), int32_t(t1)))"); break; // modi (sign of src1)
             case 0x74b: two("uint32_t(int32_t(t2) / int32_t(t1))"); break; // divi
+            case 0x78d: if (in.m1 || in.m2 || in.m3) return unsupported(in); // subr: reals in registers (MAME: double, then float)
+                        set("gen::f2u(float(double(gen::u2f(" + R(in.src2) + ")) - double(gen::u2f(" + R(in.src1) + "))))"); break;
+            case 0x78f: if (in.m1 || in.m2 || in.m3) return unsupported(in); // addr
+                        set("gen::f2u(float(double(gen::u2f(" + R(in.src2) + ")) + double(gen::u2f(" + R(in.src1) + "))))"); break;
             default: return unsupported(in);
             }
             break;

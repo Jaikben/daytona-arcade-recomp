@@ -2,10 +2,12 @@
 """Recompile the game's i960 code, its TGP program and the sound board's 68000
 program to native C++ and build them. Same steps on Linux, macOS and Windows.
 
-  recompile.py [--build-dir build] [--config Release]
+  recompile.py [--set daytona93|daytona] [--build-dir build] [--config Release]
 
-Needs the user's ROM set at roms/daytona93.zip or roms/daytona93.7z
-(git-ignored). Everything
+Needs the user's ROM set at roms/<set>.zip or roms/<set>.7z (git-ignored):
+daytona93 (Daytona USA Deluxe '93, the default) or daytona (Revision A,
+1994; give it its own build directory, e.g. --build-dir build-daytona).
+Everything
 derived from it (images, generated C++) goes under the build directory,
 which is git-ignored: never commit it.
 """
@@ -40,37 +42,43 @@ def tool(build, config, name):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--set", default="daytona93", choices=["daytona93", "daytona"])
     ap.add_argument("--build-dir", default="build")
     ap.add_argument("--config", default="Release")
     args = ap.parse_args()
     build = os.path.join(ROOT, args.build_dir)
-    cache = os.path.join(build, "rom_cache", "daytona93")
-    roms = [os.path.join(ROOT, "roms", "daytona93." + ext) for ext in ("zip", "7z")]
+    cache = os.path.join(build, "rom_cache", args.set)
+    roms = [os.path.join(ROOT, "roms", args.set + "." + ext) for ext in ("zip", "7z")]
     roms = [r for r in roms if os.path.exists(r)]
 
     build_cmd = ["cmake", "--build", build, "--config", args.config]
+    # the build directory is for one ROM set (CMake's M2_ROMSET)
+    run(["cmake", "-S", ".", "-B", build, "-DM2_ROMSET=" + args.set])
     if not all(os.path.exists(os.path.join(cache, f)) for f in ("tgp_program.bin", "sound_program.bin", "pcm1.bin")):
         if not roms:
-            sys.exit("recompile: put your ROM set at roms/daytona93.zip (or .7z) first")
+            sys.exit(f"recompile: put your ROM set at roms/{args.set}.zip (or .7z) first")
         run(build_cmd + ["--target", "m2import"])
         if subprocess.run([tool(build, args.config, "m2import"), roms[0], cache], cwd=ROOT).returncode:
             sys.exit(ROM_REJECTED_EXIT)  # m2import printed which file is missing or wrong
     run(build_cmd + ["--target", "m2recomp", "m2tgprecomp", "m2sndrecomp"])
 
-    gen = os.path.join(build, "gen", "daytona93")
+    gen = os.path.join(build, "gen", args.set)
     if os.path.isdir(gen):
         for f in os.listdir(gen):
             os.remove(os.path.join(gen, f))
     os.makedirs(gen, exist_ok=True)
-    run([tool(build, args.config, "m2recomp"), os.path.join(cache, "program.bin"), gen,
-         "--seeds", os.path.join("seeds", "daytona93.txt"),
-         "--hooks", os.path.join("seeds", "daytona93_hooks.txt")])
-    tgp = os.path.join(build, "gen", "daytona93_tgp")
+    recomp = [tool(build, args.config, "m2recomp"), os.path.join(cache, "program.bin"), gen,
+              "--seeds", os.path.join("seeds", args.set + ".txt")]
+    hooks = os.path.join("seeds", args.set + "_hooks.txt")
+    if os.path.exists(os.path.join(ROOT, hooks)):
+        recomp += ["--hooks", hooks]
+    run(recomp)
+    tgp = os.path.join(build, "gen", args.set + "_tgp")
     os.makedirs(tgp, exist_ok=True)
     run([tool(build, args.config, "m2tgprecomp"), os.path.join(cache, "tgp_program.bin"),
          os.path.join(tgp, "tgp_gen.cpp")])
 
-    snd = os.path.join(build, "gen", "daytona93_snd")
+    snd = os.path.join(build, "gen", args.set + "_snd")
     os.makedirs(snd, exist_ok=True)
     run([tool(build, args.config, "m2sndrecomp"), os.path.join(cache, "sound_program.bin"),
          os.path.join(snd, "snd_gen.cpp")])

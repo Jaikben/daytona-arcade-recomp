@@ -2,6 +2,34 @@
 
 ## Current state
 
+**The 1994 set (daytona, Revision A) builds and runs, for comparison.**
+CMake `M2_ROMSET` (daytona93, the default, or daytona), one set per build
+directory: `scripts/recompile.py --set daytona --build-dir build-daytona`
+with the set at roms/daytona.7z. The importer has both sets' MAME tables
+(Revision A: other program, sound program, two main data ROMs mirrored from
+0x800000, two polygon and two texture ROMs; the TGP program is the same
+2,024 words, at main_data 0x800020). Saves are per set (pref folder
+daytona-recomp/<set>). Seeds: seeds/daytona.txt, the daytona93 seeds carried
+over by code (new scripts/seed_map.py: 469 of 582, 175 of them by
+alignment where the revision inserted code), then seed_scan.py --set
+daytona (239 more; 38,001 instructions reachable). Revision A does some
+float maths on the i960's FPU instead of the TGP: m2recomp gained addr, subr
+and modi (MAME's semantics; register forms only; daytona93's generated code
+unchanged). No hooks yet (draw distance does nothing there). Its default
+settings are a linked twin cabinet, which waits on the link at the settings
+screen: set a single cabinet in test mode (F2) once; m2gpushot `--nvram DIR`
+loads the app's saved EEPROM and backup RAM. Checked: 12,000 attract frames,
+no missing code.
+Why: the arcade's wheels sit inside the wheel arches with a gap; ours (and
+MAME's) poke out over the wings. The car code and data are the same in both
+revisions (wheel table at 0x234af4 / 0x230d54: ±0.525, 0.32, 1.4125/-1.4;
+body and wheel models on shared polygon ROMs), and Revision A here frames
+the arcade footage's bridge shot (frames 8680-8780) almost exactly and still
+shows the tyres over the wings: not a revision difference. In attract the
+car is moved by the course-following routine (0xca40), so body roll is 0
+and pitch small; the full physics (0xf31c) does not run. Open: what on the
+board differs (the geometrizer port, the TGP).
+
 **Super sampling (hardware renderer).** Launcher > Game > Super sampling:
 Off, 2x, 3x, 4x (`supersampling=` in launcher.ini; m2gpushot
 `--scale N`). GpuRenderer::render draws into a target `scale` times the

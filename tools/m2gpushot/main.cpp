@@ -3,11 +3,13 @@
 // m2run, whose dumps come from the software renderer: compare the two.
 //
 //   m2gpushot IMAGES_DIR FRAMES --dump DIR --every N [--inputs scripts/inputs/X.txt]
-//             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N]
+//             [--aspect W:H [--hud-edges] [--stretch-backdrop]] [--scale N] [--nvram DIR]
 //   m2gpushot IMAGES_DIR FRAMES --bench [--inputs ...] [--aspect ...] [--scale N]
 //
 // --scale N: the internal resolution enhancement (1-4); dumps are N times
-// wider and taller.
+// wider and taller. --nvram DIR: start from the game's saved settings EEPROM
+// and backup RAM (ioboard_eeprom.bin, backup_ram.bin, as the app saves them
+// in its data folder), e.g. a cabinet type set in test mode.
 //
 // --bench draws every frame through the GPU, with no readback, and reports
 // the time in the game (logic, geometrizer, CPU tilemap layers), in the
@@ -27,6 +29,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -36,7 +40,7 @@ int main(int argc, char **argv) {
     }
     const std::string dir = argv[1];
     const uint64_t frames = std::strtoull(argv[2], nullptr, 10);
-    std::string dump_dir, inputs_path;
+    std::string dump_dir, inputs_path, nvram_dir;
     uint64_t every = 0;
     int scale = 1;
     double aspect = 0;
@@ -56,6 +60,7 @@ int main(int argc, char **argv) {
         if (!std::strcmp(argv[i], "--dump")) dump_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--every")) every = std::strtoull(argv[i + 1], nullptr, 10);
         else if (!std::strcmp(argv[i], "--inputs")) inputs_path = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--nvram")) nvram_dir = argv[i + 1];
         else if (!std::strcmp(argv[i], "--scale")) scale = std::clamp(std::atoi(argv[i + 1]), 1, 4);
     }
     if (!bench && (dump_dir.empty() || !every)) {
@@ -101,6 +106,16 @@ int main(int argc, char **argv) {
 
     try {
         rt::GameLoop game(dir);
+        if (!nvram_dir.empty()) { // the app's saved EEPROM and backup RAM, when present and the right size
+            auto load = [](const std::string &path, auto &into) {
+                std::ifstream f(path, std::ios::binary);
+                std::vector<uint8_t> d{std::istreambuf_iterator<char>(f), {}};
+                if (d.size() == into.size()) std::copy(d.begin(), d.end(), into.begin());
+                else std::fprintf(stderr, "m2gpushot: %s not loaded\n", path.c_str());
+            };
+            load(nvram_dir + "/ioboard_eeprom.bin", game.board().io().eeprom);
+            load(nvram_dir + "/backup_ram.bin", game.board().backup_ram());
+        }
         game.board().video().set_external_3d(true, true);
         game.set_aspect(aspect);
         game.set_hud_edges(hud_edges);

@@ -61,6 +61,11 @@ test), `--build-mame` (the patched MAME that records validation traces;
 Linux and macOS).
 
 After changing the recompiler or the seeds: `python3 scripts/recompile.py`.
+The 1994 set (`daytona`, Revision A) can be built alongside, for comparison:
+put it at `roms/daytona.7z` (or .zip) and run
+`python3 scripts/recompile.py --set daytona --build-dir build-daytona`;
+the game is then `build-daytona/daytona`. Its default settings are a linked
+twin cabinet: set a single cabinet once in test mode (F2).
 
 ## Playing
 

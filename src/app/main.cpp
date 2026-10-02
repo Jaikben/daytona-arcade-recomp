@@ -106,7 +106,7 @@ private:
 };
 
 std::string pref_file(const char *name) {
-    char *base = SDL_GetPrefPath("daytona-recomp", "daytona93");
+    char *base = SDL_GetPrefPath("daytona-recomp", M2_ROMSET); // per ROM set: settings, EEPROM, backup RAM
     std::string p = base ? std::string(base) + name : std::string(name);
     SDL_free(base);
     return p;

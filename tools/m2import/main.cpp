@@ -1,4 +1,5 @@
-// m2import: write the memory images from the user's ROM set (zip or 7z) for
+// m2import: write the memory images from the user's ROM set (zip or 7z; the
+// set this build is for, M2_ROMSET) for
 // the build: the recompilers read program.bin, tgp_program.bin and
 // sound_program.bin; the
 // checking tools read the rest. The same importer the game uses
@@ -41,10 +42,8 @@ int main(int argc, char **argv) {
         write(out + "/sound_program.bin", img.sound_program.data(), img.sound_program.size());
         write(out + "/pcm1.bin", img.pcm1.data(), img.pcm1.size());
         write(out + "/pcm2.bin", img.pcm2.data(), img.pcm2.size());
-        // The TGP program the i960 uploads at boot, cut from main_data.
-        constexpr size_t kOff = 0x860020, kLen = 2024 * 4;
-        if (rt::crc32(img.main_data.data() + kOff, kLen) != 0xD6D611DDu) throw std::runtime_error("TGP program not where expected");
-        write(out + "/tgp_program.bin", img.main_data.data() + kOff, kLen);
+        const std::vector<uint8_t> tgp = rt::tgp_program(img); // the TGP program the i960 uploads at boot
+        write(out + "/tgp_program.bin", tgp.data(), tgp.size());
         std::printf("m2import: wrote program, main_data, copro_data, copro_tables, polygons, textures, sound_program, pcm1, pcm2, tgp_program to %s\n",
                     out.c_str());
         return 0;

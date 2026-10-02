@@ -2,7 +2,7 @@
 """Find i960 entry points the MAME harvest never reached, by static analysis
 of the user's ROM set, and list them as seeds.
 
-  seed_scan.py [--build-dir build] [--config Release] [--append]
+  seed_scan.py [--set daytona93|daytona] [--build-dir build] [--config Release] [--append]
 
 The game calls code it has only as a pointer: state machines store the next
 state's address (lda 0x2266f8,r5; st r5,0xc(r3)), jump tables are indexed
@@ -22,7 +22,7 @@ fixed point, recompiling into a scratch directory each round. A false
 positive only costs unused native code; a miss stops the game.
 
 Needs the ROM set imported (scripts/recompile.py has run). Prints the new
-addresses; --append adds them to seeds/daytona93.txt. Then run
+addresses; --append adds them to seeds/<set>.txt. Then run
 scripts/recompile.py.
 """
 
@@ -36,7 +36,6 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SEEDS = os.path.join(ROOT, "seeds", "daytona93.txt")
 RET = 0x0A000000
 ENDS = {"ret", "b", "bx"}
 INSN = re.compile(r"^L_([0-9a-f]{8}): // [0-9a-f]{8}: (\S+)\s+(0x[0-9a-f]+)?(\[\w+\*4\])?")
@@ -56,12 +55,14 @@ def words(data):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--set", default="daytona93", choices=["daytona93", "daytona"])
     ap.add_argument("--build-dir", default="build")
     ap.add_argument("--config", default="Release")
-    ap.add_argument("--append", action="store_true", help="add the new seeds to seeds/daytona93.txt")
+    ap.add_argument("--append", action="store_true", help="add the new seeds to seeds/<set>.txt")
     args = ap.parse_args()
     build = os.path.join(ROOT, args.build_dir)
-    cache = os.path.join(build, "rom_cache", "daytona93")
+    cache = os.path.join(build, "rom_cache", args.set)
+    seeds_path = os.path.join(ROOT, "seeds", args.set + ".txt")
     prog_path = os.path.join(cache, "program.bin")
     if not os.path.exists(prog_path):
         sys.exit("seed_scan: no imported ROM set in %s (run scripts/recompile.py)" % cache)
@@ -112,7 +113,7 @@ def main():
     data_ptrs = {v for v in words(data) if plausible(v) and fstart(v)}
     del data
 
-    seeds = [int(l, 16) for l in open(SEEDS) if l.strip() and not l.startswith("#")]
+    seeds = [int(l, 16) for l in open(seeds_path) if l.strip() and not l.startswith("#")]
     found = []
     scratch = os.path.join(build, "seed_scan")
     for rnd in range(1, 50):
@@ -158,10 +159,10 @@ def main():
         print("%08x" % a)
     print("seed_scan: %d new seeds" % len(found), file=sys.stderr)
     if found and args.append:
-        with open(SEEDS, "a") as f:
+        with open(seeds_path, "a") as f:
             f.write("# scripts/seed_scan.py\n")
             f.writelines("%08x\n" % a for a in found)
-        print("seed_scan: appended to %s; now run scripts/recompile.py" % SEEDS, file=sys.stderr)
+        print("seed_scan: appended to %s; now run scripts/recompile.py" % seeds_path, file=sys.stderr)
 
 
 if __name__ == "__main__":
