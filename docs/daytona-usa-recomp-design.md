@@ -185,8 +185,12 @@ aspect, scenery-distance and per-item HUD policies in its options. Original
 mode uses GPU System24 composition. Wide mode now uses the same GXM tile
 compositor for its backdrop, with only background destination x coordinates
 scaled when stretch is enabled. Unstretched margins use palette pen0, like
-the original GXM clear. The CPU foreground/per-item HUD compositor and 3D
-polygon renderer remain unchanged. The previous Wide2 CPU backdrop remains
+the original GXM clear. As in main3044f3b, foreground tiles also use GXM except
+when per-item HUD relocation needs CPU composition. Tile decoding remains CPU.
+Road subdivision additionally measures texture error using main's reciprocal
+depth interpolation, targeting0.5texel edge-midpoint error within the existing
+eight-way cap and pool limits. This remains an affine approximation, not
+main's per-fragment shader, and can add vertex work. The previous Wide2 CPU backdrop remains
 available when the explicit Vita GPU-background capability is disabled.
 Unchanged foreground pixels reuse HUD grouping/uploads. The Vita stretch option
 applies to all wide backdrops; desktop retains its exact 3D-coverage gating. The homogeneous-WVP and wide GPU tile changes were

@@ -223,6 +223,22 @@ double benchmark(Emitter emitter, int subdiv) {
 } // namespace
 
 int main(int argc, char **argv) {
+    {
+        Point road[] = {{0,0,0,0,1}, {300,0,1024,0,1.2f}, {0,200,0,1024,1}};
+        const int n = vita::texture_error_subdivision(road, 3, 1);
+        assert(n >= 4 && n <= 8); // old q-ratio rule selected one affine triangle
+        auto u = [&](float t) { return 1024.f * 1.2f * t / (1.f + .2f * t); };
+        const float old_error = std::abs(u(.5f) - 512.f);
+        float error = 0;
+        for (int i = 0; i < n; ++i) {
+            const float a = float(i)/n, b = float(i+1)/n;
+            error = std::max(error, std::abs(u((a+b)*.5f) - (u(a)+u(b))*.5f));
+        }
+        assert(error < 1.f && old_error > 40.f); // eight-way cap can exceed the 0.5 target
+        std::printf("Road edge: %.3f -> %.3f texels midpoint error, subdivision %d\n", old_error, error, n);
+        for (auto &p : road) p.q = 1;
+        assert(vita::texture_error_subdivision(road, 3, 1) == 1);
+    }
     regression_tests();
     if (argc == 2 && std::strcmp(argv[1], "--benchmark") == 0) {
         std::puts("Single-thread host process CPU time, not a Vita frame-rate measurement:");

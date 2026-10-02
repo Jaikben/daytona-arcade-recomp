@@ -187,7 +187,8 @@ void GpuFastRenderer::update_system24_textures(const rt::Video &video) {
 }
 
 bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
-    if (!video.system24_gpu_compatible() && !(video.gpu_background() && !foreground)) return false;
+    if (!video.system24_gpu_compatible() &&
+        !(foreground ? video.gpu_foreground() : video.gpu_background())) return false;
     if (!foreground) {
         system24_quads_ = 0;
         vita2d_draw_rectangle(sx(-float(video.wide_margin())), sy(0),
@@ -208,7 +209,7 @@ bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
         auto vertex = [&](float x, float y, float u, float v) {
             // Stretch only backdrop screen coordinates; texture coordinates and
             // the 3D/HUD projection stay untouched.
-            const float draw_x = video.gpu_background() && video.stretch_backdrop()
+            const float draw_x = !foreground && video.gpu_background() && video.stretch_backdrop()
                 ? x * float(video.width()) / rt::Video::W - video.wide_margin() : x;
             vertices[out++] = vita2d_texture_vertex{sx(draw_x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
         };
@@ -620,6 +621,7 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
             int subdiv = (q_ratio > 3.0f && span > 320.0f) ? 8 :
                          (q_ratio > 1.75f && span > 128.0f) ? 4 :
                          (q_ratio > 1.25f && span > 48.0f) ? 2 : 1;
+            subdiv = texture_error_subdivision(p, poly.num_vertices, subdiv);
             size_t n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
             if (batch != Batch::Textured || batch_material != m || batch_count + n > max_batch) flush();
             while (subdiv > 1 && vita2d_pool_free_space() < n * sizeof(vita2d_texture_vertex) + 2048u) {
@@ -721,7 +723,7 @@ void GpuFastRenderer::draw(rt::Video &video) {
         last_tile_us_ = (background - uploaded) + (foreground - polygons);
     } else if (video.gpu_background()) {
         update_system24_textures(video);
-        if (foreground_generation_ != video.foreground_generation()) {
+        if (!video.gpu_foreground() && foreground_generation_ != video.foreground_generation()) {
             upload_layer(foreground_, video.foreground_layer());
             foreground_generation_ = video.foreground_generation();
         }
@@ -730,7 +732,8 @@ void GpuFastRenderer::draw(rt::Video &video) {
         const uint64_t background = sceKernelGetProcessTimeWide();
         draw_polygons(video);
         const uint64_t polygons = sceKernelGetProcessTimeWide();
-        draw_layer(foreground_, video);
+        if (video.gpu_foreground()) draw_system24(video, true);
+        else draw_layer(foreground_, video);
         const uint64_t foreground = sceKernelGetProcessTimeWide();
         last_upload_us_ = uploaded - begin;
         last_polygon_us_ = polygons - background;

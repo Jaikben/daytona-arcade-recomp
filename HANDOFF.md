@@ -2,6 +2,49 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Rebase onto GitHub main and GPU tile/road follow-up (2026-10-02)
+
+Fetched origin/main3044f3b and rebased psvita-native-frontend with merge history
+retained. Backup:backup/vita-before-main-20261002 at20becae. A preliminary flat
+rebase was aborted before continuing with rebase-merges to preserve Vita merge
+content. Resolved Video API conflicts by keeping desktop snapshots/instance
+tracking and preserving Vita widescreen, plus the renamed HUD copy destination
+parameter. Main and PSP branches are untouched; no remote push. The obsolete
+Vita frame-skip helper/docs from an old merge were not reinstated; replacement
+docs describe the physical GPU buffers (double default).
+
+New main renders tiles on GPU except for per-item HUD relocation, which still
+uses CPU foreground composition. Vita now matches that split: GXM composes
+centred foreground as well as backdrop, skips CPU pixel composition/uploads,
+and retains dirty state for transitions back to the relocated HUD fallback.
+CPU tile decode/cache work remains. Main's SDL_GPU shaders are not Vita GXM
+binaries; they are retained for desktop, not falsely advertised as a direct
+Vita shader port. Audio timing, game cadence and double buffering unchanged.
+
+Main's per-fragment reciprocal-depth UV correction confirms the difference
+from Vita's affine tessellation. Add an edge-midpoint texture-error criterion
+alongside the existing depth/span minimum subdivision. A synthetic shallow
+road triangle goes from46.545 to0.925texels midpoint error, at subdivision8
+instead of1. Initial test wrongly expected0.5 at that cap; corrected to check
+the measured sub-texel result. The0.5target is not a guaranteed bound, especially
+at the eight-way cap or when pool pressure lowers subdivision. This can add
+vertex work. No homogeneous matrix or untested shader replacement is used.
+
+Tests exercise scroll-dirty GPU foreground skipping, fallback transitions,
+HUD placement, source UV/stretch separation and25440 tessellation cases.
+Hardware road appearance, GPU timing and overall speed remain unverified.
+
+Validation: full host build,21 CTest passes with2 optional Lua skips, and
+ASan/UBSan renderer contracts pass. The first dirty-transition test omitted
+tile_memory_w under write tracking; it now uses the real board notification.
+Desktop SDL_GPU Vulkan smoke tests complete120 and1200frames at16:9; the latter
+with HUD-edge option enabled. This is not Vita rendering or full-race parity.
+VitaSDK build and archive checks pass. Package:
+build/daytona-vita-main-gpu-tiles.vpk
+SHA256:50dde138308c20680cf6b5a4f9a8ba92abc5c84cb4aa9fb8a4104c90e5a3728b.
+Frontend options, controls, audio and physical buffer adapter compare unchanged
+against the pre-rebase backup. Source tree is ready for device testing; no push.
+
 ## Widescreen GPU backdrop optimization (2026-10-01)
 
 Hardware feedback: all physical buffer choices still slower in widescreen.

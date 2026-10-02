@@ -370,11 +370,14 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
             const auto old_front = video.foreground_layer();
             const auto background_generation = video.background_generation();
             video.set_gpu_background(true);
+            tile_ram[0xa000] ^= 1; // scrolling dirties both CPU tile passes
+            video.tile_memory_w(); // same write notification as the board bus
             video.frame_start(); video.screen_update(polys, 0, images.mem);
+            mock::require(!video.last_profile().layers_rebuilt, "GPU tiles rebuilt a CPU bitmap on scroll");
             mock::require(video.foreground_layer() == old_front, "GPU backdrop changed HUD pixels");
             mock::require(video.background_generation() == background_generation, "GPU backdrop rebuilt CPU background");
             renderer.prepare_frame(); mock::start_scene(); renderer.draw(video);
-            mock::require(mock::layers.size() == 1, "GPU backdrop still uploads/draws CPU background");
+            mock::require(mock::layers.empty(), "GPU tile path still draws a CPU layer without relocated HUD");
             mock::end_scene(); renderer.prepare_frame();
             mock::capture_draws = true;
             mock::start_scene(); renderer.draw_system24(video, false);
@@ -398,10 +401,13 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
             }
             mock::end_scene(); renderer.prepare_frame(); mock::capture_draws = false;
             video.set_stretch_backdrop(false); video.set_gpu_background(false);
+            video.frame_start(); video.screen_update(polys, 0, images.mem);
+            mock::require(video.last_profile().layers_rebuilt, "CPU fallback lost deferred dirty layers");
         }
     }
     video.set_wide_margin(93);
     video.set_hud_edges(true);
+    video.set_gpu_background(true);
     auto panel = polygon();
     panel.num_vertices = 4; panel.z = 0x600; panel.texheader[0] = 0x8000;
     panel.center[0] = 0; panel.center[1] = 384;
@@ -410,6 +416,21 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
     polys = {panel};
     video.frame_start(); video.screen_update(polys, 0, images.mem);
     mock::require(video.hud_at_edges_active(), "race panel enables HUD relocation");
+
+    mock::require(!video.gpu_foreground(), "edge HUD must retain the shared per-item CPU fallback");
+    const auto unchanged_generation = video.foreground_generation();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == unchanged_generation, "static edge HUD cache missed");
+    tile_ram[1] = 0x80; // Foreground-category character zero.
+    std::fill_n(char_ram.begin(), 32, uint8_t(0x11));
+    video.tile_memory_w(); video.character_memory_w();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() > unchanged_generation, "changed HUD was not invalidated");
+    mock::require(std::any_of(video.foreground_layer().begin(), video.foreground_layer().end(),
+                  [](uint32_t pixel) { return pixel != 0; }), "changed HUD pixels lost");
+    const auto changed_generation = video.foreground_generation();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == changed_generation, "unchanged populated HUD uploaded again");
     auto projected = panel;
     for (int i = 0; i < 4; ++i) {
         projected.v[i].x += 93; projected.v[i].y = -projected.v[i].y;
