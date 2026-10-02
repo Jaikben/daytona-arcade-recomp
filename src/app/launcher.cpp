@@ -324,11 +324,17 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             if (ImGui::Checkbox("Frame sync (every cabinet waits for the master)", &cfg_.link_framesync)) cfg_.save();
             ImGui::EndDisabled();
-            ImGui::TextDisabled("Link: %s", link_status_.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 640);
+            ImGui::TextWrapped("Link: %s", link_status_.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
             ImGui::TextDisabled("Cabinets link in a ring over the network (Wi-Fi or wired): each listens on its\n"
-                                "port and connects to the next; with two, each one's next is the other. In test\n"
-                                "mode (F2) > GAME SYSTEM set LINK ID (one MASTER, the others SLAVE) and a\n"
-                                "different CAR NUMBER on each. The 1994 set (Revision A) has link play.");
+                                "port and connects to the next; with two, each one's next is the other. Every\n"
+                                "computer can use the same port: e.g. 15112, and Next cabinet = the other\n"
+                                "computer's address:15112. In test mode (F2) > GAME SYSTEM set LINK ID (one\n"
+                                "MASTER, the others SLAVE) and a different CAR NUMBER on each. The 1994 set\n"
+                                "(Revision A) has link play.");
 
             ImGui::Spacing();
             ImGui::Separator();

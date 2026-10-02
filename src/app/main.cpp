@@ -110,12 +110,20 @@ private:
 };
 
 // The launcher's link play status line.
-std::string link_status(const rt::CommBoard *board, bool wanted) {
-    if (!wanted) return "off";
-    if (!board) return "not started";
+std::string link_status(const rt::CommBoard *board, const app::TcpLink *link, const app::Config &cfg) {
+    if (!cfg.link) return "off";
+    if (!board || !link) return "not started";
     switch (board->link()) {
     case rt::CommBoard::Link::Off: return "on (the game has not started the link: set LINK ID in test mode)";
-    case rt::CommBoard::Link::Waiting: return "waiting for the other cabinets";
+    case rt::CommBoard::Link::Waiting: {
+        // which half of the ring is missing
+        std::string s = "waiting: ";
+        s += link->tx_open() ? "next cabinet " + cfg.link_next + " reached; "
+                             : "next cabinet " + cfg.link_next + " not reached yet (is it listening on that port?); ";
+        s += link->rx_open() ? "a cabinet is connected to port " + std::to_string(cfg.link_port)
+                             : "no cabinet has connected to port " + std::to_string(cfg.link_port) + " yet";
+        return s;
+    }
     case rt::CommBoard::Link::Up:
         return "linked: cabinet " + std::to_string(board->id()) + " of " + std::to_string(board->count());
     case rt::CommBoard::Link::Lost: return "lost (reset to try again)";
@@ -398,7 +406,7 @@ int main(int argc, char **argv) {
             ffb.update(std::exchange(game->board().io().drive_commands, {}), devices, cfg.controls, cfg.ffb_strength,
                        cfg.ffb_invert);
             launcher.set_ffb_device(ffb.device_kind());
-            launcher.set_link_status(link_status(game->board().comm_board(), cfg.link));
+            launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {
                 if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it

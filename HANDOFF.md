@@ -32,6 +32,12 @@ course and transmission select, a race with POSITION /2 on both, red car
 (car 1) and blue car (car 2); "cabinet 1 of 2" / "2 of 2"; the link lost
 when the other cabinet quits. Not checked: two computers, Wi-Fi, frame
 sync, more than two cabinets, the windowed app linked (built, not run).
+First two-computer try (Mac 192.168.1.52 slave, port 15112, next
+192.168.1.2:15113; the other the master): NETWORK CHECKING, because the
+other computer was not listening on 15113 (connection refused: its port was
+still the default 15112). The launcher's waiting status now says which half
+of the ring is missing (next cabinet reached or not; a cabinet connected to
+this port or not), and the help says every computer can use the same port.
 
 **The seed_scan seeds checked against MAME (daytona93).** A local MAME
 build (scripts/build_mame.sh) and scripts/m2_check.sh on every scenario: the
