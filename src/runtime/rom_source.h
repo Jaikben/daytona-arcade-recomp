@@ -40,11 +40,24 @@ public:
     // A little-endian word at a byte offset (aligned), through page_fast().
     uint32_t dword(RomRegion region, uint32_t offset) {
         const uint8_t *p = page_fast(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~3u);
+#if defined(M2_DC_SPEED) && defined(__GNUC__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        // The Dreamcast (little-endian; pages are aligned): one load.
+        uint32_t v;
+        __builtin_memcpy(&v, __builtin_assume_aligned(p, 4), 4);
+        return v;
+#else
         return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+#endif
     }
     uint16_t word(RomRegion region, uint32_t offset) {
         const uint8_t *p = page_fast(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~1u);
+#if defined(M2_DC_SPEED) && defined(__GNUC__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        uint16_t v;
+        __builtin_memcpy(&v, __builtin_assume_aligned(p, 2), 2);
+        return v;
+#else
         return uint16_t(p[0] | p[1] << 8);
+#endif
     }
 
 protected:

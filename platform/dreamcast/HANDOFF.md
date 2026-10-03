@@ -28,7 +28,7 @@ frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
 **Slow, but nearly five times as fast as at the start of the night**:
-6,000 frames in 226 s, about 26.5 frames/s in Flycast (not a console figure;
+6,000 frames in 224 s, about 27 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -50,6 +50,7 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | `fast_gen.py`: 3,289 fixed, aligned work-RAM accesses straight to it (`gen::wram_*`, `Cpu::work_ram`); register-only now 58% | 28.5 | 6 | 7 | 3 | 255 s |
 | A tile layer composed (and uploaded) only when its inputs changed: a tile of its category rebuilt, a pen changed, or tile RAM 0x8000-0xdfff (line tables, registers, masks) differs from a copy | 28.6 | 6 | 5 | 2.7 | 242 s |
 | Board memory accesses marked aligned (`M2_AL`): GCC had called memcpy for every word (the SH-4 traps on unaligned access); ROM cache 512 pages | 25.3 | 6 | 5 | 2.7 | 226 s |
+| `RomSource::dword`/`word`: one aligned load on the little-endian SH-4 instead of four bytes | 25.4 | 5.6 | 5 | 2.7 | 224 s |
 
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with
