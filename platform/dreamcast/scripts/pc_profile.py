@@ -55,9 +55,14 @@ def main():
         m = re.match(r"SAMPLE ([0-9a-f]{8}) (\d+)", line)
         if m and frame >= args.first:
             addr, count = int(m.group(1), 16), int(m.group(2))
-            # The bucket's middle: a bucket can straddle two functions.
-            i = bisect.bisect_right(addrs, addr + 32) - 1
-            by_name[names[i] if i >= 0 else "?"] += count
+            # A bucket that straddles two functions is named for both
+            # ("first | second"): the samples could be in either.
+            i = bisect.bisect_right(addrs, addr) - 1
+            j = bisect.bisect_right(addrs, addr + 63) - 1
+            name = names[i] if i >= 0 else "?"
+            if j != i and j >= 0:
+                name = f"{name[:70]} | {names[j][:70]}"
+            by_name[name] += count
             shown += count
     if not total:
         sys.exit("pc_profile: no SAMPLE lines (build with --sample)")

@@ -400,11 +400,19 @@ M2_PIXEL_TEMPLATE void Video::tilemap_draw(std::vector<M2_PIXEL> &dm, int L, int
                 const int col = from + k, end = std::min(n, k + 8 - (col & 7));
                 const uint8_t cls = classes[col >> 3];
                 if ((cls & 1) == cat) {
-                    if (flags & DRAW_OPAQUE || cls & 4)
+                    const bool all = flags & DRAW_OPAQUE || cls & 4;
+                    if (end - k == 8) { // a whole tile: fixed length, unrolled
+                        if (all)
+                            for (int j = 0; j < 8; j++) o[k + j] = M2_PEN[p[k + j]];
+                        else if (cls & 2)
+                            for (int j = 0; j < 8; j++)
+                                if ((f[k + j] & mask) == value) o[k + j] = M2_PEN[p[k + j]];
+                    } else if (all) {
                         for (int j = k; j < end; j++) o[j] = M2_PEN[p[j]];
-                    else if (cls & 2)
+                    } else if (cls & 2) {
                         for (int j = k; j < end; j++)
                             if ((f[j] & mask) == value) o[j] = M2_PEN[p[j]];
+                    }
                 }
                 k = end;
             }
