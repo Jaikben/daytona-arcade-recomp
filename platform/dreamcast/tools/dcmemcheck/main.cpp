@@ -130,8 +130,11 @@ int main(int argc, char **argv) {
             uint64_t layers = 0xcbf29ce484222325ULL;
             const rt::Video &video = game.board().video();
 #ifdef M2_DC_SPEED
+            // (Rows of kLayerStride; the shown W columns of each.)
             for (const auto *layer : {&video.background16(), &video.foreground16()})
-                for (uint16_t px : *layer) layers = (layers ^ px) * 0x100000001b3ULL;
+                for (size_t row = 0; row < layer->size() / rt::Video::kLayerStride; row++)
+                    for (int x = 0; x < rt::Video::W; x++)
+                        layers = (layers ^ (*layer)[row * rt::Video::kLayerStride + size_t(x)]) * 0x100000001b3ULL;
 #else
             for (uint32_t c : video.background_layer())
                 layers = (layers ^ (((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f))) * 0x100000001b3ULL;

@@ -46,11 +46,11 @@ void say(const char *format, ...) {
 
 // Large C++ allocations (256 KB and up) with the caller, for addr2line: main
 // RAM is nearly all spoken for, and the one that does not fit is the one to
-// find.
+// find. Those are 32-byte aligned: the tile layers go to video RAM by DMA.
 void *operator new(size_t size) {
     if (size >= 256 * 1024)
         std::printf("ALLOC %u bytes from %08lx\n", unsigned(size), (unsigned long)__builtin_return_address(0));
-    if (void *p = std::malloc(size ? size : 1)) return p;
+    if (void *p = size >= 256 * 1024 ? memalign(32, size) : std::malloc(size ? size : 1)) return p;
     std::printf("ALLOC FAILED %u bytes from %08lx\n", unsigned(size), (unsigned long)__builtin_return_address(0));
     throw std::bad_alloc();
 }

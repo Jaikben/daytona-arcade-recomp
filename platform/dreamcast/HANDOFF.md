@@ -72,7 +72,14 @@ every polygon (uninitialised union storage; every field used is written
 first): geometry 14.9 ms, race 419 s. Tile decode: with no character
 changed, blocks of 16 tile values equal to the last decode's copy are
 skipped with one memcmp, and the 16 KB character-dirty table is cleared only
-when something was set: tile layers 19.6 -> 16.3 ms, race 404 s.
+when something was set: tile layers 19.6 -> 16.3 ms, race 404 s. Tile
+layers by DMA: the 16-bit layers have rows of 512 (`Video::kLayerStride`,
+the texture's width; columns 496 and up composed but not shown, dcmemcheck
+hashes the shown ones), large allocations are 32-byte aligned (main.cpp's
+operator new), and the renderer starts each layer's DMA after
+`pvr_wait_ready` (no longer writing a texture the PVR may still be
+drawing from) and waits before `pvr_scene_finish`: drawing 10.8 -> 4.5 ms,
+race 373 s, about 16 frames/s with every frame drawn.
 
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with

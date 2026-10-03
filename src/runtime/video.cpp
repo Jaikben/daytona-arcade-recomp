@@ -31,7 +31,7 @@ Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
 #ifdef M2_DC_SPEED
       // (The Dreamcast composes 16-bit layers: the 32-bit ones only if a
       // frame is ever drawn without external 3D, allocated then.)
-      screen16_(size_t(W) * H), sys24_16_(size_t(W) * (H + 4)),
+      screen16_(size_t(kLayerStride) * H), sys24_16_(size_t(kLayerStride) * (H + 4)),
 #else
       screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
 #endif
@@ -606,6 +606,8 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
             regs_copy_.assign(tile_ram_ + kRegs, tile_ram_ + kRegs + kRegsSize);
             back_dirty_ = front_dirty_ = true;
         }
+        const int dw = dw_;
+        dw_ = kLayerStride; // composed kLayerStride wide: the rows are the texture's
         if (back_dirty_) {
             std::fill(screen16_.begin(), screen16_.end(), pens565_[0]);
             for (int layer = 3; layer >= 2; --layer) draw(screen16_, layer << 1, DRAW_OPAQUE, pens565_);
@@ -619,6 +621,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
             front_dirty_ = false;
             ++front16_generation_;
         }
+        dw_ = dw;
         profile_.tile_draw += ticks() - before;
         profile_.layers_rebuilt = true;
         rendered_now_ = false;

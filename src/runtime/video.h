@@ -97,8 +97,11 @@ public:
     const std::vector<uint32_t> &background_layer() const { return screen_; }
     const std::vector<uint32_t> &foreground_layer() const { return sys24_; }
 #ifdef M2_DC_SPEED
+    // Rows of the 16-bit layers: the PVR texture's width, so a layer goes to
+    // video RAM in one DMA (columns W and up are composed but not shown).
+    static constexpr int kLayerStride = 512;
     // With M2_DC_SPEED the external-3D layers are composed straight into the
-    // PVR's 16-bit formats (W x H, and screen_/sys24_ stay empty): the
+    // PVR's 16-bit formats (kLayerStride x H, and screen_/sys24_ stay empty): the
     // background RGB565, the front layers ARGB1555 with 0 see-through. The
     // same pixels as converting the 32-bit layers (rgb565/argb1555 below).
     const std::vector<uint16_t> &background16() const { return screen16_; }

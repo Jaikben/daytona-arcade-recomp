@@ -78,13 +78,16 @@ public:
             t = now;
         };
 #ifdef M2_DC_SPEED
-        // A layer the runtime did not compose again is already in video RAM.
+        // A layer the runtime did not compose again is already in video RAM;
+        // the others go by DMA once the PVR has finished the last frame
+        // (below), while the polygons are prepared.
+        const std::vector<uint16_t> *back_layer = nullptr, *front_layer = nullptr;
         if (video.background16_generation() != back_uploaded_) {
-            upload16(video.background16(), background_, false);
+            back_layer = &video.background16();
             back_uploaded_ = video.background16_generation();
         }
         if (video.foreground16_generation() != front_uploaded_) {
-            upload16(video.foreground16(), foreground_, true);
+            front_layer = &video.foreground16();
             front_uploaded_ = video.foreground16_generation();
         }
 #else
@@ -99,6 +102,9 @@ public:
 
         stage = 3;
         pvr_wait_ready(); // the last frame is drawn: its palettes and textures may change
+#ifdef M2_DC_SPEED
+        if (back_layer) upload_layer(*back_layer, background_);
+#endif
         lap(1);
         if (flush_) { // the texture cache filled up last frame
             sources_.clear();
@@ -127,6 +133,9 @@ public:
         }
         lap(2);
 
+#ifdef M2_DC_SPEED
+        if (front_layer) upload_layer(*front_layer, foreground_); // after the back layer's DMA
+#endif
         pvr_list_begin(PVR_LIST_TR_POLY);
         pvr_dr_init(&dr_);
         size_t used = sizeof(pvr_poly_hdr_t) + 4 * sizeof(pvr_vertex_t);
@@ -155,6 +164,9 @@ public:
         pvr_list_finish();
         vertex_bytes = used;
         stage = 6;
+#ifdef M2_DC_SPEED
+        wait_dma(); // the layers are in video RAM before the PVR draws them
+#endif
         pvr_scene_finish();
         lap(3);
         stage = 0;
@@ -228,26 +240,18 @@ private:
     }
 
 #ifdef M2_DC_SPEED
-    // The runtime's 16-bit layers (rt::Video::background16/foreground16,
-    // already RGB565 and ARGB1555): copied as they are, 32 bytes at a time.
-    void upload16(const std::vector<uint16_t> &layer, pvr_ptr_t texture, bool alpha) {
-        auto *dst = static_cast<uint8_t *>(texture);
-        sq_lock(dst);
-        for (int y = 0; y < kH; y++) {
-            const auto *src = reinterpret_cast<const uint32_t *>(&layer[size_t(y) * kW]); // kW * 2 bytes: 4-aligned
-            if (alpha) {
-                uint32_t any = 0;
-                for (int x = 0; x < kW / 2; x++) any |= src[x];
-                if (!any && clear_row_[y]) continue;
-                clear_row_[y] = !any;
-            }
-            auto *sq = reinterpret_cast<uint32_t *>(SQ_MASK_DEST(dst + size_t(y) * kTexW * 2));
-            for (int x = 0; x < kW / 2; x += 8, sq += 8) {
-                for (int k = 0; k < 8; k++) sq[k] = src[x + k];
-                sq_flush(sq);
-            }
-        }
-        sq_unlock();
+    // The runtime's 16-bit layers (rt::Video::background16/foreground16:
+    // already RGB565 and ARGB1555, rows of kLayerStride = the texture's
+    // width): one DMA each, while the CPU carries on. KOS flushes the cache
+    // for it; the buffers are 32-byte aligned (main.cpp's operator new).
+    static_assert(rt::Video::kLayerStride == kTexW, "a layer's rows are the texture's");
+    static void wait_dma() {
+        while (!pvr_dma_ready()) thd_pass();
+    }
+    void upload_layer(const std::vector<uint16_t> &layer, pvr_ptr_t texture) {
+        wait_dma(); // one PVR DMA at a time
+        if (pvr_txr_load_dma(layer.data(), texture, size_t(kTexW) * kH * 2, false, nullptr, nullptr) < 0)
+            pvr_txr_load(layer.data(), texture, size_t(kTexW) * kH * 2); // (not aligned: by the store queues)
     }
 #endif
 
