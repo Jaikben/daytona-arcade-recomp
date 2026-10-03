@@ -42,6 +42,9 @@ Lockstep::Lockstep(Cpu &core) : core_(core), free_run_(true) {
 void Lockstep::refresh_next() {
     next_count = next_ < log_.size() ? log_[next_].count : UINT64_MAX;
     if (next_ < log_.size() && log_[next_].kind == Event::Pend) next_count += 1; // checked after it should happen
+#ifdef M2_DC_SPEED
+    next_count = std::min(next_count, end_count); // boundary() compares next_count only
+#endif
 }
 
 bool Lockstep::apply() {

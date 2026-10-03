@@ -14,6 +14,33 @@
 
 namespace rt {
 
+#ifdef M2_DC_SPEED
+// The Dreamcast: the TGP's FIFOs as a growing ring (std::deque's block
+// bookkeeping costs the SH-4 on every word). The same order and contents.
+class WordFifo {
+public:
+    bool empty() const { return head_ == tail_; }
+    uint32_t front() const { return buf_[head_ & mask_]; }
+    void pop_front() { ++head_; }
+    void push_back(uint32_t v) {
+        if (tail_ - head_ == buf_.size()) grow();
+        buf_[tail_++ & mask_] = v;
+    }
+
+private:
+    void grow() {
+        std::vector<uint32_t> bigger(buf_.size() * 2);
+        for (uint32_t i = head_; i != tail_; ++i) bigger[i - head_] = buf_[i & mask_];
+        tail_ -= head_;
+        head_ = 0;
+        buf_.swap(bigger);
+        mask_ = uint32_t(buf_.size() - 1);
+    }
+    std::vector<uint32_t> buf_ = std::vector<uint32_t>(1024);
+    uint32_t mask_ = 1023, head_ = 0, tail_ = 0; // free-running counts, masked
+};
+#endif
+
 class TgpBoard : public TgpBus {
 public:
     // tables: copro_tgp_tables (0x40000 bytes); copro_data: 0x800000 bytes.
@@ -61,7 +88,11 @@ private:
 #ifdef M2_DC_MEMORY
     RomSource *rom_ = nullptr;
 #endif
+#ifdef M2_DC_SPEED
+    WordFifo in_, out_;
+#else
     std::deque<uint32_t> in_, out_;
+#endif
     std::vector<uint32_t> upload_;
     uint32_t coproctl_ = 0, geoctl_ = 0, geo_write_start_ = 0, geo_read_start_ = 0;
     bool booted_ = false;

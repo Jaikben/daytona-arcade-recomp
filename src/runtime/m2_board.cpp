@@ -437,6 +437,9 @@ uint32_t M2Board::fetch(uint32_t addr) {
 }
 
 uint8_t M2Board::read_byte(uint32_t addr) {
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_ && addr != 0x00500000u) return fast_read_base_[addr & 0xfff];
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
 #ifdef M2_DC_SPIN_SKIP
@@ -467,7 +470,12 @@ uint8_t M2Board::read_byte(uint32_t addr) {
     if (p.kind == Rom) return rom_page(p)[addr & 0xfff];
 #endif
     switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); return p.base[addr & 0xfff];
+    case Rom: return p.base[addr & 0xfff];
+#else
     case Rom: case Ram: case Tex: return p.base[addr & 0xfff];
+#endif
     case Dev: return uint8_t(dev_read(addr & ~3u, 0xffu << sh) >> sh);
     default: return 0;
     }
@@ -475,6 +483,13 @@ uint8_t M2Board::read_byte(uint32_t addr) {
 
 uint16_t M2Board::read_word(uint32_t addr) {
     addr &= ~1u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_) {
+        uint16_t v;
+        std::memcpy(&v, fast_read_base_ + (addr & 0xfff), 2);
+        return v;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
 #ifdef M2_DC_MEMORY
@@ -485,7 +500,12 @@ uint16_t M2Board::read_word(uint32_t addr) {
     }
 #endif
     switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); [[fallthrough]];
+    case Rom: {
+#else
     case Rom: case Ram: case Tex: {
+#endif
         uint16_t v;
         std::memcpy(&v, p.base + (addr & 0xfff), 2);
         return v;
@@ -497,6 +517,13 @@ uint16_t M2Board::read_word(uint32_t addr) {
 
 uint32_t M2Board::read_dword(uint32_t addr) {
     addr &= ~3u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_) {
+        uint32_t v;
+        std::memcpy(&v, fast_read_base_ + (addr & 0xfff), 4);
+        return v;
+    }
+#endif
     const Page &p = page(addr);
 #ifdef M2_DC_MEMORY
     if (p.kind == Rom) {
@@ -506,7 +533,12 @@ uint32_t M2Board::read_dword(uint32_t addr) {
     }
 #endif
     switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); [[fallthrough]];
+    case Rom: {
+#else
     case Rom: case Ram: case Tex: {
+#endif
         uint32_t v;
         std::memcpy(&v, p.base + (addr & 0xfff), 4);
         return v;
@@ -517,10 +549,19 @@ uint32_t M2Board::read_dword(uint32_t addr) {
 }
 
 void M2Board::write_byte(uint32_t addr, uint8_t data) {
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        fast_write_base_[addr & 0xfff] = data;
+        return;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
     switch (p.kind) {
     case Ram: {
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
         uint8_t &dst = p.base[addr & 0xfff];
         const bool changed = dst != data;
         dst = data;
@@ -535,10 +576,19 @@ void M2Board::write_byte(uint32_t addr, uint8_t data) {
 
 void M2Board::write_word(uint32_t addr, uint16_t data) {
     addr &= ~1u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        std::memcpy(fast_write_base_ + (addr & 0xfff), &data, 2);
+        return;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
     switch (p.kind) {
     case Ram: {
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
         uint16_t old; std::memcpy(&old, p.base + (addr & 0xfff), 2);
         std::memcpy(p.base + (addr & 0xfff), &data, 2);
         if (old != data) ram_written(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
@@ -552,9 +602,18 @@ void M2Board::write_word(uint32_t addr, uint16_t data) {
 
 void M2Board::write_dword(uint32_t addr, uint32_t data) {
     addr &= ~3u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        std::memcpy(fast_write_base_ + (addr & 0xfff), &data, 4);
+        return;
+    }
+#endif
     const Page &p = page(addr);
     switch (p.kind) {
     case Ram: {
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
         uint32_t old; std::memcpy(&old, p.base + (addr & 0xfff), 4);
         std::memcpy(p.base + (addr & 0xfff), &data, 4);
         if (old != data) ram_written(addr, data, 0xffffffffu);

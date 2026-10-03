@@ -69,6 +69,7 @@ constexpr size_t kGameStack = 512 * 1024;
 constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
 constexpr int kDrawEvery = 4;        // frames per picture
+constexpr int kReport = 300;         // frames between PROFILE and GAME frame lines
 constexpr int kFrames = 6000;        // a recorded script: then GAME DONE (a race is 6,000 frames); the pad: no end
 
 // The ROM regions from the disc, a page at a time, through an LRU cache whose
@@ -314,18 +315,19 @@ void *run_game(void *) {
                 renderer.draw(game.board().video());
                 prof_draw += timer_us_gettime64() - d0;
             }
-            if (frame % 60 == 0) {
+            if (frame % kReport == 0) { // every 5 s of game time: the serial console is slow
+                const double frame_us = kReport * 1e3, drawn_us = kReport / kDrawEvery * 1e3; // us -> ms per frame
                 say("PROFILE %d ms/frame: core %.1f geometry %.1f video %.1f draw %.1f (every 4th frame: %.1f each); "
-                            "frame wait skipped %.0f%% of i960 instructions\n",
-                            frame, prof_core / 60e3, prof_geo / 60e3, prof_video / 60e3, prof_draw / 60e3,
-                            prof_draw / 15e3, 100.0 * double(game.board().spin_skipped()) / double(game.instructions()));
+                    "frame wait skipped %.0f%% of i960 instructions\n",
+                    frame, prof_core / frame_us, prof_geo / frame_us, prof_video / frame_us, prof_draw / frame_us,
+                    prof_draw / drawn_us, 100.0 * double(game.board().spin_skipped()) / double(game.instructions()));
                 say("PROFILE draw, ms per drawn frame: layers %.1f sort+wait %.1f materials %.1f polygons %.1f\n",
-                            renderer.step_us[0] / 15e3, renderer.step_us[1] / 15e3, renderer.step_us[2] / 15e3,
-                            renderer.step_us[3] / 15e3);
+                    renderer.step_us[0] / drawn_us, renderer.step_us[1] / drawn_us, renderer.step_us[2] / drawn_us,
+                    renderer.step_us[3] / drawn_us);
                 for (uint64_t &us : renderer.step_us) us = 0;
                 prof_core = prof_geo = prof_video = prof_draw = 0;
             }
-            if (frame % 60 == 0)
+            if (frame % kReport == 0)
                 say("GAME frame %d: %u polygons drawn (%u textured, flat for want of a palette %u / a build %u, %u skipped, %u KB; %u textures, %u flushes), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
                             ", pages read %" PRIu64 ", %.2f MB free)\n",
                             frame, renderer.drawn, renderer.textured, renderer.no_bank, renderer.no_build, renderer.skipped, unsigned(renderer.vertex_bytes / 1024),

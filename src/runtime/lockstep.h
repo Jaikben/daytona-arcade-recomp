@@ -31,9 +31,25 @@ public:
     // Call before each instruction. Returns true when the run is over or an
     // interrupt was taken (IP changed); the caller re-dispatches on m_IP.
     bool boundary() {
+#ifdef M2_DC_SPEED
+        // next_count is kept at or below end_count (refresh_next, set_end):
+        // one compare (this is called before every instruction).
+        if (count < next_count) return false;
+#else
         if (count < next_count && count < end_count) return false;
+#endif
         return apply();
     }
+#ifdef M2_DC_SPEED
+    // Set end_count (the game loop's frame end), keeping next_count at or
+    // below it. A poke not yet taken is taken at the next boundary, as it
+    // would have been: its next_count was at or below the count.
+    void set_end(uint64_t end) {
+        end_count = end;
+        refresh_next();
+        if (poked_) next_count = std::min(next_count, count);
+    }
+#endif
     bool finished() const { return count >= end_count; }
     // Run fn when `at` instructions have completed, before any interrupt
     // event at the same count (MAME's vblank handler parses the display list

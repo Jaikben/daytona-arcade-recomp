@@ -27,8 +27,8 @@ the PVR with textures and both tile layers (`game/renderer.h`); the busiest
 frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-**Slow, but four and a half times as fast as at the start of the night**:
-6,000 frames in 315 s, about 19 frames/s in Flycast (not a console figure;
+**Slow, but nearly five times as fast as at the start of the night**:
+6,000 frames in 298 s, about 20 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -42,6 +42,7 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Geometrizer object data parsed only for frames that are shown; frame skip 3 really set (it was clamped to 2) | 39 | 11 | 8 | 13 | 374 s |
 | Renderer: polygons through KOS's direct rendering, no `std::isfinite` (soft-float calls at -fno-fast-math); layers written through the store queues; TGP status helpers inline | 38 | 11 | 8 | 9 | 350 s |
 | Tile layers composed in 16 bits (RGB565, ARGB1555) by the runtime: no conversion, 0.75 MB less RAM | 38 | 11 | 8 | 4 | 315 s |
+| Board: last plain-memory page cached; `has_code` only after a run that did nothing; `Lockstep::boundary` one compare; TGP FIFOs a ring; PROFILE every 300 frames | 34 | 10 | 8 | 4 | 298 s |
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched
@@ -171,6 +172,19 @@ Also only in the Dreamcast Makefile and `tools/dcmemcheck`:
     reference converts its 32-bit layers as the renderer did): identical at
     every frame of race_basic and attract_long.
   - `tgp.h`: the TGP's status helpers `always_inline` (GCC only).
+  - `m2_board`: the last page read from plain memory (RAM, texture RAM)
+    and the last RAM page written outside the video registers' ranges
+    (where `ram_written` does nothing) are used straight through their
+    base; the map never changes after the constructor. The frame-wait read
+    (0x500000) still goes the long way.
+  - `game_loop.cpp`: `gen::has_code` (a binary search over every address)
+    only after a `gen::run` that did nothing, the one case where it can be
+    false; the same error.
+  - `lockstep`: `next_count` kept at or below `end_count` (`refresh_next`
+    clamps; the game loop sets the end with `set_end`, which takes a poke
+    not yet taken at once, as before), so `boundary()` compares once.
+  - `m2_tgp_board.h`: the FIFOs a growing ring (`WordFifo`), not
+    `std::deque`.
   - `m2_board.h`: `set_frame_skip` allows 3. The desktop's range is 0-2, and
     the frontend's `set_frame_skip(3)` had been clamped to 2: the layers
     were composed every 3rd frame and drawn every 4th, up to two frames old.

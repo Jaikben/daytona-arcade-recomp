@@ -188,6 +188,21 @@ private:
 #ifdef M2_DC_SPIN_SKIP
     uint64_t spin_skipped_ = 0;
 #endif
+#ifdef M2_DC_SPEED
+    // The last page read from plain memory (RAM, texture RAM) and the last
+    // plain RAM page written (no video register behind it: ram_written does
+    // nothing there), straight through their base. The map never changes
+    // after the constructor, so neither goes stale.
+    uint32_t fast_read_page_ = ~0u, fast_write_page_ = ~0u;
+    uint8_t *fast_read_base_ = nullptr, *fast_write_base_ = nullptr;
+    static bool plain_ram(uint32_t addr) {
+        return !((addr >= 0x01000000 && addr <= 0x011fffff) || (addr >= 0x01800000 && addr <= 0x0181bfff));
+    }
+    void fast_read(uint32_t addr, const Page &p) { fast_read_page_ = addr >> kPageBits, fast_read_base_ = p.base; }
+    void fast_write(uint32_t addr, const Page &p) {
+        if (plain_ram(addr)) fast_write_page_ = addr >> kPageBits, fast_write_base_ = p.base;
+    }
+#endif
 
     // i8251 UART to the sound board (transmit side)
     bool uart_txrdy_ = true, uart_shift_busy_ = false, uart_have_hold_ = false;
