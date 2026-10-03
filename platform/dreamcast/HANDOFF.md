@@ -52,6 +52,14 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Board memory accesses marked aligned (`M2_AL`): GCC had called memcpy for every word (the SH-4 traps on unaligned access); ROM cache 512 pages | 25.3 | 6 | 5 | 2.7 | 226 s |
 | `RomSource::dword`/`word`: one aligned load on the little-endian SH-4 instead of four bytes | 25.4 | 5.6 | 5 | 2.7 | 224 s |
 
+**Every frame drawn** (`--draw-every 1`): race_basic 462 s, 77 ms a frame,
+about 13 frames/s (core 25, geometrizer 21, tile layers 20, drawing 11 ms);
+all 100 checkpoints match. The geometrizer with -ffast-math/-ffp-contract=
+fast/-mfsrra/-mfsca made no difference (464 s; it is not arithmetic-bound)
+and was taken out. Skipping the tile decode when neither tile nor character
+RAM was written (M2_DC_SPEED) is exact but saves under 1% in a race (the HUD
+writes tile RAM nearly every frame).
+
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with
 `--sample`'s new CALLER lines (who called memcpy/memset, from PR when the PC

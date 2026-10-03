@@ -158,6 +158,12 @@ void Video::build_layer(int layer) {
 // HUD's digits change). Characters are compared (256-byte pages, then 32-byte
 // characters) only on frames the game wrote character RAM.
 void Video::decode_layers() {
+#ifdef M2_DC_SPEED
+    // Neither tile RAM nor character RAM written since the last decode (the
+    // board reports both): no tile can need rebuilding, so skip the 16,384
+    // tile compares.
+    if (dec_valid_ && write_tracking_ && !tile_memory_touched_ && !character_memory_touched_) return;
+#endif
     if (dec_valid_ && (character_memory_touched_ || !write_tracking_)) {
         std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
         constexpr size_t kPage = 256;
