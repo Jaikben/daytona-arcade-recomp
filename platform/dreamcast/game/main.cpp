@@ -11,6 +11,8 @@
 #include "runtime/game_loop.h"
 #include "runtime/rom_source.h"
 
+#include "renderer.h"
+
 #include <kos.h>
 
 #include <algorithm>
@@ -22,7 +24,21 @@
 #include <malloc.h>
 
 extern "C" void *sbrk(ptrdiff_t increment); // newlib's; not declared under strict -std=c++20
+
+// Large C++ allocations (256 KB and up) with the caller, for addr2line: main
+// RAM is nearly all spoken for, and the one that does not fit is the one to
+// find.
+void *operator new(size_t size) {
+    if (size >= 256 * 1024)
+        std::printf("ALLOC %u bytes from %08lx\n", unsigned(size), (unsigned long)__builtin_return_address(0));
+    if (void *p = std::malloc(size ? size : 1)) return p;
+    std::printf("ALLOC FAILED %u bytes from %08lx\n", unsigned(size), (unsigned long)__builtin_return_address(0));
+    throw std::bad_alloc();
+}
+void operator delete(void *p) noexcept { std::free(p); }
+void operator delete(void *p, size_t) noexcept { std::free(p); }
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -31,10 +47,16 @@ namespace {
 
 constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc built locally
 constexpr size_t kGameStack = 512 * 1024;
+constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
+constexpr size_t kVertexBuffer = 288 * 1024; // the attract mode's busiest frame: 2,182 polygons, ~270 KB
+constexpr int kFrames = 3600;        // a minute of attract mode, then GAME DONE
 
-// The ROM regions from the disc, a page at a time, through an LRU cache.
-// A miss reads kRun pages (32 KB): the drive's cost is the seek. The cache's
-// pages are in `storage` (video RAM here: main RAM is the runtime's).
+// The ROM regions from the disc, a page at a time, through an LRU cache whose
+// pages are in `storage`. A miss reads one page, or kRun pages (32 KB) when
+// it carries on from the last read in that region (a sequential reader): the
+// game's reads are mostly scattered 4 KB pages, and reading ahead on every
+// miss filled the cache with pages nobody asked for (the attract mode's 3D
+// thrashed a 1.5 MB cache that its ~600 KB per 16 frames fits in).
 class DiscRom : public rt::RomSource {
 public:
     DiscRom(uint8_t *storage, size_t cache_pages) : slots_(cache_pages), data_(storage) {
@@ -69,7 +91,9 @@ private:
     void load(int r, uint32_t index) {
         ++misses;
         uint32_t n = 1;
-        while (n < kRun && index + n < index_[r].size() && index_[r][index + n] < 0) ++n;
+        if (index == next_[r])
+            while (n < kRun && index + n < index_[r].size() && index_[r][index + n] < 0) ++n;
+        next_[r] = index + n;
         std::vector<uint8_t> run(size_t(n) * kPageSize);
         if (verbose) std::printf("GAME read region %d page %u x%u ...", r, unsigned(index), unsigned(n));
         in_read = true;
@@ -97,6 +121,7 @@ private:
 
     FILE *files_[5] = {};
     uint32_t sizes_[5] = {};
+    uint32_t next_[5] = {}; // per region: the page after the last read
     std::vector<int32_t> index_[5]; // page -> cache slot, or -1
     std::vector<Slot> slots_;
     uint8_t *data_;
@@ -123,74 +148,27 @@ double free_mb() {
     return (mallinfo().fordblks + (0x8d000000u - brk)) / 1048576.0;
 }
 
-// The game's screen on the TV: Video::screen() (ARGB8888, 496 wide unless an
-// enhancement widens it) converted to RGB565, uploaded to a 512x512 PVR
-// texture and drawn at 620x480, centred. A first, slow path (videotest
-// measured 15 ms per frame converting): only every few frames for now.
-class Screen {
-public:
-    Screen() : texture_(pvr_mem_malloc(kTexW * kTexH * 2)) {
-        if (!texture_) throw std::runtime_error("no video RAM for the screen texture");
-        pvr_poly_cxt_t cxt;
-        pvr_poly_cxt_txr(&cxt, PVR_LIST_OP_POLY, PVR_TXRFMT_RGB565 | PVR_TXRFMT_NONTWIDDLED, kTexW, kTexH, texture_,
-                         PVR_FILTER_BILINEAR);
-        pvr_poly_compile(&header_, &cxt);
-    }
-    void show(const std::vector<uint32_t> &screen) {
-        const int w = std::min<int>(kTexW, int(screen.size() / kH));
-        // A row at a time (main RAM is short): converted, then uploaded.
-        auto *texture = static_cast<uint8_t *>(texture_);
-        for (int y = 0; y < kH; y++) {
-            const uint32_t *src = &screen[size_t(y) * size_t(screen.size() / kH)];
-            for (int x = 0; x < w; x++) {
-                const uint32_t c = src[x];
-                row_[x] = uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f));
-            }
-            pvr_txr_load(row_, texture + size_t(y) * kTexW * 2, kTexW * 2);
-        }
-        const float h = 480.0f, sw = h * float(w) / kH, x0 = (640.0f - sw) / 2, x1 = x0 + sw;
-        const float u1 = float(w) / kTexW, v1 = float(kH) / kTexH;
-        pvr_wait_ready();
-        pvr_scene_begin();
-        pvr_list_begin(PVR_LIST_OP_POLY);
-        pvr_prim(&header_, sizeof header_);
-        const float corners[4][4] = {{x0, 0, 0, 0}, {x1, 0, u1, 0}, {x0, h, 0, v1}, {x1, h, u1, v1}};
-        for (int i = 0; i < 4; i++) {
-            pvr_vertex_t v{};
-            v.flags = i == 3 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
-            v.x = corners[i][0];
-            v.y = corners[i][1];
-            v.z = 1.0f;
-            v.u = corners[i][2];
-            v.v = corners[i][3];
-            v.argb = 0xffffffffu;
-            pvr_prim(&v, sizeof v);
-        }
-        pvr_list_finish();
-        pvr_scene_finish();
-    }
-
-private:
-    static constexpr int kTexW = 512, kTexH = 512, kH = 384;
-    pvr_ptr_t texture_;
-    alignas(32) uint16_t row_[kTexW] = {};
-    pvr_poly_hdr_t header_;
-};
-
 // What the game thread is doing, for the watchdog on the main thread.
 volatile int g_frame = 0;
 volatile bool g_done = false;
 DiscRom *volatile g_rom = nullptr;
+dc::Renderer *volatile g_renderer = nullptr;
+volatile int g_running = 0; // 1 while GameLoop::run_frame runs
 
 void *run_game(void *) {
     try {
         std::printf("GAME start, heap %.2f MB\n", heap_mb());
-        // Small PVR buffers (only the opaque list, 64 KB of vertices): video
-        // RAM is for the board's texture and frame buffer RAM, the screen
-        // texture and the ROM cache.
-        pvr_init_params_t params = {{PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_0},
-                                    64 * 1024, 0, 0, 0, 0, 0};
+        // The PVR with only the lists the renderer uses (opaque: background
+        // and polygons; punch-through: the front tile layers) and two
+        // kVertexBuffer vertex buffers (with vbuf_doublebuf_disabled set, Flycast
+        // stopped with "SH4 exception when blocked"): video RAM is also the
+        // board's texture and frame buffer RAM.
+        // Opaque bins of 32 and one spare set: many of the game's polygons
+        // can fall in one 32x32 tile.
+        pvr_init_params_t params = {{PVR_BINSIZE_32, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_16},
+                                    kVertexBuffer, 0, 0, 0, 1, 0};
         pvr_init(&params);
+        std::printf("GAME PVR ready, video RAM free %.2f MB\n", pvr_mem_available() / 1048576.0);
         // Texture RAM (tex0, tex1, 4 MB) and frame buffer RAM (1 MB) in video
         // RAM: main RAM is too small for them as well.
         auto *texture_ram = static_cast<uint8_t *>(pvr_mem_malloc(0x400000));
@@ -198,16 +176,18 @@ void *run_game(void *) {
         if (!texture_ram || !frame_buffer_ram) throw std::runtime_error("no video RAM for texture or frame buffer RAM");
         std::memset(texture_ram, 0, 0x400000);
         std::memset(frame_buffer_ram, 0, 0x100000);
-        Screen screen;
+        dc::Renderer renderer(kVertexBuffer);
+        g_renderer = &renderer;
+        std::printf("GAME video RAM free: %.2f MB\n", pvr_mem_available() / 1048576.0);
 
-        // The ROM page cache in what video RAM is left, keeping 256 KB spare.
-        const size_t cache_pages = std::min<size_t>(512, (pvr_mem_available() - 0x40000) / rt::RomSource::kPageSize);
-        auto *cache = static_cast<uint8_t *>(pvr_mem_malloc(cache_pages * rt::RomSource::kPageSize));
-        if (!cache) throw std::runtime_error("no video RAM for the ROM cache");
-        auto rom = std::make_unique<DiscRom>(cache, cache_pages);
+        // The ROM page cache in main RAM: with the PVR drawing the 3D, the
+        // CPU rasterizer's 1.25 MB is not allocated.
+        auto *cache = static_cast<uint8_t *>(std::malloc(kCachePages * rt::RomSource::kPageSize));
+        if (!cache) throw std::runtime_error("no main RAM for the ROM cache");
+        auto rom = std::make_unique<DiscRom>(cache, kCachePages);
         g_rom = rom.get();
-        std::printf("GAME ROM cache: %u pages (%.2f MB) in video RAM\n", unsigned(cache_pages),
-                    cache_pages * rt::RomSource::kPageSize / 1048576.0);
+        std::printf("GAME ROM cache: %u pages (%.2f MB) in main RAM\n", unsigned(kCachePages),
+                    kCachePages * rt::RomSource::kPageSize / 1048576.0);
         rt::M2Board::Images img;
         img.copro_tables = load_file(std::string(kRomDir) + "/copro_tables.bin");
         img.rom = rom.get();
@@ -216,6 +196,7 @@ void *run_game(void *) {
         std::printf("GAME ROM opened, heap %.2f MB\n", heap_mb());
 
         rt::GameLoop game(std::move(img), false);
+        game.board().video().set_external_3d(true); // the PVR draws the 3D
         // The single-cabinet settings (test mode), as tools/common/nvram.h.
         const auto eeprom = load_file(std::string(kRomDir) + "/ioboard_eeprom.bin");
         const auto backup = load_file(std::string(kRomDir) + "/backup_ram.bin");
@@ -223,19 +204,29 @@ void *run_game(void *) {
             std::copy(eeprom.begin(), eeprom.end(), game.board().io().eeprom.begin());
         if (backup.size() == game.board().backup_ram().size())
             std::copy(backup.begin(), backup.end(), game.board().backup_ram().begin());
-        std::printf("GAME constructed, heap %.2f MB\n", heap_mb());
+        std::printf("GAME constructed, heap %.2f MB, %.2f MB free\n", heap_mb(), free_mb());
 
         const uint64_t t0 = timer_ms_gettime64();
-        for (int frame = 1; frame <= 600; frame++) {
+        for (int frame = 1; frame <= kFrames; frame++) {
+            g_running = 1;
             game.run_frame(rt::Inputs{});
+            g_running = 0;
             (void)game.board().take_sound_bytes();
             g_frame = frame;
-            if (frame % 4 == 0) screen.show(game.screen());
+            if (frame % 60 == 0) { // the lockstep check: the same line as tools/tracecheck on the desktop
+                uint64_t h = 0xcbf29ce484222325ULL;
+                const uint32_t *buffer = game.board().tgp().buffer_data();
+                for (int i = 0; i < 0x8000; i++) h = (h ^ buffer[i]) * 0x100000001b3ULL;
+                std::printf("TRACE %d i960 %llu tgp %llu buffer %016llx\n", frame, (unsigned long long)game.instructions(),
+                            (unsigned long long)game.board().tgp().tgp_instructions(), (unsigned long long)h);
+            }
+            if (frame % 4 == 0) renderer.draw(game.board().video());
             if (frame % 60 == 0)
-                std::printf("GAME frame %d hash %016" PRIx64 " (%u px) i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
-                            ", pages read %" PRIu64 ", heap %.2f MB)\n",
-                            frame, game.board().video().screen_hash(), unsigned(game.screen().size()), game.instructions(),
-                            (timer_ms_gettime64() - t0) / 1000.0, rom->misses, rom->pages_read, heap_mb());
+                std::printf("GAME frame %d: %u polygons drawn (%u skipped, %u KB), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
+                            ", pages read %" PRIu64 ", %.2f MB free)\n",
+                            frame, renderer.drawn, renderer.skipped, unsigned(renderer.vertex_bytes / 1024),
+                            game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
+                            rom->misses, rom->pages_read, free_mb());
         }
         std::printf("GAME DONE\n");
     } catch (const std::exception &e) {
@@ -252,6 +243,8 @@ void *run_game(void *) {
 // stack. The main thread is a watchdog: every 5 s, the frame the game has
 // reached, and whether it is waiting for the disc.
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0); // every line out at once: a crash must not swallow the last ones
+    std::printf("GAME main\n");
     kthread_attr_t attr = {};
     attr.stack_size = kGameStack;
     attr.prio = PRIO_DEFAULT;
@@ -264,8 +257,16 @@ int main() {
     while (!g_done) {
         thd_sleep(5000);
         DiscRom *rom = g_rom;
-        std::printf("GAME alive: frame %d, heap %.2f MB, %.2f MB free%s\n", g_frame, heap_mb(), free_mb(),
+        dc::Renderer *renderer = g_renderer;
+        std::printf("GAME alive: frame %d, heap %.2f MB, %.2f MB free, ROM misses %llu, %s%s\n", g_frame, heap_mb(),
+                    free_mb(), rom ? (unsigned long long)rom->misses : 0ull,
+                    g_running ? "running the frame" : renderer && renderer->stage ? "drawing" : "between frames",
                     rom && rom->in_read ? ", waiting for a disc read" : "");
+        if (renderer && renderer->stage) std::printf("GAME alive: draw stage %d\n", renderer->stage);
+        // Where the game thread is (its saved registers: it is pre-empted),
+        // for addr2line on game.elf.
+        std::printf("GAME alive: game thread pc %08lx pr %08lx\n", (unsigned long)game->context.pc,
+                    (unsigned long)game->context.pr);
     }
     thd_join(game, nullptr);
     for (;;) thd_sleep(1000);

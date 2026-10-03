@@ -8,11 +8,11 @@ behind `M2_DC_*` compile-time defines that only this build sets, so the
 Windows, macOS and Linux builds are unchanged. It is built from the `daytona` ROM set only (Revision A, 1994, the set
 with link play).
 
-Status: **the game runs in Flycast as far as the attract mode's first 3D
-frames** (CPU renderer, matching the desktop's screen hashes), then slows to a
-crawl re-reading polygon ROM from the disc: main and video RAM are full until
-the PVR renderer replaces the CPU one. Not yet on a console. Details and the
-plan: [HANDOFF.md](HANDOFF.md).
+Status: **the attract mode runs in Flycast**, the PVR drawing the 3D (flat
+colours so far, no tile layers yet), in lockstep with the desktop (instruction
+counts and display list identical at every checkpoint). Slow (about 6-7
+frames/s in Flycast), no controls or sound yet, not yet on a console. Details
+and the plan: [HANDOFF.md](HANDOFF.md).
 
 ## Requirements
 
@@ -39,6 +39,8 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 | `game` | Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
 | `tools` | Builds the host measuring tools in `tools/` (desktop compiler). |
 | `measure` | Runs `romuse` over the input scripts: which ROM pages the game reads, and when. |
+| (tools) `tracecheck` | The desktop's side of the lockstep check: the per-frame `TRACE` line the Dreamcast prints every 60 frames. |
+| (tools) `dcmemcheck` | The runtime built with M2_DC_MEMORY on the desktop, ROM pages from the image files: the Dreamcast's code paths at desktop speed. |
 
 `--flycast PATH` (or `FLYCAST`) points at `flycast.exe`. Flycast runs from a
 portable copy in `build-daytona/dreamcast/flycast` with its own `emu.cfg`, so

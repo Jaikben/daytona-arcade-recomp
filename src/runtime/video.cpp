@@ -29,7 +29,7 @@ inline uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000u | (
 Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
     : tile_ram_(tile_ram), char_ram_(char_ram), screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
 #ifndef M2_DC_MEMORY
-      // (The Dreamcast sizes these when external 3D is on: 1.5 MB otherwise unused.)
+      // (Not on the Dreamcast: its layers are screen_ and sys24_ themselves.)
       background_gpu_(size_t(W) * H), foreground_gpu_(size_t(W) * H),
 #endif
       gpu_tile_words_(kGpuTileWords), gpu_pens_(kGpuPens) {
@@ -502,11 +502,10 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // Save the exact two System-24 layers separately. The Vita frontend
         // draws background -> GPU 3D -> foreground. No CPU polygon pixels are
         // produced in this mode, so raster_ms should remain zero.
-#ifdef M2_DC_MEMORY
-        background_gpu_.resize(screen_.size());
-        foreground_gpu_.resize(size_t(W) * H);
-#endif
+#ifndef M2_DC_MEMORY
+        // (The Dreamcast reads screen_ and sys24_ themselves: no copies.)
         std::copy_n(screen_.data(), screen_.size(), background_gpu_.data());
+#endif
 #ifndef M2_VITA_RENDER_OPT
         // Reference path has not drawn the post-3D tile pass yet.
         before = ticks();
@@ -514,8 +513,10 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         for (int layer = 3; layer >= 0; --layer) draw(sys24_, (layer << 1) | 1, 0);
         profile_.tile_draw += ticks() - before;
 #endif
+#ifndef M2_DC_MEMORY
         std::fill(foreground_gpu_.begin(), foreground_gpu_.end(), 0u);
         std::copy_n(sys24_.data(), std::min(sys24_.size(), foreground_gpu_.size()), foreground_gpu_.data());
+#endif
         return;
     }
     // Widescreen, HUD at the edges: the front tilemaps are drawn first, to

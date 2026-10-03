@@ -59,7 +59,9 @@ $(OUT)/%.cdi: $(OUT)/%.elf
 	cdi4dc $(OUT)/$*.iso $@
 
 # --- The game: the shared runtime and the generated code, as platform/vita --
-GEN ?= $(error GEN must be the host recompile's gen directory)
+# GEN: the host recompile's gen directory (build_dreamcast.py passes it for
+# the game; the test programs do not need it).
+GEN ?=
 SET := daytona
 SOFTFLOAT := $(ROOT)/extern/softfloat
 YMFM := $(ROOT)/extern/ymfm/src
@@ -89,6 +91,7 @@ GEN_OBJ := $(GEN_SRC:%.cpp=$(OUT)/game/gen/%.o) $(OUT)/game/gen_tgp/tgp_gen.o $(
 # paths are too long for one Windows command line.
 GAME_LIBS := $(OUT)/game/libgen.a $(OUT)/game/libruntime.a
 $(OUT)/game/libgen.a: $(GEN_OBJ)
+	@test -n "$(GEN)" || { echo "GEN must be the host recompile's gen directory"; exit 1; }
 	cd $(OUT)/game && rm -f libgen.a && $(KOS_AR) rcs libgen.a gen/*.o gen_tgp/*.o gen_snd/*.o
 $(OUT)/game/libruntime.a: $(GAME_OBJ)
 	cd $(OUT)/game && rm -f libruntime.a && $(KOS_AR) rcs libruntime.a runtime/*.o i960/*.o trace/*.o ymfm/*.o \

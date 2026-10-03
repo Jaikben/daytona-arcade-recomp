@@ -105,13 +105,23 @@ def run(flycast, program, workdir, until=(), timeout=30.0):
     info.wShowWindow = 4  # SW_SHOWNOACTIVATE
     p = subprocess.Popen([str(exe), str(Path(program).resolve())], cwd=workdir, startupinfo=info)
     text, seen = "", None
+    log = Path(workdir) / "serial.txt"  # what was read, kept if Flycast dies with it
+    history = []
     try:
         end = time.monotonic() + timeout
         while time.monotonic() < end and p.poll() is None:
-            time.sleep(1.0)
-            text = console_text(p.pid) or text
+            time.sleep(0.5)
+            now = console_text(p.pid)
+            if now and now != text:
+                # The console can be wiped (KOS's abort); keep what came
+                # before it as well.
+                if text and not now.startswith(text[:200]):
+                    history.append(text)
+                text = now
+                log.write_text("\n".join(history + [text]), encoding="utf-8")
             seen = next((u for u in until if u in text), None)
-            if seen:
+            # KOS stopping the system ends the run too (not a pass).
+            if seen or any(m in text for m in ("arch: aborting", "ASSERTION FAILURE", "Out of memory")):
                 break
     finally:
         p.kill()

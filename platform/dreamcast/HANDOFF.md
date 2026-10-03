@@ -16,27 +16,27 @@
 - Proof of concept in Flycast first; the console after that. Floating-point
   and speed results from Flycast are stated as Flycast results.
 
-## Current state (2026-10-03)
+## Current state (2026-10-03, overnight)
 
-The recompiled Revision A runs in Flycast (`build_dreamcast.py game`): it
-boots, passes its own boot test and reaches the attract mode's 3D scene,
-drawn by the shared CPU renderer and shown through the PVR every 4th frame.
-Screen hashes and i960 instruction counts match the desktop's m2run
-(single-cabinet settings, no inputs, sound off) at frames 60, 120 and 180:
-`549c391151bcbb29`, 9,093,121 / 18,186,241 / 27,279,361 instructions.
+The recompiled Revision A **runs the attract mode in Flycast with the PVR
+drawing the 3D** (`build_dreamcast.py game`): the runtime is in external 3D
+mode, the CPU rasterizer is not used, and `game/renderer.h` draws the game's
+polygons through the PVR (flat colours so far: step 4a). Measured in one run:
+frame 2,340 after 357 s (about 6.6 frames/s in Flycast, not a console figure),
+900-1,700 polygons per drawn frame, none skipped, main RAM steady at 1.38 MB
+free, 594 ROM misses in total.
 
-After frame ~185 it **thrashes**: the 3D scene's polygon ROM working set is
-larger than the 0.9 MB page cache, so every frame re-reads the same polygon
-pages from the disc (every read completes; it is very slow, not hung). Main
-and video RAM are both full while the CPU renderer is used. Next: the PVR
-renderer (step 4), which removes the CPU renderer's buffers (rasterizer
-1.25 MB, tile pixmaps and flags 3 MB, screen copies) and leaves room for a
-2-3 MB polygon cache.
+**Lockstep with the desktop**: every 60th frame the frontend prints
+`TRACE frame i960 tgp buffer` (instruction counts and a hash of the TGP's
+buffer RAM, the display list); `tools/tracecheck` prints the same on the
+desktop. All 39 checkpoints to frame 2,340 matched. `tools/dcmemcheck` runs
+the runtime built with M2_DC_MEMORY on the desktop (ROM pages from the image
+files): it matched the desktop at all 60 checkpoints to frame 3,600, and it
+is where this layout's bugs were found at desktop speed.
 
-Memory at that point (Flycast): program 3.4 MB; heap 11.6 MB after the
-first 3D frames, 0.95 MB free. Video RAM: texture RAM 4 MB, frame buffer RAM
-1 MB, screen texture 512 KB, ROM cache 0.9 MB, KOS's PVR buffers (opaque
-list only, 64 KB of vertices).
+Not done yet: the tile layers in external 3D mode (sky black, no HUD: the
+video's external path returns before composing them, see below), textures
+(4b), controls, sound, speed. Not run on a console.
 
 ## Plan
 
@@ -46,11 +46,12 @@ list only, 64 KB of vertices).
 1. **Skeleton.** Done: KOS build, bootable CDI, runs in Flycast.
 2. **Floating point on the SH-4.** Self-test done (Flycast); the game's own
    results match the desktop so far. Not yet on a console.
-3. **The game runs** (no speed): attract mode up to the first 3D frames
-   matches the desktop; blocked past that by memory (above).
+3. **The game runs** (no speed): the attract mode runs, in lockstep with the
+   desktop (above).
 4. **PowerVR2 renderer.** 3D through the PVR (fixed function, no shaders);
    tilemaps drawn on the CPU, uploaded as textures, as before the desktop's
-   tile shaders. **Next.**
+   tile shaders. 4a done (flat-coloured polygons); next the tile layers in
+   external 3D mode, then textures (4b).
 5. **Controls (pad, racing controller), VMU saves, 57.52 Hz on 60 Hz.**
 6. **Sound.** The native sequencer; samples in the 2 MB sound RAM (AICA
    ADPCM) or music from CD audio, decided by the Phase 0 numbers.
@@ -64,7 +65,7 @@ audio and read data at once, so nothing can stream from disc during a race.
 ## Runtime changes: M2_DC_MEMORY
 
 All in `src/runtime`, all inside `#ifdef M2_DC_MEMORY` (only the Dreamcast
-Makefile defines it):
+Makefile and `tools/dcmemcheck` define it):
 
 - `rom_source.h` (new): `RomSource`, the ROM regions a 4 KB page at a time
   from the frontend's cache.
@@ -73,18 +74,55 @@ Makefile defines it):
   RAM (1 MB) are the frontend's (video RAM); a two-level page table (1 MB
   chunks of 256 pages, allocated as mapped) instead of 1M entries (12 MB
   with the extra fields); the duplicate `copro_tables` image is released.
-- `geo`: a constructor taking the source; `GeoPtr`/`GeoPtr16` read polygon
-  and texture ROM through it; the polygon checksum loop too.
+- `geo`: a constructor taking the source (it also reserves room for 2,400
+  kept polygons: the desktop's maximum in attract and in a whole race is
+  2,182; growing past 2,048 needed 800 KB while the old 400 KB existed);
+  `GeoPtr`/`GeoPtr16` read polygon and texture ROM through it; `geo_test`
+  (the ROM self-test) only moves the cursor on (below).
 - `m2_tgp_board`: a constructor taking the source; copro data read through it.
-- `video.cpp`: the two GPU-renderer layers (1.5 MB) are sized only when
-  external 3D is on.
+- `video`: no GPU-layer copies (1.5 MB): in external 3D the layers are the
+  screen and sys24 buffers themselves (`background_layer`/`foreground_layer`).
+- `raster.cpp`: its buffers (1.25 MB) only on the first CPU render.
+- `lockstep`: called callbacks' slots are reused (below).
 
 Desktop check after the changes (build-daytona m2run, race_basic, 6,000
 frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
 909,312,001 i960 and 195,261,176 TGP instructions, the same as before them.
 
+## For the desktop too (not changed there: the user's decision)
+
+- **`Lockstep::calls_` never shrinks.** `GameLoop::probe` adds a callback
+  every 1,024 i960 instructions (about 150 a frame) and every callback stays
+  in `calls_` for good. On the Dreamcast (16 bytes per `std::function`) that
+  was 1 MB by frame 220; on the desktop (32 bytes) it is about 270 KB a
+  second, roughly 1 GB an hour (estimated from those numbers, not measured).
+  The M2_DC_MEMORY fix (reuse a slot once its callback has run) is
+  behaviour-neutral (dcmemcheck matches the desktop at 60 checkpoints) and
+  could be made unconditional.
+
 ## Found on the way (and what was wrong)
 
+- **The geometrizer's ROM self-test (`geo_test`) and the compiler.** Its sums
+  have no effect (the LEDs are not emulated), so the desktop's compiler
+  removes the loop: it costs nothing there and romuse never saw it. Through
+  `RomSource` the reads cannot be removed. In the attract mode (frame 189) the
+  display list asks for a huge number of blocks: first the Dreamcast read
+  megabytes of polygon ROM from the disc (it looked like cache thrashing),
+  then, with only the inner loop skipped, it stepped through billions of
+  words. M2_DC_MEMORY now moves the cursor on 3 * blocks words, the result
+  the desktop's compiled code has. Found with `dcmemcheck` (the same hang on
+  the PC) and cdb's stack at a runaway-read throw; the Dreamcast's watchdog
+  reads the game thread's saved PC for addr2line.
+- **Wrong guesses on the way there**, tested and dropped: read-ahead filling
+  the cache (it reads ahead only on sequential misses now, a fine change but
+  not the cause), the TGP's floating point (its counts and display list match
+  the desktop to frame 188 and beyond), vertex buffer and tile bin sizes.
+- **`vbuf_doublebuf_disabled = 1`** stopped Flycast ("SH4 exception when
+  blocked"); double-buffered vertex buffers work.
+- **"SH4 exception when blocked" was usually KOS aborting** (out of memory)
+  with the message lost when Flycast stops; the runner now keeps every
+  console text it reads (`dreamcast/flycast/serial.txt`), stdout is
+  unbuffered, and large `operator new` calls are logged with their caller.
 - **A stale object, not a runtime bug.** After `Images` gained a member,
   the screen vector came out empty (`0 px`) and the run stopped. The cause:
   `game_loop.o` was not rebuilt (still the old `Images` layout), so the
@@ -95,9 +133,9 @@ frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
   that were wrong and were tested and dropped: the custom `pvr_init`
   parameters, and frame buffer RAM in video RAM (neither mattered).
 - **The stack**, also suspected then, was not the cause either, but the game
-  now runs on a 512 KB-stack thread anyway (KOS's main thread has 64 KB);
-  the main thread is a watchdog printing the frame, free RAM and whether a
-  disc read is in progress every 5 s.
+  runs on a 512 KB-stack thread anyway (KOS's main thread has 64 KB); the
+  main thread is a watchdog printing the frame, free RAM, ROM misses, what
+  the game thread is doing and its PC every 5 s.
 - **Blurred picture in Flycast, the BIOS too**: Flycast was started
   minimised; Direct3D then renders at the minimised window's size. It is
   started normally now, without taking the focus.
@@ -106,8 +144,9 @@ frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
   build directory's copy (by path) before and after each run.
 - KOS's `kos.h` defines `BIT(n)`; the runtime has `BIT(x, n)`: the frontend
   includes the runtime's headers first.
-- Out of memory twice before the game ran: the ROM cache and the frame
-  buffer RAM moved to video RAM, and the GPU layers became lazy.
+- Out of memory before the game ran: the ROM cache moved to video RAM and
+  back to main RAM (1.25 MB) once the CPU rasterizer's buffers went; frame
+  buffer RAM is in video RAM; the GPU layers are not allocated.
 
 ## Measured so far
 

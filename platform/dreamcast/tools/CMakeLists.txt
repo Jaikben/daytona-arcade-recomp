@@ -152,3 +152,31 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64|i.86")
     add_executable(ftzcheck ftzcheck/main.cpp)
     target_link_libraries(ftzcheck PRIVATE dc_game)
 endif()
+
+# The desktop's side of a lockstep check with the Dreamcast: per frame, i960
+# and TGP counts and the TGP buffer RAM's hash (see tracecheck/main.cpp).
+add_executable(tracecheck tracecheck/main.cpp)
+target_link_libraries(tracecheck PRIVATE dc_game)
+
+# dcmemcheck: the runtime built with M2_DC_MEMORY (the Dreamcast's memory
+# layout) on the desktop, ROM pages served from the images, against the
+# desktop's game code objects (which do not include the headers
+# M2_DC_MEMORY changes) and its other libraries. Reuse mode only.
+if(HOST_FILES)
+    set(DCMEM_SOURCES)
+    foreach(name cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import archive m2_replay_bus
+            lockstep snd_cpu multipcm sound_board native_sample_mixer native_sound_sequencer native_sound_engine
+            enhance comm_board)
+        list(APPEND DCMEM_SOURCES "${DAYTONA_ROOT}/src/runtime/${name}.cpp")
+    endforeach()
+    add_library(dc_runtime_dcmem STATIC ${DCMEM_SOURCES})
+    target_include_directories(dc_runtime_dcmem PUBLIC "${DAYTONA_ROOT}/src")
+    target_include_directories(dc_runtime_dcmem SYSTEM PUBLIC "${DAYTONA_ROOT}/extern/ymfm/src"
+        "${DAYTONA_ROOT}/extern/softfloat/source/include")
+    target_compile_definitions(dc_runtime_dcmem PUBLIC M2_ROMSET="${M2_ROMSET}" M2_DC_MEMORY
+        $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)
+    set(HOST_OTHER_LIBS ${HOST_LIBS})
+    list(FILTER HOST_OTHER_LIBS EXCLUDE REGEX "runtime\.(lib|a)$")
+    add_executable(dcmemcheck dcmemcheck/main.cpp)
+    target_link_libraries(dcmemcheck PRIVATE dc_runtime_dcmem ${HOST_OBJECTS} ${HOST_OTHER_LIBS})
+endif()

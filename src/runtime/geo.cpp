@@ -62,6 +62,10 @@ Geo::Geo(RomSource &rom, uint32_t *buffer) : buffer_(buffer) {
     geo_.raster = &raster_;
     geo_.rom = &rom;
     geo_.polygon_rom_mask = polygon_words - 1;
+    // Room for the busiest frame up front (attract and race: 2,182 kept
+    // polygons, ~200 bytes each): growing past 2,048 doubles the vector to
+    // 800 KB while the old 400 KB still exists, more than 16 MB has spare.
+    polys.reserve(2400);
 }
 #endif
 
@@ -1798,6 +1802,20 @@ GeoPtr Geo::geo_test(geo_state *geo, uint32_t opcode, GeoPtr input)
 
 	/* get the number of checksums we have to run */
 	blocks = *input++;
+
+#ifdef M2_DC_MEMORY
+	// Each block is three words (address, count, checksum) and its sums have
+	// no effect (the LEDs are not emulated). The desktop's compiler reduces
+	// this whole loop to the cursor moving on 3 * blocks words; here every
+	// read goes through the RomSource check and cannot be dropped, and blocks
+	// can be huge (frame 189 of the attract mode: an endless-looking loop on
+	// the SH-4). The same result, without the loop.
+	(void)address;
+	(void)count;
+	(void)checksum;
+	input += 3 * blocks;
+	return input;
+#endif
 
 	for (i = 0; i < blocks; i++)
 	{

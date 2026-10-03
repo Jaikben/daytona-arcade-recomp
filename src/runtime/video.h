@@ -91,8 +91,15 @@ public:
     bool cpu_front() const { return hud_on_; }
     uint64_t instance() const { return instance_; } // tells a new Video from an old one at the same address
     bool external_3d() const { return external_3d_; }
+#ifdef M2_DC_MEMORY
+    // The Dreamcast, external 3D: the layers as composed, not copies (1.5 MB):
+    // the background is the screen, the front tile layers sys24 (W x (H + 4)).
+    const std::vector<uint32_t> &background_layer() const { return screen_; }
+    const std::vector<uint32_t> &foreground_layer() const { return sys24_; }
+#else
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
+#endif
     uint64_t background_generation() const { return background_generation_; }
     uint64_t foreground_generation() const { return foreground_generation_; }
     const uint16_t *system24_pixels(int layer) const { return pixmap_[layer & 3].data(); }
