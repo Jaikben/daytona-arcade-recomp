@@ -68,7 +68,8 @@ constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc
 constexpr size_t kGameStack = 512 * 1024;
 constexpr size_t kCachePages = 512; // 2 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
-constexpr int kDrawEvery = 4;        // frames per picture
+// kDrawEvery (frames per picture: 1 every frame, 2, 3 or 4) is in inputs.h,
+// from build_dreamcast.py --draw-every.
 constexpr int kDrawDistance = -1;    // the runtime's draw distance (-2..2): one cell around the car
 constexpr int kReport = 300;         // frames between PROFILE and GAME frame lines
 constexpr int kFrames = 6000;        // a recorded script: then GAME DONE (a race is 6,000 frames); the pad: no end
@@ -312,7 +313,7 @@ void *run_game(void *) {
             }
             // Just after a screen update (vblank_end updates when frame %
             // kDrawEvery is 0, then counts on).
-            if (game.board().frame() % kDrawEvery == 1) {
+            if (game.board().frame() % kDrawEvery == 1 % kDrawEvery) {
                 const uint64_t d0 = timer_us_gettime64();
                 renderer.draw(game.board().video());
                 prof_draw += timer_us_gettime64() - d0;

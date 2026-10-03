@@ -35,7 +35,7 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 | `selftest` | Builds the floating-point self-test as a bootable disc image and runs it in Flycast; exit 0 only if every result matches the PC's bits. |
 | `videotest` | The display path: a 496x384 frame through the PVR every frame; prints the per-frame cost. |
 | `compile` | Compiles the runtime and the generated game code for the SH-4 and reports their size. |
-| `game` | (`--inputs FILE`: a recorded input script instead of the pad, 6,000 frames, then `GAME DONE`; without it the game runs on the pad until Flycast is closed; `--sample`: sample the game thread's PC, read with `scripts/pc_profile.py`.) Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
+| `game` | (`--draw-every N`: frames per picture, 1 = every frame, default 4; `--inputs FILE`: a recorded input script instead of the pad, 6,000 frames, then `GAME DONE`; without it the game runs on the pad until Flycast is closed; `--sample`: sample the game thread's PC, read with `scripts/pc_profile.py`.) Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
 | `tools` | Builds the host measuring tools in `tools/` (desktop compiler). |
 | `measure` | Runs `romuse` over the input scripts: which ROM pages the game reads, and when. |
 | (tools) `tracecheck` | The desktop's side of the lockstep check: the per-frame `TRACE` line the Dreamcast prints every 60 frames. Use `--draw-distance -1`, as the frontend. |
