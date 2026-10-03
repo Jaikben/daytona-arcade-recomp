@@ -433,8 +433,12 @@ M2_PIXEL_TEMPLATE void Video::draw(std::vector<M2_PIXEL> &bitmap, int layer, int
     uint16_t hscr = tile(0x5000 + uint32_t(layer >> 1));
     uint16_t vscr = tile(0x5004 + uint32_t(layer >> 1));
     const uint16_t ctrl = tile(0x5004 + uint32_t((layer >> 1) & 2));
+#ifdef M2_DC_SPEED
+    const uint32_t mask_base = layer & 4 ? 0x6800 : 0x6000; // (the mask is read below, where it is used)
+#else
     uint16_t mask[0x800];
     for (uint32_t i = 0; i < 0x800; i++) mask[i] = tile((layer & 4 ? 0x6800 : 0x6000) + i);
+#endif
     const uint16_t tpri = uint16_t(layer & 1);
     layer >>= 1;
     const int fl = tpri | flags;
@@ -493,6 +497,12 @@ M2_PIXEL_TEMPLATE void Video::draw(std::vector<M2_PIXEL> &bitmap, int layer, int
     }
 
     const int win = layer & 1;
+#ifdef M2_DC_SPEED
+    // The window mask, only for this path (disabled layers and the special
+    // modes above never read it).
+    uint16_t mask[0x800];
+    for (uint32_t i = 0; i < 0x800; i++) mask[i] = tile(mask_base + i);
+#endif
     if (hscr & 0x8000) {
         const uint32_t hscrtb = 0x4000 + 0x200 * uint32_t(layer);
         vscr &= 0x1ff;

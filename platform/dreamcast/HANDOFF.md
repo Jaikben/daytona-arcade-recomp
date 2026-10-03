@@ -79,7 +79,18 @@ hashes the shown ones), large allocations are 32-byte aligned (main.cpp's
 operator new), and the renderer starts each layer's DMA after
 `pvr_wait_ready` (no longer writing a texture the PVR may still be
 drawing from) and waits before `pvr_scene_finish`: drawing 10.8 -> 4.5 ms,
-race 373 s, about 16 frames/s with every frame drawn.
+race 373 s, about 16 frames/s with every frame drawn. Whole tiles
+unrolled (371 s); the window mask copied out of tile RAM only on the path
+that reads it (disabled layers and the special modes do not): tile layers
+15.6 ms, race 368 s. Tried and not kept (no gain): a table-driven palette
+recompute, GeoVertex without zero initialisers.
+
+Tile paths in a race (a temporary counter, frames 2700-6000): nearly every
+pass is in the special split/window modes, where the odd layers return at
+once, so about four full-screen `tilemap_draw` passes a frame do the work.
+On the PVR they would need the four 512x512 layer pixmaps as textures (2 MB
+of video RAM, 0.7 MB free) or pen-resolved pixmaps in main RAM (2 MB, 0.9 MB
+free): not within this memory.
 
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with
