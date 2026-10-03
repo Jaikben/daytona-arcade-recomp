@@ -39,6 +39,7 @@ def main():
 
     addrs, names = symbols(args.elf)
     by_name, total, shown, frame = collections.Counter(), 0, 0, 0
+    callers = collections.Counter()
     for line in Path(args.serial).read_text(errors="replace").splitlines():
         m = re.match(r"SAMPLE frame (\d+): (\d+) samples", line)
         if m:
@@ -46,11 +47,16 @@ def main():
             if frame >= args.first:
                 total += int(m.group(2))
             continue
+        m = re.match(r"CALLER ([0-9a-f]{8}) (\d+)", line)
+        if m and frame >= args.first:
+            i = bisect.bisect_right(addrs, int(m.group(1), 16) + 64) - 1
+            callers[names[i] if i >= 0 else "?"] += int(m.group(2))
+            continue
         m = re.match(r"SAMPLE ([0-9a-f]{8}) (\d+)", line)
         if m and frame >= args.first:
             addr, count = int(m.group(1), 16), int(m.group(2))
             # The bucket's middle: a bucket can straddle two functions.
-            i = bisect.bisect_right(addrs, addr + 16) - 1
+            i = bisect.bisect_right(addrs, addr + 32) - 1
             by_name[names[i] if i >= 0 else "?"] += count
             shown += count
     if not total:
@@ -58,6 +64,10 @@ def main():
     print(f"{total} samples, {shown} in the printed buckets ({100 * shown / total:.1f}%)")
     for name, count in by_name.most_common(args.top):
         print(f"{100 * count / total:6.2f}%  {count:7d}  {name[:150]}")
+    if callers:
+        print("memcpy/memset called from:")
+        for name, count in callers.most_common(15):
+            print(f"{100 * count / total:6.2f}%  {count:7d}  {name[:150]}")
 
 
 if __name__ == "__main__":

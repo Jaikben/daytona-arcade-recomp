@@ -66,7 +66,7 @@ namespace {
 
 constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc built locally
 constexpr size_t kGameStack = 512 * 1024;
-constexpr size_t kCachePages = 576; // 2.25 MB of ROM pages (1 MB free left in a race)
+constexpr size_t kCachePages = 512; // 2 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
 constexpr int kDrawEvery = 4;        // frames per picture
 constexpr int kDrawDistance = -1;    // the runtime's draw distance (-2..2): one cell around the car
@@ -201,7 +201,7 @@ dc::Renderer *volatile g_renderer = nullptr;
 volatile int g_running = 0; // 1 while GameLoop::run_frame runs
 // --sample's latest report, printed by the game thread between frames (two
 // threads printing at once mix their lines, a TRACE line too).
-char g_report[200 * 24 + 96];
+char g_report[240 * 24 + 96];
 volatile bool g_report_ready = false;
 
 void *run_game(void *) {
@@ -350,18 +350,27 @@ void *run_game(void *) {
 }
 
 // --sample: the game thread's PC at each KOS timer tick (about every 10 ms; it is pre-empted, its
-// registers saved), counted in 32-byte buckets of the program, the 200 busiest
+// registers saved), counted in 64-byte buckets of the program, the 200 busiest
 // reported every 10,000 samples as "SAMPLE address count" for
 // scripts/pc_profile.py to name from game.elf. Runs until the game ends.
 extern "C" char end[]; // the linker's: the end of the program and its data
 void sample(kthread_t *game) {
-    constexpr uint32_t kStart = 0x8c010000, kBucketBits = 5;
+    constexpr uint32_t kStart = 0x8c010000, kBucketBits = 6; // 64-byte buckets: RAM is short
     const uint32_t buckets = (uint32_t(uintptr_t(end)) - kStart) >> kBucketBits;
     std::vector<uint16_t> counts(buckets);
+    // Callers of memcpy and memset (leaf functions: PR is where they were
+    // called from), 128-byte buckets, reported as "CALLER address count".
+    std::vector<uint16_t> callers(buckets / 2); // 128-byte buckets
+    const uint32_t copy = uint32_t(uintptr_t(&memcpy)), fill = uint32_t(uintptr_t(&memset));
     uint32_t taken = 0, outside = 0;
     while (!g_done) {
         thd_sleep(1);
         const uint32_t pc = game->context.pc;
+        if (pc - copy < 0x200 || pc - fill < 0x200) {
+            const uint32_t pr = game->context.pr;
+            if (pr >= kStart && ((pr - kStart) >> 7) < callers.size() && callers[(pr - kStart) >> 7] < 0xffff)
+                ++callers[(pr - kStart) >> 7];
+        }
         if (pc >= kStart && ((pc - kStart) >> kBucketBits) < buckets) {
             uint16_t &c = counts[(pc - kStart) >> kBucketBits];
             if (c < 0xffff) ++c;
@@ -378,7 +387,15 @@ void sample(kthread_t *game) {
                                (unsigned long)(kStart + (uint32_t(top - counts.begin()) << kBucketBits)), unsigned(*top));
             *top = 0;
         }
+        for (int k = 0; k < 40; ++k) {
+            const auto top = std::max_element(callers.begin(), callers.end());
+            if (!*top) break;
+            n += std::snprintf(g_report + n, sizeof g_report - size_t(n), "CALLER %08lx %u\n",
+                               (unsigned long)(kStart + (uint32_t(top - callers.begin()) << 7)), unsigned(*top));
+            *top = 0;
+        }
         g_report_ready = true;
+        std::fill(callers.begin(), callers.end(), 0);
         std::fill(counts.begin(), counts.end(), 0);
         taken = outside = 0;
     }
