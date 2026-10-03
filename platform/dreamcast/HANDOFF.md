@@ -1,0 +1,255 @@
+# Dreamcast port: handoff
+
+## Rules for this port
+
+- Dreamcast frontend, build and tools are in `platform/dreamcast/`.
+- Changes the port needs in the shared runtime (`src/runtime`) go there,
+  like the Vita's `M2_VITA_RENDER_OPT`, behind compile-time defines
+  (`M2_DC_*`) that only the Dreamcast build sets. Windows, macOS and Linux
+  compile exactly what they did before; each change is checked with desktop
+  replays (screen hashes and instruction counts identical before and after).
+- The generated game code is used as the desktop recompile writes it.
+- **ROM set: `daytona` (Revision A) only**, for link play. Not `daytona93`,
+  for builds or for measurements.
+- It runs after the desktop build (`build_dreamcast.py`), from its generated
+  code and ROM images, like `platform/vita` and `scripts/build_vita.py`.
+- Proof of concept in Flycast first; the console after that. Floating-point
+  and speed results from Flycast are stated as Flycast results.
+
+## Current state (2026-10-03)
+
+The recompiled Revision A runs in Flycast (`build_dreamcast.py game`): it
+boots, passes its own boot test and reaches the attract mode's 3D scene,
+drawn by the shared CPU renderer and shown through the PVR every 4th frame.
+Screen hashes and i960 instruction counts match the desktop's m2run
+(single-cabinet settings, no inputs, sound off) at frames 60, 120 and 180:
+`549c391151bcbb29`, 9,093,121 / 18,186,241 / 27,279,361 instructions.
+
+After frame ~185 it **thrashes**: the 3D scene's polygon ROM working set is
+larger than the 0.9 MB page cache, so every frame re-reads the same polygon
+pages from the disc (every read completes; it is very slow, not hung). Main
+and video RAM are both full while the CPU renderer is used. Next: the PVR
+renderer (step 4), which removes the CPU renderer's buffers (rasterizer
+1.25 MB, tile pixmaps and flags 3 MB, screen copies) and leaves room for a
+2-3 MB polygon cache.
+
+Memory at that point (Flycast): program 3.4 MB; heap 11.6 MB after the
+first 3D frames, 0.95 MB free. Video RAM: texture RAM 4 MB, frame buffer RAM
+1 MB, screen texture 512 KB, ROM cache 0.9 MB, KOS's PVR buffers (opaque
+list only, 64 KB of vertices).
+
+## Plan
+
+0. **Measure (desktop, no Dreamcast code).** Done: ROM read per run
+   (`romuse`), sound commands, SH-4 code size, denormals (`ftzcheck`).
+   Still open: the Medium and Long courses as races.
+1. **Skeleton.** Done: KOS build, bootable CDI, runs in Flycast.
+2. **Floating point on the SH-4.** Self-test done (Flycast); the game's own
+   results match the desktop so far. Not yet on a console.
+3. **The game runs** (no speed): attract mode up to the first 3D frames
+   matches the desktop; blocked past that by memory (above).
+4. **PowerVR2 renderer.** 3D through the PVR (fixed function, no shaders);
+   tilemaps drawn on the CPU, uploaded as textures, as before the desktop's
+   tile shaders. **Next.**
+5. **Controls (pad, racing controller), VMU saves, 57.52 Hz on 60 Hz.**
+6. **Sound.** The native sequencer; samples in the 2 MB sound RAM (AICA
+   ADPCM) or music from CD audio, decided by the Phase 0 numbers.
+7. **Speed.**
+
+Memory plan to test: music on CD audio tracks (no RAM), effects in sound
+RAM as AICA ADPCM, textures in video RAM, and in main RAM only the code and
+the ROM a course reads, loaded at course select. The drive cannot play CD
+audio and read data at once, so nothing can stream from disc during a race.
+
+## Runtime changes: M2_DC_MEMORY
+
+All in `src/runtime`, all inside `#ifdef M2_DC_MEMORY` (only the Dreamcast
+Makefile defines it):
+
+- `rom_source.h` (new): `RomSource`, the ROM regions a 4 KB page at a time
+  from the frontend's cache.
+- `m2_board`: `Images` gains `rom`, `texture_ram`, `frame_buffer_ram`; ROM
+  pages map to the source (`map_rom`); texture RAM (4 MB) and frame buffer
+  RAM (1 MB) are the frontend's (video RAM); a two-level page table (1 MB
+  chunks of 256 pages, allocated as mapped) instead of 1M entries (12 MB
+  with the extra fields); the duplicate `copro_tables` image is released.
+- `geo`: a constructor taking the source; `GeoPtr`/`GeoPtr16` read polygon
+  and texture ROM through it; the polygon checksum loop too.
+- `m2_tgp_board`: a constructor taking the source; copro data read through it.
+- `video.cpp`: the two GPU-renderer layers (1.5 MB) are sized only when
+  external 3D is on.
+
+Desktop check after the changes (build-daytona m2run, race_basic, 6,000
+frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
+909,312,001 i960 and 195,261,176 TGP instructions, the same as before them.
+
+## Found on the way (and what was wrong)
+
+- **A stale object, not a runtime bug.** After `Images` gained a member,
+  the screen vector came out empty (`0 px`) and the run stopped. The cause:
+  `game_loop.o` was not rebuilt (still the old `Images` layout), so the
+  frame buffer pointer was garbage and the game's frame buffer writes went
+  into the heap. DreamSDK's compiler writes `C:/...` paths in `-MMD` files,
+  which MSYS make cannot use (the colon), so header changes rebuilt nothing.
+  The Makefile now rewrites them to `/c/...` (`FIXDEP`). Two guesses before
+  that were wrong and were tested and dropped: the custom `pvr_init`
+  parameters, and frame buffer RAM in video RAM (neither mattered).
+- **The stack**, also suspected then, was not the cause either, but the game
+  now runs on a 512 KB-stack thread anyway (KOS's main thread has 64 KB);
+  the main thread is a watchdog printing the frame, free RAM and whether a
+  disc read is in progress every 5 s.
+- **Blurred picture in Flycast, the BIOS too**: Flycast was started
+  minimised; Direct3D then renders at the minimised window's size. It is
+  started normally now, without taking the focus.
+- **Leftover Flycast windows**: after a crash the windows outlived the
+  process the runner started; it now closes every Flycast running from the
+  build directory's copy (by path) before and after each run.
+- KOS's `kos.h` defines `BIT(n)`; the runtime has `BIT(x, n)`: the frontend
+  includes the runtime's headers first.
+- Out of memory twice before the game ran: the ROM cache and the frame
+  buffer RAM moved to video RAM, and the GPU layers became lazy.
+
+## Measured so far
+
+### ROM read by the game (Revision A, `romuse`, desktop)
+
+MB of each ROM region read (4 KB pages; a page counts once), from the
+single-cabinet settings saved by `daytona.exe` (`--nvram`). `romuse` leaves
+the game unchanged: race_basic's last screen hash is m2run's
+(`9427a612c5cb7511`).
+
+| Run | main_data | polygons | textures | copro | program | pcm1+2 | total |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Power-on, frames 0-1200 | 2.82 | 0.65 | 0.42 | 0.07 | 0.16 | 0.83 | 4.95 |
+| Full Beginner race, frames 2400-20000 (race_to_end) | 1.67 | 1.08 | 0.68 | 0.09 | 0.11 | 2.70 | 6.34 |
+| Attract demo, frames 1200-9000 (attract_long) | 2.92 | 3.41 | 2.00 | 0.53 | 0.10 | 0.91 | 9.86 |
+| Union of all six runs | 5.79 | 3.88 | 2.25 | 0.55 | 0.18 | 3.42 | 16.08 |
+| Union from frame 1200 (no power-on) | 4.25 | 3.88 | 2.25 | 0.55 | 0.12 | 3.42 | 14.48 |
+
+- Power-on reads 2.8 MB of main_data in its first 10 s (most likely the
+  ROM check); after it, a Beginner race reads 1.7 MB of it.
+- **Only the Beginner course is measured as a race.** On Revision A's
+  Circuit Select the cursor follows the wheel's position, so
+  `scripts/inputs/course_advanced.txt` and `course_expert.txt` (written for
+  daytona93) both race Beginner (screens show LAP 1/8).
+  `scripts/inputs/reva_long.txt` here selects Long (LAP 1/2), but the fixed
+  steering stops the car against the side, so it reads only the start area;
+  the Medium and Long courses need scripts that drive them. The attract demo
+  shows other courses, so its 3.4 MB of polygons is the best figure so far
+  for all courses together.
+- Samples: a full race reads 2.7 MB of PCM (music included); every run
+  together 3.4 MB.
+
+### Denormals (`ftzcheck`, desktop)
+
+Identical with SSE flush-to-zero and denormals-are-zero (the SH-4's DN
+treatment), every frame: race_basic 6,000 frames, course_expert 6,000,
+race_to_end 20,000 (3,031,040,001 i960 and 647,890,832 TGP instructions,
+screen hashes all equal). The game does not depend on a denormal in these.
+
+### Sound commands (race_basic, `--sound-log`)
+
+All on MIDI channel 14: 37 "start sequence" (0xAn), 284 note-ons, 882
+controller changes. Bank 16 is started three times (frames 185, 1212, 2579:
+attract, coin-up, race start), which looks like the music; bank 33 is started
+often (index 20 about every 2 s in the race), which looks like effects and
+voices. Not yet confirmed which bank is which (next: run each sequence through
+the native sequencer and measure how long it plays).
+
+### SH-4 code size, Revision A (`build_dreamcast.py compile`)
+
+| | size |
+| --- | --- |
+| Generated code: i960, TGP, 68000 (`-Os`) | 2.96 MB |
+| Runtime, i960 lib, trace, ymfm, SoftFloat (`-O2`) | 0.41 MB |
+| Total, before KOS and libstdc++ | 3.37 MB |
+
+Compiled with no errors (9 warnings, all in the shared `geo.cpp`), 2 min 17 s
+with 6 jobs. Not linked yet.
+
+### SH-4 code size, daytona93 (compile only, GCC 13.2, KOS flags, `-m4-single`)
+
+| | -O2 | -Os |
+| --- | --- | --- |
+| Generated i960 code (23 chunks + table) | 6.69 MB | 2.47 MB |
+| TGP generated | 0.15 MB | |
+| Sound 68000 generated | 0.42 MB | |
+| Runtime + i960 lib + ymfm | 0.29 MB | |
+| Total | 7.54 MB | about 3.3 MB (generated i960 at -Os) |
+
+No large static arrays (largest `.bss` 17 KB). The generated code compiled
+in 517 s at -O2 and 71 s at -Os (8 jobs). **Measured on `daytona93`'s
+generated code, before the port settled on Revision A: to be measured again
+on `daytona`.**
+
+Only two shared files failed, both for `int32_t` being `long` (see the
+README); the `__INT32_TYPE__` override compiles them with no errors or
+warnings.
+
+### Floating point (Flycast 2.7, self-test, booted from a CDI)
+
+`double` is 8 bytes with `-m4-single`; FPSCR is `00040000` at start (DN
+set). Divide, multiply, add and square root in `double` and `float` match
+the PC's bits; `snprintf` of a `double` gives the PC's text. Denormal
+results are flushed to zero (`f denormal`, `d denormal`), as the SH-4 does
+with DN set; the self-test reports that and does not fail on it. Whether the
+game ever depends on a denormal is what `ftzcheck` measures. Not yet run on
+a console.
+
+### Display path (Flycast 2.7, videotest)
+
+A 496x384 ARGB8888 frame (as `Video::screen()`) converted to RGB565 and
+uploaded to a 512x512 non-twiddled PVR texture each frame, drawn at 620x480
+centred (10-pixel bars), bilinear. Per frame, averaged over 120 frames:
+conversion 15.3 ms, upload (`pvr_txr_load`) 1.0 ms. Flycast's SH-4 timing is
+not the console's, but at that cost the frontend cannot convert the whole
+screen each frame (a frame is 17.4 ms): tile layers should be drawn into the
+PVR's 16-bit format, or only changed areas converted, as the Vita's tile
+upload does. The controller in port A0 is read.
+
+### KallistiOS: 2.2.1 in extern/kos-dc, not DreamSDK's installed KOS
+
+DreamSDK R4 had installed KOS git master (`d458073c`, 2026-10-01) next to
+its prebuilt toolchain (GCC 13.2.0, libraries dated 2025-07-05). With that
+KOS, every C++ program that pulls in libstdc++'s exception support stops
+before `main` prints anything: `Assertion "m->holder == thd && m->count > 0"
+failed at mutex.c:184 in mutex_unlock`, from newlib's stdout buffer flush.
+Bisected in Flycast: `printf` alone works, `malloc` and `new int[]` work,
+one `std::vector` fails (it links libstdc++'s exception-support static
+constructors: eh globals, emergency pool, terminate handler). KOS's own
+`examples/dreamcast/cpp/concurrency` fails the same way, so it is not this
+project's code. Same with `-m4-single-only`, so not the float ABI. Not
+proven why; KOS master has since dropped newlib's `_pthreads.h` and changed
+its mutexes, which libstdc++'s thread layer was built against.
+
+Fix: KOS 2.2.1 (`857e4e69`, 2025-08-30), the version DreamSDK R4's
+toolchains were packaged with, unpacked from DreamSDK's own offline package
+into `extern/kos-dc` (git-ignored) and built with `-m4-single`
+(`build_dreamcast.py kos`, about a minute). With it the same `std::vector`
+program, `videotest` and the self-test all run. DreamSDK's own install is
+not changed.
+
+### Toolchain findings
+
+- KOS's `environ_dreamcast.sh` tests for `-m4-single` by compiling to
+  `/dev/null` with the Windows-native compiler, which cannot write there; the
+  test fails and it falls back to `-m4-single-only` (a 32-bit `double`) with
+  a "toolchain does not support m4-single" warning. The toolchain does
+  support it (multilibs `m4-single` and `m4-single-only`). DreamSDK's shell
+  shows that fallback; the driver's own environment sets `-m4-single`.
+- DreamSDK's `makeip` is a MinGW program; its libpng and zlib DLLs are in
+  `/mingw64/bin`, which is not on the shell's PATH (exit 127 otherwise).
+- KOS's top-level `make` also builds its PC-side helpers with a PC compiler
+  the DreamSDK shell does not have; the driver copies DreamSDK's built ones
+  and builds only the kernel and addons.
+- Flycast prints a program's serial output in a console window of its own,
+  which redirecting stdout does not capture; `flycast_run.py` reads the
+  console buffer.
+
+## What not to re-propose
+
+- Measurement hooks in `src/runtime`: not needed. `romuse` watches the ROM
+  buffers from outside with guard pages, `ftzcheck` sets MXCSR.
+- Building the KOS side through `bash -c` from Git Bash (hangs).
+- DreamSDK's installed KOS master with its R4 toolchain (C++ programs stop at
+  startup; see above). Use `extern/kos-dc`.

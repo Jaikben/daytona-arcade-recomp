@@ -12,6 +12,8 @@
 // hard error instead of MAME's undefined behaviour. See THIRD_PARTY.md.
 #pragma once
 
+#include "runtime/rom_source.h"
+
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -49,8 +51,15 @@ struct GeoPoly {
 struct GeoPtr {
     uint32_t *base = nullptr;
     uint32_t size = 0, i = 0;
+#ifdef M2_DC_MEMORY
+    RomSource *rom = nullptr; // the polygon ROM, read through pages (base is null)
+    mutable uint32_t rom_word = 0;
+#endif
     bool null() const { return base == nullptr; }
     uint32_t &at() const {
+#ifdef M2_DC_MEMORY
+        if (rom) return rom_word = rom->dword(RomRegion::Polygons, (i & (size - 1)) * 4);
+#endif
         if (!base) throw GeoFatal("geometrizer read from missing memory");
         return base[i & (size - 1)];
     }
@@ -61,7 +70,13 @@ struct GeoPtr {
 struct GeoPtr16 {
     const uint16_t *base = nullptr;
     uint32_t size = 0, i = 0;
+#ifdef M2_DC_MEMORY
+    RomSource *rom = nullptr; // the texture ROM, read through pages (base is null)
+#endif
     uint16_t operator*() const {
+#ifdef M2_DC_MEMORY
+        if (rom) return rom->word(RomRegion::Textures, (i & (size - 1)) * 2);
+#endif
         if (!base) throw GeoFatal("rasterizer read from missing texture memory");
         return base[i & (size - 1)];
     }
@@ -74,6 +89,10 @@ public:
     // (0x1000000 bytes); buffer: buffer RAM (0x8000 dwords), which the
     // display list is read from.
     Geo(const std::vector<uint8_t> &polygons, const std::vector<uint8_t> &textures, uint32_t *buffer);
+#ifdef M2_DC_MEMORY
+    // Both ROMs read through pages, not copied.
+    Geo(RomSource &rom, uint32_t *buffer);
+#endif
 
     // MAME screen_vblank -> geo_parse: walk this frame's display list from
     // read_start (the geometrizer's read-start register).
@@ -96,6 +115,9 @@ public:
     struct raster_state {
         const uint16_t *texture_rom = nullptr;
         uint32_t texture_rom_mask = 0;
+#ifdef M2_DC_MEMORY
+        RomSource *rom = nullptr;
+#endif
         int16_t viewport[4] = {0, 0, 0, 0};
         int16_t center[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
         uint16_t center_sel = 0;
@@ -118,6 +140,9 @@ public:
         uint32_t mode = 0;
         uint32_t *polygon_rom = nullptr;
         uint32_t polygon_rom_mask = 0;
+#ifdef M2_DC_MEMORY
+        RomSource *rom = nullptr;
+#endif
         float matrix[12] = {};
         GeoVertex focus, light;
         float lod = 0;

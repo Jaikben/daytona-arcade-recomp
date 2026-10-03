@@ -5,6 +5,7 @@
 // needs its output: clockless, it returns when its input FIFO is empty.
 #pragma once
 
+#include "runtime/rom_source.h"
 #include "runtime/tgp.h"
 
 #include <cstdint>
@@ -17,6 +18,10 @@ class TgpBoard : public TgpBus {
 public:
     // tables: copro_tgp_tables (0x40000 bytes); copro_data: 0x800000 bytes.
     TgpBoard(const std::vector<uint8_t> &tables, const std::vector<uint8_t> &copro_data);
+#ifdef M2_DC_MEMORY
+    // copro_data read through pages (RomRegion::CoproData), not copied.
+    TgpBoard(const std::vector<uint8_t> &tables, RomSource &rom);
+#endif
 
     // i960 accesses (dword offsets within each range, MAME's handlers).
     void function_port_w(uint32_t offset, uint32_t data);  // 0x00880000
@@ -53,6 +58,9 @@ private:
 
     Tgp tgp_;
     std::vector<uint32_t> tables_, copro_data_;
+#ifdef M2_DC_MEMORY
+    RomSource *rom_ = nullptr;
+#endif
     std::deque<uint32_t> in_, out_;
     std::vector<uint32_t> upload_;
     uint32_t coproctl_ = 0, geoctl_ = 0, geo_write_start_ = 0, geo_read_start_ = 0;

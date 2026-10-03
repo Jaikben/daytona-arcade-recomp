@@ -53,6 +53,20 @@ void IoBoard::write(uint32_t index, uint8_t v) {
 // ---------------------------------------------------------------------------
 // Board
 
+#ifdef M2_DC_MEMORY
+// The Dreamcast: no texture RAM vectors (the frontend's, in video RAM), a
+// two-level page table, ROM through img_.rom.
+M2Board::M2Board(Images images)
+    : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
+      chr_(0x80000), palette_(0x4000), xlat_(0xc000), luma_(0x20000), comm_(0x4000),
+      chunks_(size_t(1) << 12), tgp_(img_.copro_tables, *img_.rom) {
+    if (!img_.rom || !img_.texture_ram || !img_.frame_buffer_ram)
+        throw Fatal("M2_DC_MEMORY: no ROM source, texture RAM or frame buffer RAM");
+    img_.copro_tables = {}; // the TGP board keeps its own copy (as words)
+    map_rom(0x00000000, 0x001fffff, RomRegion::Program, 0);
+    map(0x00200000, 0x0021ffff, Ram, ram_.data());
+    map_rom(0x00220000, 0x0023ffff, RomRegion::Program, 0x20000);
+#else
 M2Board::M2Board(Images images)
     : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
       chr_(0x80000), palette_(0x4000), xlat_(0xc000), tex0_(0x200000), tex1_(0x200000), luma_(0x20000), fb_a_(0x80000),
@@ -61,6 +75,7 @@ M2Board::M2Board(Images images)
     map(0x00000000, 0x001fffff, Rom, img_.program.data());
     map(0x00200000, 0x0021ffff, Ram, ram_.data());
     map(0x00220000, 0x0023ffff, Rom, img_.program.data() + 0x20000);
+#endif
     map(0x00500000, 0x005fffff, Ram, work_.data());
     map(0x00800000, 0x00807fff, Dev, nullptr, 0, false);
     map(0x00880000, 0x00887fff, Dev, nullptr, 0, false);
@@ -81,24 +96,68 @@ M2Board::M2Board(Images images)
     map(0x01c00000, 0x01c00fff, Dev, nullptr, 0, false);
     map(0x01c80000, 0x01c80fff, Dev, nullptr, 0, false);
     map(0x01d00000, 0x01d03fff, Ram, backup_.data());
+#ifdef M2_DC_MEMORY
+    map_rom(0x02000000, 0x03ffffff, RomRegion::MainData, 0);
+    map_rom(0x06000000, 0x06ffffff, RomRegion::MainData, 0x1000000);
+#else
     map(0x02000000, 0x03ffffff, Rom, img_.main_data.data());
     map(0x06000000, 0x06ffffff, Rom, img_.main_data.data() + 0x1000000);
+#endif
     map(0x10000000, 0x105fffff, Dev, nullptr, 0, false);
+#ifdef M2_DC_MEMORY
+    map(0x11600000, 0x1167ffff, Ram, img_.frame_buffer_ram);
+    map(0x11680000, 0x116fffff, Ram, img_.frame_buffer_ram + 0x80000);
+#else
     map(0x11600000, 0x1167ffff, Ram, fb_a_.data());
     map(0x11680000, 0x116fffff, Ram, fb_b_.data());
+#endif
+#ifdef M2_DC_MEMORY
+    map(0x12000000, 0x121fffff, Tex, img_.texture_ram, 0x200000);
+    map(0x12400000, 0x125fffff, Tex, img_.texture_ram + 0x200000, 0x200000);
+#else
     map(0x12000000, 0x121fffff, Tex, tex0_.data(), 0x200000);
     map(0x12400000, 0x125fffff, Tex, tex1_.data(), 0x200000);
+#endif
     map(0x12800000, 0x1281ffff, Ram, luma_.data());
 
+#ifdef M2_DC_MEMORY
+    geo_ = std::make_unique<Geo>(*img_.rom, tgp_.buffer_data());
+#else
     geo_ = std::make_unique<Geo>(img_.polygons, img_.textures, tgp_.buffer_data());
+#endif
     video_ = std::make_unique<Video>(tile_.data(), chr_.data());
     video_->enable_write_tracking();
 }
 
+#ifdef M2_DC_MEMORY
+M2Board::Page M2Board::unmapped_;
+
+M2Board::Page &M2Board::map_page(uint32_t addr) {
+    auto &chunk = chunks_[addr >> 20];
+    if (!chunk) chunk = std::make_unique<Page[]>(256);
+    return chunk[(addr >> kPageBits) & 255];
+}
+
+void M2Board::map_rom(uint32_t start, uint32_t end, RomRegion region, uint32_t offset) {
+    for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
+        Page &p = map_page(uint32_t(a));
+        p.kind = Rom;
+        p.burst = true;
+        p.base = nullptr;
+        p.region = region;
+        p.rom_offset = offset + uint32_t(a - start);
+    }
+}
+#endif
+
 void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror, bool burst) {
     for (uint32_t m = 0;; m = (m - mirror) & mirror) {
         for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
+#ifdef M2_DC_MEMORY
+            Page &p = map_page(uint32_t(a | m));
+#else
             Page &p = pages_[uint32_t(a | m) >> kPageBits];
+#endif
             p.kind = k;
             p.burst = burst;
             p.base = base ? base + (a - start) : nullptr;
@@ -163,8 +222,13 @@ void M2Board::vblank_end() {
     m.palram = palette_.data();
     m.colorxlat = xlat_.data();
     m.lumaram = luma_.data();
+#ifdef M2_DC_MEMORY
+    m.tex0 = reinterpret_cast<const uint32_t *>(img_.texture_ram);
+    m.tex1 = reinterpret_cast<const uint32_t *>(img_.texture_ram + 0x200000);
+#else
     m.tex0 = reinterpret_cast<const uint32_t *>(tex0_.data());
     m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
+#endif
     m.tex_generation = tex_generation_;
     video_->screen_update(geo_->polys, geo_->windows(), m);
     ++frame_;
@@ -350,6 +414,12 @@ uint32_t M2Board::fetch(uint32_t addr) {
     const Page &p = page(addr);
     if (p.kind != Rom && p.kind != Ram) throw Fatal("instruction fetch from a device");
     uint32_t v;
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
+        std::memcpy(&v, rom_page(p) + (addr & 0xffc), 4);
+        return v;
+    }
+#endif
     std::memcpy(&v, p.base + (addr & 0xffc), 4);
     return v;
 }
@@ -357,6 +427,9 @@ uint32_t M2Board::fetch(uint32_t addr) {
 uint8_t M2Board::read_byte(uint32_t addr) {
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) return rom_page(p)[addr & 0xfff];
+#endif
     switch (p.kind) {
     case Rom: case Ram: case Tex: return p.base[addr & 0xfff];
     case Dev: return uint8_t(dev_read(addr & ~3u, 0xffu << sh) >> sh);
@@ -368,6 +441,13 @@ uint16_t M2Board::read_word(uint32_t addr) {
     addr &= ~1u;
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
+        uint16_t v;
+        std::memcpy(&v, rom_page(p) + (addr & 0xfff), 2);
+        return v;
+    }
+#endif
     switch (p.kind) {
     case Rom: case Ram: case Tex: {
         uint16_t v;
@@ -382,6 +462,13 @@ uint16_t M2Board::read_word(uint32_t addr) {
 uint32_t M2Board::read_dword(uint32_t addr) {
     addr &= ~3u;
     const Page &p = page(addr);
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
+        uint32_t v;
+        std::memcpy(&v, rom_page(p) + (addr & 0xfff), 4);
+        return v;
+    }
+#endif
     switch (p.kind) {
     case Rom: case Ram: case Tex: {
         uint32_t v;

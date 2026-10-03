@@ -2,6 +2,21 @@
 
 ## Current state
 
+**Dreamcast port (branch dreamcast, in progress).** platform/dreamcast: a
+KallistiOS build run by platform/dreamcast/build_dreamcast.py after the
+desktop build, from the `daytona` (Revision A) set only, like platform/vita.
+Runtime changes are behind M2_DC_MEMORY (ROM read through a page cache the
+frontend supplies, texture and frame buffer RAM supplied, a two-level page
+table, the GPU layers sized only when used); the desktop does not define it.
+Checked after the changes: build-daytona m2run race_basic, screen hash
+9427a612c5cb7511, 909,312,001 i960 and 195,261,176 TGP instructions, as
+before. In Flycast the game boots and reaches the attract mode's first 3D
+frames with the desktop's screen hashes, then thrashes its polygon ROM cache
+(memory full while the CPU renderer is used); next is a PVR renderer. KOS
+2.2.1 in extern/kos-dc (git-ignored): DreamSDK R4's installed KOS master
+stops every C++ program using libstdc++'s exceptions at startup. Details,
+measurements and failures: platform/dreamcast/HANDOFF.md.
+
 **Vita build: the ROM set.** The 1994 set's M2_ROMSET broke the Vita compile
 check (its CMake builds the runtime itself, without the define);
 platform/vita/CMakeLists.txt defines M2_ROMSET="daytona93", and
