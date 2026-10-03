@@ -1436,6 +1436,19 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	model2_3d_push(raster, tpa);
 	model2_3d_push(raster, tha);
 
+#ifdef M2_DC_SPEED
+	// Not shown: no polygons. The parsers change no state of their own; the
+	// rasterizer ends the command as after a parse (the two initial points,
+	// then attribute 0). What it leaves in its command buffer is written
+	// again before it is next read.
+	if (skip_objects)
+	{
+		for (int i = 0; i < 7; i++)
+			model2_3d_push(raster, 0);
+		return input;
+	}
+#endif
+
 	/* select where we're reading polygon information from */
 	if (oba & 0x01000000)
 	{

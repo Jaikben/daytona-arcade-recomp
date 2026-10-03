@@ -102,6 +102,12 @@ public:
     std::vector<GeoPoly> polys;       // kept polygons, in the order added
     std::vector<uint32_t> pushed;     // every word handed to the rasterizer
     bool record_pushes = false;
+#ifdef M2_DC_SPEED
+    // Draw mode, a frame whose polygons will not be shown: object data is
+    // not parsed (the rasterizer gets its opening and closing words only).
+    // Every other command still runs, so the geometrizer's state is the same.
+    bool skip_objects = false;
+#endif
 
     struct plane {
         GeoVertex normal;

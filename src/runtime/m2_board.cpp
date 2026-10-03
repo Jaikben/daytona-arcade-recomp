@@ -191,6 +191,14 @@ void M2Board::irq_update() {
 void M2Board::vblank_start() {
     // 60 Hz mode or an even frame: the geometrizer starts a new frame
     if ((videocontrol_ & 1) == 0 || (frame_ & 1) == 0) {
+#ifdef M2_DC_SPEED
+        // Draw mode: this frame's polygons are shown if it is drawn, or, in
+        // 30 Hz mode (no parse next frame), if the next one is.
+        if (frame_skip_) {
+            const uint64_t n = uint64_t(frame_skip_ + 1);
+            geo_->skip_objects = frame_ % n != 0 && ((videocontrol_ & 1) == 0 || (frame_ + 1) % n != 0);
+        }
+#endif
         geo_->zclip_w(zclip_);
         geo_->parse(tgp_.geo_read_start());
         video_->frame_start();

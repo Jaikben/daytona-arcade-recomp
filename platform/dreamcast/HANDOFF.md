@@ -27,9 +27,9 @@ the PVR with textures and both tile layers (`game/renderer.h`); the busiest
 frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-**Slow, but twice as fast as at the start of the night**: 6,000 frames in
-626 s, about 9.6 frames/s in Flycast (not a console figure; the arcade runs
-57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
+**Slow, but nearly four times as fast as at the start of the night**: 6,000
+frames in 374 s, about 16 frames/s in Flycast (not a console figure; the
+arcade runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
 | Step | core (i960 code) | geometrizer | video | drawing | race |
@@ -38,6 +38,8 @@ RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 | Runtime frame skip (`set_frame_skip(3)`: tile layers composed only for drawn frames) | 85 | 61 | 33 | 16 | 1,045 s |
 | ROM's last page remembered (`RomSource::page_fast`) | | | | | 965 s (with `--sample`) |
 | Frame-wait skip (M2_DC_SPIN_SKIP) and tile runs (M2_DC_SPEED) | 39 | 41 | 22 | 16 | 626 s |
+| Tile rows with nothing to draw skipped; back layers straight onto the screen; clear front-layer rows not uploaded again | 39 | 41 | 11 | 13 | 540 s |
+| Geometrizer object data parsed only for frames that are shown; frame skip 3 really set (it was clamped to 2) | 39 | 11 | 8 | 13 | 374 s |
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched
@@ -45,10 +47,10 @@ the desktop at all 100 checkpoints.
 
 Where the time goes now (`build_dreamcast.py game --sample`: the game
 thread's PC at each KOS timer tick, about every 10 ms; `scripts/pc_profile.py`
-names the functions from `game.elf`), frames 2700-6000: `tilemap_draw` 10%,
-`Geo::geo_parse_np_s` 8%, `Renderer::draw` 8%, `model2_3d_process_polygon`
-9%, memset 5%, `model2_3d_push` 5%, `Video::screen_update` 5%,
-`Lockstep::boundary` 2%.
+names the functions from `game.elf`), frames 2700-6000: `Renderer::draw` 11%
+(the layers' conversion to 16 bits), `Lockstep::boundary` 8% (once per i960
+instruction, out of line at -Os), `tilemap_draw` 5%, `draw_rect` 3%, the
+geometrizer 9%, board memory access about 8%.
 
 **Controls**: the controller in port A (`game/controls.h`, tested on the PC
 by `tools/test_controls`), or a recorded input script compiled in.
@@ -132,9 +134,27 @@ Also only in the Dreamcast Makefile and `tools/dcmemcheck`:
   else changes (the byte is RAM, only an interrupt or callback changes it).
   race_basic: 715,083,926 of 909,312,001 instructions skipped; dcmemcheck
   matches the desktop at all 100 checkpoints.
-- **M2_DC_SPEED** (`video.cpp`, `tilemap_draw`): the same pixels a row at a
-  time in runs that do not wrap. dcmemcheck's tile-layer hash is identical
-  with and without it at every one of race_basic's 6,000 frames.
+- **M2_DC_SPEED**, the same output, faster:
+  - `video.cpp`: `tilemap_draw` a row at a time in runs that do not wrap;
+    `build_layer` counts, per layer and row of tiles, the tiles of each
+    category and those with an opaque pixel, and `tilemap_draw`/`draw_rect`
+    skip rows where nothing can match; the back layers are drawn straight
+    over pen 0 (as the Vita's path) instead of into a cleared `sys24_`
+    copied over it.
+  - `geo.cpp`, `m2_board.cpp`: with a frame skip, object data is not parsed
+    for frames whose polygons are never shown (neither that frame nor, in
+    30 Hz mode, the next is drawn): the rasterizer gets the command's
+    opening and closing words, every other command runs, so the
+    geometrizer's state is unchanged.
+  - `m2_board.h`: `set_frame_skip` allows 3. The desktop's range is 0-2, and
+    the frontend's `set_frame_skip(3)` had been clamped to 2: the layers
+    were composed every 3rd frame and drawn every 4th, up to two frames old.
+
+  Checked with dcmemcheck (`-DDC_SPEED=OFF` builds the reference): with and
+  without M2_DC_SPEED at frame skip 2, race_basic (6,000 frames) and
+  attract_long (9,000) give identical lines every frame (instruction counts,
+  display list, tile-layer hash, and the drawn frames' polygon hash); at frame
+  skip 3 the 1,500 + 2,250 drawn frames are identical to a frame skip 0 run.
 
 Desktop check after the changes (build-daytona m2run, race_basic, 6,000
 frames, single-cabinet settings): screen hash `9427a612c5cb7511`,

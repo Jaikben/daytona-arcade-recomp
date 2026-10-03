@@ -39,7 +39,7 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 | `tools` | Builds the host measuring tools in `tools/` (desktop compiler). |
 | `measure` | Runs `romuse` over the input scripts: which ROM pages the game reads, and when. |
 | (tools) `tracecheck` | The desktop's side of the lockstep check: the per-frame `TRACE` line the Dreamcast prints every 60 frames. |
-| (tools) `dcmemcheck` | The runtime built with the Dreamcast's defines (M2_DC_*) on the desktop, ROM pages from the image files: the Dreamcast's code paths at desktop speed. Prints a hash of the tile layers too; configure with `-DDC_SPEED=OFF` to compare them without M2_DC_SPEED. |
+| (tools) `dcmemcheck` | The runtime built with the Dreamcast's defines (M2_DC_*) on the desktop, ROM pages from the image files: the Dreamcast's code paths at desktop speed. Prints hashes of the tile layers and of each drawn frame's polygons too (`--frame-skip N` as the frontend); configure with `-DDC_SPEED=OFF` to compare them without M2_DC_SPEED. |
 | (tools) `ipprof` | Where the i960 spends its instructions: IP samples every 61 instructions, busiest blocks and addresses. |
 
 `--flycast PATH` (or `FLYCAST`) points at `flycast.exe`. Flycast runs from a

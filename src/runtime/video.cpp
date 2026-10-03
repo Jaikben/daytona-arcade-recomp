@@ -100,6 +100,9 @@ void Video::build_layer(int layer) {
         const uint32_t color = (val >> 7) & 0xff;
         const uint8_t category = (val & 0x8000) ? 1 : 0;
         const uint32_t tx = (t & 63) * 8, ty = (t >> 6) * 8;
+#ifdef M2_DC_SPEED
+        bool opaque = false;
+#endif
         for (uint32_t y = 0; y < 8; y++)
             for (uint32_t x = 0; x < 8; x++) {
                 const uint32_t b = code * 32 + y * 4 + (x >> 1);
@@ -108,7 +111,21 @@ void Video::build_layer(int layer) {
                 const size_t i = size_t(ty + y) * 512 + (tx + x);
                 pm[i] = uint16_t(color * 16 + pix);
                 fm[i] = uint8_t(category | (pix ? PIXEL_LAYER0 : 0));
+#ifdef M2_DC_SPEED
+                opaque |= pix != 0;
+#endif
             }
+#ifdef M2_DC_SPEED
+        uint8_t &cls = tile_class_[layer][t];
+        const uint32_t row = t >> 6;
+        if (cls & 0x80) {
+            --row_tiles_[layer][row][cls & 1];
+            if (cls & 2) --row_opaque_[layer][row][cls & 1];
+        }
+        cls = uint8_t(0x80 | (opaque ? 2 : 0) | category);
+        ++row_tiles_[layer][row][category];
+        if (opaque) ++row_opaque_[layer][row][category];
+#endif
     }
 }
 
@@ -211,6 +228,17 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
         mask++;
     }
     for (int y = 0; y < yy2; y++) {
+#ifdef M2_DC_SPEED
+        // A row where no tile of this category has an opaque pixel draws
+        // nothing (unless drawing opaque).
+        if (!(flags & DRAW_OPAQUE) && row_empty(L, uint32_t(sy + y), tpri & 1, false)) {
+            source += 512;
+            trans += 512;
+            dest += dw_;
+            mask += 4;
+            continue;
+        }
+#endif
         const uint16_t *src = source;
         const uint8_t *srct = trans;
         uint32_t *dst = dest;
@@ -286,6 +314,7 @@ void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int m
     const uint8_t *const fl = flags_[L].data();
     const int x0 = std::max(minx, 0), x1 = std::min(maxx, dw_ - 1);
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++) {
+        if (row_empty(L, uint32_t(y + sy), cat, flags & DRAW_OPAQUE)) continue; // no pixel of this row can match
         const size_t row = size_t((y + sy) & 511) * 512;
         uint32_t *const out = dm.data() + size_t(y) * size_t(dw_);
         for (int x = x0; x <= x1;) {
@@ -513,14 +542,26 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
 #else
     before = ticks();
     std::fill(screen_.begin(), screen_.end(), pens_[0]);
-    std::fill(sys24_.begin(), sys24_.end(), 0u);
-    for (int layer = 3; layer >= 2; --layer) draw(sys24_, layer << 1, DRAW_OPAQUE);
-    for (int layer = 1; layer >= 0; --layer) draw(sys24_, layer << 1, 0);
-    profile_.tile_draw += ticks() - before;
-    profile_.layers_rebuilt = true;
-    before = ticks();
-    copy_trans(sys24_.data(), W, W, margin_);
-    profile_.composite += ticks() - before;
+#ifdef M2_DC_SPEED
+    // As the Vita's path: the back layers drawn straight over pen 0, not
+    // into a cleared sys24_ copied over it (no margins: the same stride).
+    if (!margin_) {
+        for (int layer = 3; layer >= 2; --layer) draw(screen_, layer << 1, DRAW_OPAQUE);
+        for (int layer = 1; layer >= 0; --layer) draw(screen_, layer << 1, 0);
+        profile_.tile_draw += ticks() - before;
+        profile_.layers_rebuilt = true;
+    } else
+#endif
+    {
+        std::fill(sys24_.begin(), sys24_.end(), 0u);
+        for (int layer = 3; layer >= 2; --layer) draw(sys24_, layer << 1, DRAW_OPAQUE);
+        for (int layer = 1; layer >= 0; --layer) draw(sys24_, layer << 1, 0);
+        profile_.tile_draw += ticks() - before;
+        profile_.layers_rebuilt = true;
+        before = ticks();
+        copy_trans(sys24_.data(), W, W, margin_);
+        profile_.composite += ticks() - before;
+    }
 #endif
     rendered_now_ = false;
     if (external_3d_) {

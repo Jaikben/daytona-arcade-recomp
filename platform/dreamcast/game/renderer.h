@@ -170,10 +170,18 @@ private:
 
     // ARGB8888 (W wide, the first H rows) to RGB565, or to ARGB1555 with
     // zero (no tile pixel) see-through; a row at a time, main RAM is short.
+    // The front layer is mostly see-through: a row that is all zero and was
+    // all zero when last uploaded is already right in video RAM.
     void upload(const std::vector<uint32_t> &layer, pvr_ptr_t texture, bool alpha) {
         auto *dst = static_cast<uint8_t *>(texture);
         for (int y = 0; y < kH; y++) {
             const uint32_t *src = &layer[size_t(y) * kW];
+            if (alpha) {
+                uint32_t any = 0;
+                for (int x = 0; x < kW; x++) any |= src[x];
+                if (!any && clear_row_[y]) continue;
+                clear_row_[y] = !any;
+            }
             for (int x = 0; x < kW; x++) {
                 const uint32_t c = src[x];
                 row_[x] = alpha ? uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f))
@@ -377,6 +385,7 @@ private:
     pvr_ptr_t background_, foreground_;
     pvr_poly_hdr_t background_header_, foreground_header_, solid_header_;
     alignas(32) uint16_t row_[kTexW] = {};
+    bool clear_row_[kH] = {}; // front layer rows all see-through in video RAM
     alignas(32) uint8_t texels_[kTextureLimit * kTextureLimit / 2] = {};
     std::vector<Entry> order_;
     std::unordered_map<uint32_t, Source> sources_;

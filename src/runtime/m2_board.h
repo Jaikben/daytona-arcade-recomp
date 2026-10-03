@@ -101,7 +101,12 @@ public:
     // frames between keep the last picture. 0 = every frame, as the game does
     // (double buffered, a new 3D picture each frame); 1 = every 2nd; 2 = every
     // 3rd. The game logic and the geometrizer still run every frame.
+#ifdef M2_DC_SPEED
+    // The Dreamcast draws every 4th frame: 3 is allowed too.
+    void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 3 ? 3 : skip; }
+#else
     void set_frame_skip(int skip) { frame_skip_ = skip < 0 ? 0 : skip > 2 ? 2 : skip; }
+#endif
     IoBoard &io() { return io_; }
     TgpBoard &tgp() { return tgp_; }
     // Bytes sent to the sound board since the last take.

@@ -13,10 +13,10 @@
 #include "../../../../tools/common/input_script.h"
 #include "../../../../tools/common/nvram.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
-#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -80,10 +80,12 @@ int main(int argc, char **argv) {
     const int first = std::atoi(argv[2]), last = std::atoi(argv[3]);
     std::string inputs, nvram;
     bool external = false, fill_upper = false, no_frame_buffer = false;
+    int frame_skip = 0;
     for (int i = 4; i < argc; i++) {
         if (!std::strcmp(argv[i], "--external-3d")) external = true;
         else if (!std::strcmp(argv[i], "--fill-upper")) fill_upper = true;
         else if (!std::strcmp(argv[i], "--no-frame-buffer")) no_frame_buffer = true;
+        else if (i + 1 < argc && !std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[++i]);
         else if (i + 1 < argc && !std::strcmp(argv[i], "--inputs")) inputs = argv[++i];
         else if (i + 1 < argc && !std::strcmp(argv[i], "--nvram")) nvram = argv[++i];
     }
@@ -104,6 +106,7 @@ int main(int argc, char **argv) {
                           uint8_t(0xa5));
         rt::GameLoop game(std::move(img), false);
         if (external) game.board().video().set_external_3d(true);
+        game.set_frame_skip(frame_skip); // as the Dreamcast frontend (3: every 4th frame drawn)
         if (!nvram.empty()) tools::load_nvram(game, nvram);
         tools::Script script;
         if (!inputs.empty()) script.load(inputs);
@@ -125,6 +128,26 @@ int main(int argc, char **argv) {
             uint64_t layers = 0xcbf29ce484222325ULL;
             for (const auto *layer : {&game.board().video().background_layer(), &game.board().video().foreground_layer()})
                 for (uint32_t px : *layer) layers = (layers ^ px) * 0x100000001b3ULL;
+            // The geometrizer's polygons, on frames that were drawn (field
+            // by field: the struct has padding).
+#ifdef M2_DC_SPEED
+            const int skip = std::clamp(frame_skip, 0, 3); // as M2Board::set_frame_skip
+#else
+            const int skip = std::clamp(frame_skip, 0, 2);
+#endif
+            const bool drawn = !skip || (game.board().frame() - 1) % uint64_t(skip + 1) == 0;
+            uint64_t poly_hash = 0xcbf29ce484222325ULL;
+            auto mix = [&](uint64_t v) { poly_hash = (poly_hash ^ v) * 0x100000001b3ULL; };
+            auto bits = [](float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; };
+            if (drawn)
+                for (const rt::GeoPoly &p : game.board().video().gpu_polys()) {
+                    mix(p.z), mix(p.luma), mix(uint32_t(p.texlod)), mix(p.window), mix(p.reverse), mix(p.num_vertices);
+                    for (int k = 0; k < 4; k++) mix(p.texheader[k]), mix(uint16_t(p.viewport[k]));
+                    mix(uint16_t(p.center[0])), mix(uint16_t(p.center[1]));
+                    for (int k = 0; k < p.num_vertices && k < 8; k++)
+                        mix(bits(p.v[k].x)), mix(bits(p.v[k].y)), mix(bits(p.v[k].p[0])), mix(bits(p.v[k].p[1])),
+                            mix(bits(p.v[k].p[2]));
+                }
             if (external) {
                 kept = game.board().video().gpu_polys().size();
                 for (const rt::GeoPoly &p : game.board().video().gpu_polys())
@@ -132,10 +155,10 @@ int main(int argc, char **argv) {
             }
             std::printf("TRACE %d i960 %" PRIu64 " tgp %" PRIu64 " buffer %016" PRIx64
                         "  pages: program %zu main %zu polygons %zu textures %zu copro %zu  3d: %zu polys, %zu KB, kept %zu"
-                        "  layers %016" PRIx64 "\n",
+                        "  layers %016" PRIx64 "  polys %016" PRIx64 "\n",
                         frame, game.instructions(), game.board().tgp().tgp_instructions(), h, rom.read[0].size(),
                         rom.read[1].size(), rom.read[2].size(), rom.read[3].size(), rom.read[4].size(), polys,
-                        pvr_bytes / 1024, kept, layers);
+                        pvr_bytes / 1024, kept, layers, drawn ? poly_hash : 0);
         }
         // How much of the RAM the frontend supplies the game ever wrote: 4 KB
         // pages that are not all zero (it starts zeroed).
