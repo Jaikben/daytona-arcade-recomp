@@ -8,11 +8,11 @@ behind `M2_DC_*` compile-time defines that only this build sets, so the
 Windows, macOS and Linux builds are unchanged. It is built from the `daytona` ROM set only (Revision A, 1994, the set
 with link play).
 
-Status: **the attract mode runs in Flycast**, the PVR drawing the 3D (flat
-colours so far, no tile layers yet), in lockstep with the desktop (instruction
-counts and display list identical at every checkpoint). Slow (about 6-7
-frames/s in Flycast), no controls or sound yet, not yet on a console. Details
-and the plan: [HANDOFF.md](HANDOFF.md).
+Status: **the attract mode runs in Flycast**, drawn by the PVR with textures
+and both tile layers, in lockstep with the desktop (instruction counts and
+display list identical at every checkpoint). Slow (about 4 frames/s in
+Flycast), no controls or sound yet, not yet on a console. Details and the
+plan: [HANDOFF.md](HANDOFF.md).
 
 ## Requirements
 

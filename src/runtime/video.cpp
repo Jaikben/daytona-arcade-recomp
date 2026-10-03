@@ -448,12 +448,16 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         return;
     }
 #endif
+#ifndef M2_DC_MEMORY
+    // (Not the Dreamcast: its PVR renderer uploads the two layers this
+    // function composes below, the screen and sys24.)
     if (external_3d_ && !desktop_ && system24_gpu_compatible()) {
         // GXM composes the cached System-24 tile textures around the 3D
         // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
         rendered_now_ = false;
         return;
     }
+#endif
     // Non-zero pixels of a `width`-wide source onto the screen at column `at`.
     const size_t out_w = size_t(width());
     auto copy_trans = [&](const uint32_t *source, size_t stride, int width = W, int at = 0) {

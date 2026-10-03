@@ -6,6 +6,7 @@
 // tracecheck's per-frame line plus the ROM pages read that frame, by region.
 //
 //   dcmemcheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR] [--external-3d]
+//              [--fill-upper] [--no-frame-buffer]
 
 #include "runtime/game_loop.h"
 #include "runtime/rom_source.h"
@@ -15,6 +16,7 @@
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -77,9 +79,11 @@ int main(int argc, char **argv) {
     const std::string dir = argv[1];
     const int first = std::atoi(argv[2]), last = std::atoi(argv[3]);
     std::string inputs, nvram;
-    bool external = false;
+    bool external = false, fill_upper = false, no_frame_buffer = false;
     for (int i = 4; i < argc; i++) {
         if (!std::strcmp(argv[i], "--external-3d")) external = true;
+        else if (!std::strcmp(argv[i], "--fill-upper")) fill_upper = true;
+        else if (!std::strcmp(argv[i], "--no-frame-buffer")) no_frame_buffer = true;
         else if (i + 1 < argc && !std::strcmp(argv[i], "--inputs")) inputs = argv[++i];
         else if (i + 1 < argc && !std::strcmp(argv[i], "--nvram")) nvram = argv[++i];
     }
@@ -90,7 +94,14 @@ int main(int argc, char **argv) {
         img.copro_tables = load(dir + "/copro_tables.bin");
         img.rom = &rom;
         img.texture_ram = texture_ram.data();
-        img.frame_buffer_ram = frame_buffer_ram.data();
+        img.frame_buffer_ram = no_frame_buffer ? nullptr : frame_buffer_ram.data();
+        // --fill-upper: a pattern in the half of each texture sheet the game's
+        // writes do not reach (where the Dreamcast keeps its PVR texture
+        // cache): a trace that still matches the desktop shows nothing reads it.
+        if (fill_upper)
+            for (size_t sheet : {size_t(0), size_t(0x200000)})
+                std::fill(texture_ram.begin() + long(sheet + 0x100000), texture_ram.begin() + long(sheet + 0x200000),
+                          uint8_t(0xa5));
         rt::GameLoop game(std::move(img), false);
         if (external) game.board().video().set_external_3d(true);
         if (!nvram.empty()) tools::load_nvram(game, nvram);
@@ -120,6 +131,18 @@ int main(int argc, char **argv) {
                         rom.read[1].size(), rom.read[2].size(), rom.read[3].size(), rom.read[4].size(), polys,
                         pvr_bytes / 1024, kept);
         }
+        // How much of the RAM the frontend supplies the game ever wrote: 4 KB
+        // pages that are not all zero (it starts zeroed).
+        auto used_pages = [](const std::vector<uint8_t> &ram, size_t from, size_t bytes) {
+            size_t n = 0;
+            for (size_t page = from; page < from + bytes; page += 4096)
+                for (size_t i = page; i < page + 4096; i++)
+                    if (ram[i]) { ++n; break; }
+            return n;
+        };
+        std::printf("RAM written: texture RAM tex0 %zu of 512 pages, tex1 %zu of 512; frame buffer RAM %zu of 256\n",
+                    used_pages(texture_ram, 0, 0x200000), used_pages(texture_ram, 0x200000, 0x200000),
+                    used_pages(frame_buffer_ram, 0, 0x100000));
         return 0;
     } catch (const std::exception &e) {
         std::printf("dcmemcheck: stopped: %s\n", e.what());

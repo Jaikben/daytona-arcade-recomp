@@ -60,8 +60,7 @@ M2Board::M2Board(Images images)
     : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
       chr_(0x80000), palette_(0x4000), xlat_(0xc000), luma_(0x20000), comm_(0x4000),
       chunks_(size_t(1) << 12), tgp_(img_.copro_tables, *img_.rom) {
-    if (!img_.rom || !img_.texture_ram || !img_.frame_buffer_ram)
-        throw Fatal("M2_DC_MEMORY: no ROM source, texture RAM or frame buffer RAM");
+    if (!img_.rom || !img_.texture_ram) throw Fatal("M2_DC_MEMORY: no ROM source or texture RAM");
     img_.copro_tables = {}; // the TGP board keeps its own copy (as words)
     map_rom(0x00000000, 0x001fffff, RomRegion::Program, 0);
     map(0x00200000, 0x0021ffff, Ram, ram_.data());
@@ -105,8 +104,13 @@ M2Board::M2Board(Images images)
 #endif
     map(0x10000000, 0x105fffff, Dev, nullptr, 0, false);
 #ifdef M2_DC_MEMORY
-    map(0x11600000, 0x1167ffff, Ram, img_.frame_buffer_ram);
-    map(0x11680000, 0x116fffff, Ram, img_.frame_buffer_ram + 0x80000);
+    // Frame buffer RAM is optional: Daytona never writes it (0 of 256 pages
+    // in 9,000 attract frames and a whole race); without it the range is
+    // unmapped, reading 0 as the zeroed RAM would.
+    if (img_.frame_buffer_ram) {
+        map(0x11600000, 0x1167ffff, Ram, img_.frame_buffer_ram);
+        map(0x11680000, 0x116fffff, Ram, img_.frame_buffer_ram + 0x80000);
+    }
 #else
     map(0x11600000, 0x1167ffff, Ram, fb_a_.data());
     map(0x11680000, 0x116fffff, Ram, fb_b_.data());

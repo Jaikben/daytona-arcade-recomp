@@ -48,7 +48,7 @@ namespace {
 constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc built locally
 constexpr size_t kGameStack = 512 * 1024;
 constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
-constexpr size_t kVertexBuffer = 288 * 1024; // the attract mode's busiest frame: 2,182 polygons, ~270 KB
+constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
 constexpr int kFrames = 3600;        // a minute of attract mode, then GAME DONE
 
 // The ROM regions from the disc, a page at a time, through an LRU cache whose
@@ -158,25 +158,25 @@ volatile int g_running = 0; // 1 while GameLoop::run_frame runs
 void *run_game(void *) {
     try {
         std::printf("GAME start, heap %.2f MB\n", heap_mb());
-        // The PVR with only the lists the renderer uses (opaque: background
-        // and polygons; punch-through: the front tile layers) and two
-        // kVertexBuffer vertex buffers (with vbuf_doublebuf_disabled set, Flycast
-        // stopped with "SH4 exception when blocked"): video RAM is also the
-        // board's texture and frame buffer RAM.
-        // Opaque bins of 32 and one spare set: many of the game's polygons
-        // can fall in one 32x32 tile.
-        pvr_init_params_t params = {{PVR_BINSIZE_32, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_0, PVR_BINSIZE_16},
-                                    kVertexBuffer, 0, 0, 0, 1, 0};
+        // The PVR with only the lists the renderer uses: opaque (the
+        // background layer) and translucent with autosort off (the polygons
+        // and the front layer, in the game's order); bins of 32 and one spare
+        // set (many polygons can fall in one 32x32 tile); two kVertexBuffer
+        // vertex buffers (with vbuf_doublebuf_disabled set, Flycast stopped
+        // with "SH4 exception when blocked").
+        pvr_init_params_t params = {{PVR_BINSIZE_16, PVR_BINSIZE_0, PVR_BINSIZE_32, PVR_BINSIZE_0, PVR_BINSIZE_0},
+                                    kVertexBuffer, 0, 0, 1, 1, 0};
         pvr_init(&params);
         std::printf("GAME PVR ready, video RAM free %.2f MB\n", pvr_mem_available() / 1048576.0);
-        // Texture RAM (tex0, tex1, 4 MB) and frame buffer RAM (1 MB) in video
-        // RAM: main RAM is too small for them as well.
+        // Texture RAM (tex0, tex1, 4 MB) in video RAM: main RAM is too small
+        // for it as well. The game's writes reach only the first 1 MB of each
+        // sheet; the other halves are the renderer's texture cache (nothing
+        // reads them: dcmemcheck --fill-upper matches the desktop for a whole
+        // race). No frame buffer RAM: the game never writes it.
         auto *texture_ram = static_cast<uint8_t *>(pvr_mem_malloc(0x400000));
-        auto *frame_buffer_ram = static_cast<uint8_t *>(pvr_mem_malloc(0x100000));
-        if (!texture_ram || !frame_buffer_ram) throw std::runtime_error("no video RAM for texture or frame buffer RAM");
+        if (!texture_ram) throw std::runtime_error("no video RAM for texture RAM");
         std::memset(texture_ram, 0, 0x400000);
-        std::memset(frame_buffer_ram, 0, 0x100000);
-        dc::Renderer renderer(kVertexBuffer);
+        dc::Renderer renderer(kVertexBuffer, {{texture_ram + 0x100000, 0x100000}, {texture_ram + 0x300000, 0x100000}});
         g_renderer = &renderer;
         std::printf("GAME video RAM free: %.2f MB\n", pvr_mem_available() / 1048576.0);
 
@@ -192,7 +192,6 @@ void *run_game(void *) {
         img.copro_tables = load_file(std::string(kRomDir) + "/copro_tables.bin");
         img.rom = rom.get();
         img.texture_ram = texture_ram;
-        img.frame_buffer_ram = frame_buffer_ram;
         std::printf("GAME ROM opened, heap %.2f MB\n", heap_mb());
 
         rt::GameLoop game(std::move(img), false);
@@ -222,9 +221,10 @@ void *run_game(void *) {
             }
             if (frame % 4 == 0) renderer.draw(game.board().video());
             if (frame % 60 == 0)
-                std::printf("GAME frame %d: %u polygons drawn (%u skipped, %u KB), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
+                std::printf("GAME frame %d: %u polygons drawn (%u textured, flat for want of a palette %u / a build %u, %u skipped, %u KB; %u textures, %u flushes), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
                             ", pages read %" PRIu64 ", %.2f MB free)\n",
-                            frame, renderer.drawn, renderer.skipped, unsigned(renderer.vertex_bytes / 1024),
+                            frame, renderer.drawn, renderer.textured, renderer.no_bank, renderer.no_build, renderer.skipped, unsigned(renderer.vertex_bytes / 1024),
+                            unsigned(renderer.sources()), renderer.flushes,
                             game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
                             rom->misses, rom->pages_read, free_mb());
         }

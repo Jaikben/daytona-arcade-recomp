@@ -18,25 +18,32 @@
 
 ## Current state (2026-10-03, overnight)
 
-The recompiled Revision A **runs the attract mode in Flycast with the PVR
-drawing the 3D** (`build_dreamcast.py game`): the runtime is in external 3D
-mode, the CPU rasterizer is not used, and `game/renderer.h` draws the game's
-polygons through the PVR (flat colours so far: step 4a). Measured in one run:
-frame 2,340 after 357 s (about 6.6 frames/s in Flycast, not a console figure),
-900-1,700 polygons per drawn frame, none skipped, main RAM steady at 1.38 MB
-free, 594 ROM misses in total.
+The recompiled Revision A **runs the attract mode in Flycast, drawn by the
+PVR with textures and both tile layers** (`build_dreamcast.py game`): the
+runtime in external 3D mode (no CPU rasterizer), `game/renderer.h` drawing
+the polygons (textured through PAL4BPP textures and palette banks, see its
+header), the background tile layers (sky, clouds) behind and the front ones
+(HUD, logos) over them. About 4 frames/s in Flycast (not a console figure);
+the CPU still composes the tile layers each drawn frame.
+
+Measured in one run: up to 2,182 polygons a frame, 993 of 1,289 textured in a
+busy one (the rest are untextured in the game), none left out for palettes,
+builds or vertex space; 226 source textures in the cache, no flushes; main
+RAM steady at 1.38 MB free.
 
 **Lockstep with the desktop**: every 60th frame the frontend prints
 `TRACE frame i960 tgp buffer` (instruction counts and a hash of the TGP's
 buffer RAM, the display list); `tools/tracecheck` prints the same on the
-desktop. All 39 checkpoints to frame 2,340 matched. `tools/dcmemcheck` runs
-the runtime built with M2_DC_MEMORY on the desktop (ROM pages from the image
-files): it matched the desktop at all 60 checkpoints to frame 3,600, and it
-is where this layout's bugs were found at desktop speed.
+desktop: every checkpoint of every run matched (39 in the longest).
+`tools/dcmemcheck` runs the runtime built with M2_DC_MEMORY on the desktop
+(ROM pages from the image files): it matches the desktop at all 60
+checkpoints of 3,600 attract frames and all 333 of a whole race
+(race_to_end), also with the texture cache's half of texture RAM filled with
+a pattern and no frame buffer RAM.
 
-Not done yet: the tile layers in external 3D mode (sky black, no HUD: the
-video's external path returns before composing them, see below), textures
-(4b), controls, sound, speed. Not run on a console.
+Not done yet: controls, the racing itself (needs inputs), sound, speed
+(the tile layers on the CPU every drawn frame; every 4th frame drawn), the
+Medium and Long courses' ROM figures. Not run on a console.
 
 ## Plan
 
@@ -50,8 +57,8 @@ video's external path returns before composing them, see below), textures
    desktop (above).
 4. **PowerVR2 renderer.** 3D through the PVR (fixed function, no shaders);
    tilemaps drawn on the CPU, uploaded as textures, as before the desktop's
-   tile shaders. 4a done (flat-coloured polygons); next the tile layers in
-   external 3D mode, then textures (4b).
+   tile shaders. Done: polygons (textured: luma as grey palettes, colour and
+   light per vertex, an approximation), both tile layers.
 5. **Controls (pad, racing controller), VMU saves, 57.52 Hz on 60 Hz.**
 6. **Sound.** The native sequencer; samples in the 2 MB sound RAM (AICA
    ADPCM) or music from CD audio, decided by the Phase 0 numbers.
@@ -81,7 +88,11 @@ Makefile and `tools/dcmemcheck` define it):
   (the ROM self-test) only moves the cursor on (below).
 - `m2_tgp_board`: a constructor taking the source; copro data read through it.
 - `video`: no GPU-layer copies (1.5 MB): in external 3D the layers are the
-  screen and sys24 buffers themselves (`background_layer`/`foreground_layer`).
+  screen and sys24 buffers themselves (`background_layer`/`foreground_layer`),
+  and they are composed (the Vita's early return, for its own tile textures,
+  is not taken).
+- `m2_board`: frame buffer RAM optional (never written by the game in 9,000
+  attract frames or a whole race; without it the range is unmapped).
 - `raster.cpp`: its buffers (1.25 MB) only on the first CPU render.
 - `lockstep`: called callbacks' slots are reused (below).
 

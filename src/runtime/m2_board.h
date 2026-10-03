@@ -66,8 +66,9 @@ public:
 #ifdef M2_DC_MEMORY
         // The Dreamcast: program, main_data, polygons, textures and copro_data
         // are read through rom (those images stay empty); texture RAM (tex0
-        // then tex1, 2 MB each) and frame buffer RAM (A then B, 512 KB each)
-        // are the frontend's, in video RAM.
+        // then tex1, 2 MB each; the game's writes only reach the first 1 MB
+        // of each) and frame buffer RAM (A then B, 512 KB each; optional, the
+        // game does not write it) are the frontend's, in video RAM.
         RomSource *rom = nullptr;
         uint8_t *texture_ram = nullptr, *frame_buffer_ram = nullptr;
 #endif
