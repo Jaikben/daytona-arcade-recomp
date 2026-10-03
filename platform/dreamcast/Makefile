@@ -82,7 +82,11 @@ RUNTIME := cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_impo
            enhance comm_board
 # SoftFloat's file list, from the main tree's CMake list.
 SOFTFLOAT_SRC := $(shell sed -n 's|.*$${SOFTFLOAT_DIR}/source/\(.*\.c\).*|\1|p' $(ROOT)/cmake/softfloat_sources.cmake)
-GEN_SRC := $(notdir $(wildcard $(GEN)/$(SET)/*.cpp))
+# The i960 code: scripts/fast_gen.py's rewrite of the desktop's (fewer
+# lockstep checks; build_dreamcast.py runs it and sets GEN_I960), or the
+# desktop's own.
+GEN_I960 ?= $(GEN)/$(SET)
+GEN_SRC := $(notdir $(wildcard $(GEN_I960)/*.cpp))
 
 GAME_OBJ := $(RUNTIME:%=$(OUT)/game/runtime/%.o) \
             $(addprefix $(OUT)/game/i960/,isa.o decode.o reach.o fp.o) $(OUT)/game/trace/trace.o \
@@ -152,7 +156,7 @@ $(OUT)/game/softfloat/%.o: $(SOFTFLOAT)/source/%.c
 	@mkdir -p $(dir $@)
 	kos-cc -O2 -std=c11 -w $(INT32) $(GAME_DEFS) -DSOFTFLOAT_ROUND_ODD -DINLINE_LEVEL=5 -DSOFTFLOAT_FAST_DIV32TO16 \
 	    -DSOFTFLOAT_FAST_DIV64TO32 -I$(ROOT)/platform/dreamcast/softfloat -I$(SOFTFLOAT)/source/8086-SSE -c $< -o $@
-$(OUT)/game/gen/%.o: $(GEN)/$(SET)/%.cpp
+$(OUT)/game/gen/%.o: $(GEN_I960)/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)
 # The TGP's code at -O2: small (2,024 TGP words), and at -Os its template

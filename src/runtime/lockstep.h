@@ -57,7 +57,19 @@ public:
     // starts. Free run: callbacks may add further callbacks.
     void add_callback(uint64_t at, std::function<void()> fn);
     // Free run: an interrupt line changed; take it at the next boundary.
+#ifdef M2_DC_SPEED
+    void poke() { next_count = std::min(next_count, count + 1); poked_ = true; ++epoch; }
+    // The Dreamcast's rewritten generated code (platform/dreamcast/scripts/
+    // fast_gen.py) counts down the instructions it may run before the next
+    // event instead of calling boundary() before each one. check() is its
+    // full boundary at `ip`: 0 to re-dispatch, else how many instructions,
+    // this one included, until the next event. epoch moves whenever
+    // next_count or count is changed other than by one instruction (an
+    // instruction that saw it move checks in full at the next).
+    uint32_t check(uint32_t ip);
+#else
     void poke() { next_count = std::min(next_count, count + 1); poked_ = true; }
+#endif
     int interrupts() const { return taken_; }
 
 private:
@@ -84,6 +96,10 @@ private:
     // SH-4: 1 MB by frame 220 of the attract mode). Last, so the members the
     // generated code's inline boundary() and poke() use keep their offsets.
     std::vector<size_t> free_calls_;
+#endif
+#ifdef M2_DC_SPEED
+public:
+    uint32_t epoch = 0; // (last, like free_calls_)
 #endif
 };
 

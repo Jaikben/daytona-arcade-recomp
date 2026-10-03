@@ -116,7 +116,7 @@ void Video::build_layer(int layer) {
         const uint8_t category = (val & 0x8000) ? 1 : 0;
         const uint32_t tx = (t & 63) * 8, ty = (t >> 6) * 8;
 #ifdef M2_DC_SPEED
-        bool opaque = false;
+        bool opaque = false, solid = true;
 #endif
         for (uint32_t y = 0; y < 8; y++)
             for (uint32_t x = 0; x < 8; x++) {
@@ -128,6 +128,7 @@ void Video::build_layer(int layer) {
                 fm[i] = uint8_t(category | (pix ? PIXEL_LAYER0 : 0));
 #ifdef M2_DC_SPEED
                 opaque |= pix != 0;
+                solid &= pix != 0;
 #endif
             }
 #ifdef M2_DC_SPEED
@@ -137,7 +138,7 @@ void Video::build_layer(int layer) {
             --row_tiles_[layer][row][cls & 1];
             if (cls & 2) --row_opaque_[layer][row][cls & 1];
         }
-        cls = uint8_t(0x80 | (opaque ? 2 : 0) | category);
+        cls = uint8_t(0x80 | (solid ? 4 : 0) | (opaque ? 2 : 0) | category);
         ++row_tiles_[layer][row][category];
         if (opaque) ++row_opaque_[layer][row][category];
 #endif
@@ -355,8 +356,23 @@ M2_PIXEL_TEMPLATE void Video::tilemap_draw(std::vector<M2_PIXEL> &dm, int L, int
             const uint16_t *p = pixmap + row + size_t(from);
             const uint8_t *f = fl + row + size_t(from);
             M2_PIXEL *o = out + x;
-            for (int k = 0; k < n; k++)
-                if ((f[k] & mask) == value) o[k] = M2_PEN[p[k]];
+            // A tile (8 pixels of this row) at a time, by what build_layer
+            // recorded: one of another category, or with no opaque pixel on
+            // a pass that needs one, draws nothing; one whose pixels all
+            // match (the opaque pass, or every pixel opaque) needs no test.
+            const uint8_t *const classes = tile_class_[L] + (row >> 12) * 64;
+            for (int k = 0; k < n;) {
+                const int col = from + k, end = std::min(n, k + 8 - (col & 7));
+                const uint8_t cls = classes[col >> 3];
+                if ((cls & 1) == cat) {
+                    if (flags & DRAW_OPAQUE || cls & 4)
+                        for (int j = k; j < end; j++) o[j] = M2_PEN[p[j]];
+                    else if (cls & 2)
+                        for (int j = k; j < end; j++)
+                            if ((f[j] & mask) == value) o[j] = M2_PEN[p[j]];
+                }
+                k = end;
+            }
             x += n;
         }
     }

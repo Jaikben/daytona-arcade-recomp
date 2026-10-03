@@ -159,8 +159,12 @@ def run_test(args, name, markers, timeout, start):
         if not (nvram / "ioboard_eeprom.bin").is_file():
             sys.exit(f"build_dreamcast: no saved settings in {nvram}: set a single cabinet in test mode with "
                      "build-daytona's daytona once (--nvram DIR)")
-        game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} ROMS={msys_path(host / 'rom_cache' / 'daytona')} "
-                f"NVRAM={msys_path(nvram)} ")
+        # The i960 code with fewer lockstep checks (scripts/fast_gen.py; it
+        # rewrites only the files whose output changes).
+        fast = host / "dreamcast" / "gen_fast" / args.set
+        run([sys.executable, HERE / "scripts" / "fast_gen.py", host / "gen" / args.set, fast])
+        game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} GEN_I960={msys_path(fast)} "
+                f"ROMS={msys_path(host / 'rom_cache' / 'daytona')} NVRAM={msys_path(nvram)} ")
         # The recorded input script, compiled in (game/inputs.h; empty: the
         # pad). Written only when it changes, so make rebuilds only then.
         text = (ROOT / args.inputs).read_text() if args.inputs else ""

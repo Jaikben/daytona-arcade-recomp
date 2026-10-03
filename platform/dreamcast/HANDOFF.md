@@ -28,7 +28,7 @@ frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
 **Slow, but nearly five times as fast as at the start of the night**:
-6,000 frames in 271 s, about 22 frames/s in Flycast (not a console figure;
+6,000 frames in 258 s, about 23 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -45,6 +45,23 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Board: last plain-memory page cached; `has_code` only after a run that did nothing; `Lockstep::boundary` one compare; TGP FIFOs a ring; PROFILE every 300 frames | 34 | 10 | 8 | 4 | 298 s |
 | The TGP's generated code at -O2 (146 KB instead of 88 KB; its template helpers inline) | 31 | 10 | 8 | 4 | 284 s |
 | Draw distance -1 (the runtime's enhancement: course cells one around the car); ROM cache 576 pages | 31 | 6 | 8 | 3 | 271 s |
+| Tiles drawn 8 pixels at a time by their class (skipped, copied, or tested) | 31 | 6 | 7 | 3 | 269 s |
+| The i960 code rewritten by `scripts/fast_gen.py`: register-only instructions (49%) count down instead of calling `boundary()` | 29 | 6 | 7 | 3 | 258 s |
+
+**`scripts/fast_gen.py`** (run by the driver after the desktop build, into
+`build-daytona/dreamcast/gen_fast`; the Makefile's `GEN_I960`): each chunk
+counts down `left`, the instructions it may run before the next lockstep
+event, from the last full check (`Lockstep::check`). Register-only
+instructions cost a decrement; the others keep their IP store, and if the
+lockstep's `epoch` moved during their body (a poke, a callback, the
+frame-wait skip moving the count) the next instruction checks in full.
+When `left` runs out the instruction stores its IP and jumps to the chunk's
+one `recheck:`, which re-enters through the chunk's dispatch switch (a first
+version with the slow path at every instruction was 900 KB bigger and ran
+out of memory; this one is 320 KB bigger, 0.65 MB free in the race).
+`tools/dcfastcheck` (configure with `-DDC_FAST_GEN=...gen_fast/daytona`)
+compiles the rewritten code on the desktop: identical to the reference at
+every frame of race_basic and attract_long.
 
 **Draw distance -1** (the user's choice, `kDrawDistance` in `game/main.cpp`):
 the game's own list of course cells is cut to those around the car, so the

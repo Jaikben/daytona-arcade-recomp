@@ -461,6 +461,9 @@ uint8_t M2Board::read_byte(uint32_t addr) {
                 const uint64_t skip = (limit - 1 - count) / 2 * 2;
                 ls_->count += skip;
                 spin_skipped_ += skip;
+#ifdef M2_DC_SPEED
+                ++ls_->epoch; // the count jumped: the fast generated code checks in full next
+#endif
             }
         }
         return v;

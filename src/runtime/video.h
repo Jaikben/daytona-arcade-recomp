@@ -201,7 +201,7 @@ private:
     // are of each category, and how many of those have an opaque pixel:
     // draw passes skip rows where nothing can match (build_layer keeps them).
     uint8_t row_tiles_[4][64][2] = {}, row_opaque_[4][64][2] = {};
-    uint8_t tile_class_[4][4096] = {}; // what each tile adds: 0x80 counted | 2 opaque | category
+    uint8_t tile_class_[4][4096] = {}; // 0x80 built | 4 every pixel opaque | 2 an opaque pixel | category
     bool row_empty(int L, uint32_t pixmap_row, int cat, bool opaque_pass) const {
         const uint32_t r = (pixmap_row & 511) >> 3;
         return !(opaque_pass ? row_tiles_[L][r][cat & 1] : row_opaque_[L][r][cat & 1]);

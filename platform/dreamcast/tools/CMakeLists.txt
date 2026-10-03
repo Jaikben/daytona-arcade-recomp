@@ -188,6 +188,19 @@ if(HOST_FILES)
     list(FILTER HOST_OTHER_LIBS EXCLUDE REGEX "runtime\.(lib|a)$")
     add_executable(dcmemcheck dcmemcheck/main.cpp)
     target_link_libraries(dcmemcheck PRIVATE dc_runtime_dcmem ${HOST_OBJECTS} ${HOST_OTHER_LIBS})
+
+    # dcfastcheck: dcmemcheck on the Dreamcast's rewritten i960 code
+    # (scripts/fast_gen.py's output in DC_FAST_GEN), compiled here with the
+    # runtime's Dreamcast defines; the TGP and 68000 code from the host build.
+    set(DC_FAST_GEN "" CACHE PATH "fast_gen.py output for M2_ROMSET (build-daytona/dreamcast/gen_fast/daytona)")
+    if(DC_FAST_GEN)
+        file(GLOB FAST_SOURCES CONFIGURE_DEPENDS "${DC_FAST_GEN}/*.cpp")
+        set(HOST_TGP_SND ${HOST_OBJECTS})
+        list(FILTER HOST_TGP_SND INCLUDE REGEX "/(tgp_gen|snd_gen)\.(cpp\.)?(obj|o)$")
+        add_executable(dcfastcheck dcmemcheck/main.cpp ${FAST_SOURCES})
+        target_compile_options(dcfastcheck PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+        target_link_libraries(dcfastcheck PRIVATE dc_runtime_dcmem ${HOST_TGP_SND} ${HOST_OTHER_LIBS})
+    endif()
 endif()
 
 # The Dreamcast controller mapping (game/controls.h, KOS-free) on the PC.
