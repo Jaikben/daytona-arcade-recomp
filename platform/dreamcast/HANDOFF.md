@@ -60,6 +60,17 @@ and was taken out. Skipping the tile decode when neither tile nor character
 RAM was written (M2_DC_SPEED) is exact but saves under 1% in a race (the HUD
 writes tile RAM nearly every frame).
 
+**Geometrizer, direct rasterizer path** (`geo.cpp`, M2_DC_SPEED): in
+`geo_parse_np_s`, when the rasterizer is waiting for a polygon's attribute
+(polygon data, slot 8), the polygon's words go straight into its command
+slots and `model2_3d_process_polygon` is called directly, as
+`model2_3d_push` would do word by word. dcmemcheck's polygon hash identical
+at every frame. Every frame drawn: geometry 20.8 -> 16.3 ms, race 462 ->
+429 s (about 14 frames/s). `model2_3d_process_polygon`'s temporaries
+(`quad_m2 object`, `GeoVertex vertices[2][8]`) are no longer zero-filled for
+every polygon (uninitialised union storage; every field used is written
+first): geometry 14.9 ms, race 419 s.
+
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with
 `--sample`'s new CALLER lines (who called memcpy/memset, from PR when the PC

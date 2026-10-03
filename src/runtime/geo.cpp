@@ -242,7 +242,14 @@ inline bool Geo::check_culling(raster_state *raster, uint32_t attr, float min_z,
 template <unsigned NumVerts>
 void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 {
+#ifdef M2_DC_SPEED
+	// Not zero-filled first (GeoVertex's initialisers, for every polygon):
+	// every field used below is written before it is read.
+	union ObjectStorage { ObjectStorage() {} quad_m2 q; } object_storage;
+	quad_m2 &object = object_storage.q;
+#else
 	quad_m2 object;
+#endif
 	GeoPtr16 th, tp;
 	int32_t tho;
 	uint32_t i;
@@ -378,7 +385,13 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (cull == false)
 	{
 		int32_t clipped_verts;
+#ifdef M2_DC_SPEED
+		// (As object: the clipper writes each vertex before reading it.)
+		union VertexStorage { VertexStorage() {} GeoVertex v[2][8]; } vertex_storage;
+		GeoVertex (&vertices)[2][8] = vertex_storage.v;
+#else
 		GeoVertex vertices[2][8];
+#endif
 		GeoVertex *verts_in = vertices[0], *verts_out = vertices[1];
 
 		for (int i = 0; i < NumVerts; i++)
@@ -923,6 +936,20 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 		/* read in the attributes */
 		attr = *input++;
 
+#ifdef M2_DC_SPEED
+		// The rasterizer waiting for this polygon's attribute (polygon data,
+		// slot 8): this polygon's words go straight into its slots and
+		// model2_3d_process_polygon is called directly, as model2_3d_push
+		// would do word by word (the same slots, the same calls, in order).
+		const bool direct = !record_pushes && raster->cur_command == 1 && raster->command_index == 8;
+		if (direct)
+		{
+			raster->command_buffer[8] = attr & 0x0003ffff;
+			raster->command_index = 9;
+			if ((attr & 3) == 0) raster->cur_command = 0;
+		}
+		else
+#endif
 		/* push to the 3d rasterizer */
 		model2_3d_push(raster, attr & 0x0003ffff);
 
@@ -992,6 +1019,38 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			/* calculate texture level of detail */
 			distance = coef * fabs(dotp) * geo->lod;
 
+#ifdef M2_DC_SPEED
+			if (direct)
+			{
+				uint32_t *const cb = raster->command_buffer;
+				cb[9] = uint32_t(luma << 15);
+				cb[10] = f2u(distance) >> 8;
+				cb[11] = f2u(point.x) >> 8;
+				cb[12] = f2u(point.y) >> 8;
+				cb[13] = f2u(point.pz) >> 8;
+				if (attr & 1)
+				{
+					point.x = u2f(*input++);
+					point.y = u2f(*input++);
+					point.pz = u2f(*input++);
+					transform_point(&point, geo->matrix);
+					apply_focus(geo, &point);
+					cb[14] = f2u(point.x) >> 8;
+					cb[15] = f2u(point.y) >> 8;
+					cb[16] = f2u(point.pz) >> 8;
+					raster->command_index = 17;
+					model2_3d_process_polygon<4>(raster, cb[8]);
+				}
+				else
+				{
+					raster->command_index = 14;
+					model2_3d_process_polygon<3>(raster, cb[8]);
+					input += 3; /* skip the next 3 points */
+				}
+				raster->command_index = 8;
+				continue;
+			}
+#endif
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
