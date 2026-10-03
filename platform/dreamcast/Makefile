@@ -155,9 +155,11 @@ $(OUT)/game/softfloat/%.o: $(SOFTFLOAT)/source/%.c
 $(OUT)/game/gen/%.o: $(GEN)/$(SET)/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)
+# The TGP's code at -O2: small (2,024 TGP words), and at -Os its template
+# helpers (alu_pre, write_reg, ...) become calls.
 $(OUT)/game/gen_tgp/%.o: $(GEN)/$(SET)_tgp/%.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -Wno-unused-label -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/gen_snd/%.o: $(GEN)/$(SET)_snd/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)

@@ -28,7 +28,7 @@ frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
 **Slow, but nearly five times as fast as at the start of the night**:
-6,000 frames in 298 s, about 20 frames/s in Flycast (not a console figure;
+6,000 frames in 284 s, about 21 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -43,6 +43,7 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Renderer: polygons through KOS's direct rendering, no `std::isfinite` (soft-float calls at -fno-fast-math); layers written through the store queues; TGP status helpers inline | 38 | 11 | 8 | 9 | 350 s |
 | Tile layers composed in 16 bits (RGB565, ARGB1555) by the runtime: no conversion, 0.75 MB less RAM | 38 | 11 | 8 | 4 | 315 s |
 | Board: last plain-memory page cached; `has_code` only after a run that did nothing; `Lockstep::boundary` one compare; TGP FIFOs a ring; PROFILE every 300 frames | 34 | 10 | 8 | 4 | 298 s |
+| The TGP's generated code at -O2 (146 KB instead of 88 KB; its template helpers inline) | 31 | 10 | 8 | 4 | 284 s |
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched
@@ -417,6 +418,10 @@ not changed.
   console buffer.
 
 ## What not to re-propose
+
+- The i960's generated code at -O2: after the frame-wait skip it runs about
+  32,000 instructions a frame and its chunks are under 1% of the samples;
+  the RAM is better spent elsewhere.
 
 - Measurement hooks in `src/runtime`: not needed. `romuse` watches the ROM
   buffers from outside with guard pages, `ftzcheck` sets MXCSR.
