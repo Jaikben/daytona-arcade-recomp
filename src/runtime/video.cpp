@@ -279,11 +279,32 @@ void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int m
     const uint8_t cat = uint8_t(flags & CATEGORY_MASK);
     const uint8_t mask = (flags & DRAW_OPAQUE) ? CATEGORY_MASK : uint8_t(CATEGORY_MASK | PIXEL_LAYER0);
     const uint8_t value = (flags & DRAW_OPAQUE) ? cat : uint8_t(cat | PIXEL_LAYER0);
+#ifdef M2_DC_SPEED
+    // The same pixels, a row at a time in runs that do not wrap at 512
+    // (the per-pixel index and vector lookups cost the SH-4 most of it).
+    const uint16_t *const pixmap = pixmap_[L].data();
+    const uint8_t *const fl = flags_[L].data();
+    const int x0 = std::max(minx, 0), x1 = std::min(maxx, dw_ - 1);
+    for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++) {
+        const size_t row = size_t((y + sy) & 511) * 512;
+        uint32_t *const out = dm.data() + size_t(y) * size_t(dw_);
+        for (int x = x0; x <= x1;) {
+            const int from = (x + sx) & 511, n = std::min(x1 - x + 1, 512 - from);
+            const uint16_t *p = pixmap + row + size_t(from);
+            const uint8_t *f = fl + row + size_t(from);
+            uint32_t *o = out + x;
+            for (int k = 0; k < n; k++)
+                if ((f[k] & mask) == value) o[k] = pens_[p[k]];
+            x += n;
+        }
+    }
+#else
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++)
         for (int x = std::max(minx, 0); x <= std::min(maxx, dw_ - 1); x++) {
             const size_t i = size_t((y + sy) & 511) * 512 + size_t((x + sx) & 511);
             if ((flags_[L][i] & mask) == value) dm[size_t(y) * size_t(dw_) + size_t(x)] = pens_[pixmap_[L][i]];
         }
+#endif
 }
 
 // segaic24 draw_common for the rgb32 bitmap, cliprect = the whole screen.

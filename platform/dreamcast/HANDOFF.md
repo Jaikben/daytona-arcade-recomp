@@ -27,9 +27,28 @@ the PVR with textures and both tile layers (`game/renderer.h`); the busiest
 frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-**Slow**: 6,000 frames in 1,414 s, about 4.2 frames/s in Flycast (not a
-console figure; the arcade runs 57.52). Every 4th frame is drawn; the CPU
-composes the tile layers for each.
+**Slow, but twice as fast as at the start of the night**: 6,000 frames in
+626 s, about 9.6 frames/s in Flycast (not a console figure; the arcade runs
+57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
+`PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
+
+| Step | core (i960 code) | geometrizer | video | drawing | race |
+| --- | --- | --- | --- | --- | --- |
+| Start of the night | 64 | 52 | 80 | 15 | 1,414 s |
+| Runtime frame skip (`set_frame_skip(3)`: tile layers composed only for drawn frames) | 85 | 61 | 33 | 16 | 1,045 s |
+| ROM's last page remembered (`RomSource::page_fast`) | | | | | 965 s (with `--sample`) |
+| Frame-wait skip (M2_DC_SPIN_SKIP) and tile runs (M2_DC_SPEED) | 39 | 41 | 22 | 16 | 626 s |
+
+(Drawing is about 64 ms for each drawn frame. The first row is from earlier
+in the race, so its core and geometry figures are lower.) Every step matched
+the desktop at all 100 checkpoints.
+
+Where the time goes now (`build_dreamcast.py game --sample`: the game
+thread's PC at each KOS timer tick, about every 10 ms; `scripts/pc_profile.py`
+names the functions from `game.elf`), frames 2700-6000: `tilemap_draw` 10%,
+`Geo::geo_parse_np_s` 8%, `Renderer::draw` 8%, `model2_3d_process_polygon`
+9%, memset 5%, `model2_3d_push` 5%, `Video::screen_update` 5%,
+`Lockstep::boundary` 2%.
 
 **Controls**: the controller in port A (`game/controls.h`, tested on the PC
 by `tools/test_controls`), or a recorded input script compiled in.
@@ -76,7 +95,8 @@ All in `src/runtime`, all inside `#ifdef M2_DC_MEMORY` (only the Dreamcast
 Makefile and `tools/dcmemcheck` define it):
 
 - `rom_source.h` (new): `RomSource`, the ROM regions a 4 KB page at a time
-  from the frontend's cache.
+  from the frontend's cache; `page_fast` remembers each region's last page
+  (the source calls `forget()` when it loads one, which may evict).
 - `m2_board`: `Images` gains `rom`, `texture_ram`, `frame_buffer_ram`; ROM
   pages map to the source (`map_rom`); texture RAM (4 MB) and frame buffer
   RAM (1 MB) are the frontend's (video RAM); a two-level page table (1 MB
@@ -96,6 +116,25 @@ Makefile and `tools/dcmemcheck` define it):
   attract frames or a whole race; without it the range is unmapped).
 - `raster.cpp`: its buffers (1.25 MB) only on the first CPU render.
 - `lockstep`: called callbacks' slots are reused (below).
+
+## Runtime changes for speed: M2_DC_SPIN_SKIP, M2_DC_SPEED
+
+Also only in the Dreamcast Makefile and `tools/dcmemcheck`:
+
+- **M2_DC_SPIN_SKIP** (`m2_board.cpp`, `read_byte`): the game's wait for the
+  next frame, `0x1394: ldob 0x500000,r3` / `0x139c: cmpibe r3,g0,0x1394`,
+  is 76% of the i960's instructions in a race (`tools/ipprof`, frames
+  2700-6000). Every frame runs to the probe's instruction caps (110,592 +
+  40,960 = 151,552 a frame) because `in_idle_loop` lists only 0x12b0 and
+  0x12f0; that timing is the game's on the desktop too, so it stays. When the
+  read at 0x1394 will compare equal, the passes up to just before the next
+  lockstep event are skipped: the count moves on by whole passes, nothing
+  else changes (the byte is RAM, only an interrupt or callback changes it).
+  race_basic: 715,083,926 of 909,312,001 instructions skipped; dcmemcheck
+  matches the desktop at all 100 checkpoints.
+- **M2_DC_SPEED** (`video.cpp`, `tilemap_draw`): the same pixels a row at a
+  time in runs that do not wrap. dcmemcheck's tile-layer hash is identical
+  with and without it at every one of race_basic's 6,000 frames.
 
 Desktop check after the changes (build-daytona m2run, race_basic, 6,000
 frames, single-cabinet settings): screen hash `9427a612c5cb7511`,

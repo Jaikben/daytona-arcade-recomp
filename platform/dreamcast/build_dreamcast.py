@@ -165,8 +165,10 @@ def run_test(args, name, markers, timeout, start):
         # pad). Written only when it changes, so make rebuilds only then.
         text = (ROOT / args.inputs).read_text() if args.inputs else ""
         header = host / "dreamcast" / "game" / "inputs.h"
-        content = ("// Written by build_dreamcast.py: the recorded input script (--inputs), or none.\n"
-                   f"static const char kInputs[] = R\"INPUTS({text})INPUTS\";\n")
+        content = ("// Written by build_dreamcast.py: the recorded input script (--inputs), or none,\n"
+                   "// and whether to sample the game thread's PC (--sample).\n"
+                   f"static const char kInputs[] = R\"INPUTS({text})INPUTS\";\n"
+                   f"static const bool kSample = {'true' if args.sample else 'false'};\n")
         header.parent.mkdir(parents=True, exist_ok=True)
         if not header.is_file() or header.read_text() != content:
             header.write_text(content, newline="\n")
@@ -240,6 +242,8 @@ def main(argv=None):
     ap.add_argument("--flycast", default=os.environ.get("FLYCAST"), help="flycast.exe (default: $FLYCAST, "
                     "or Downloads/flycast-win64-2.7)")
     ap.add_argument("--no-run", action="store_true", help="build only")
+    ap.add_argument("--sample", action="store_true",
+                    help="game: sample the game thread's PC every KOS timer tick (about 10 ms) (scripts/pc_profile.py reads them)")
     ap.add_argument("--inputs", help="game: a recorded input script (scripts/inputs) played instead of the pad")
     args = ap.parse_args(argv)
     if args.command == "kos":

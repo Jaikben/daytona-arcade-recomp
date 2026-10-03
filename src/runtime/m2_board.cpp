@@ -431,6 +431,30 @@ uint32_t M2Board::fetch(uint32_t addr) {
 uint8_t M2Board::read_byte(uint32_t addr) {
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
+#ifdef M2_DC_SPIN_SKIP
+    // The game's wait for the next frame (0x1394: ldob 0x500000,r3; 0x139c:
+    // cmpibe r3,g0,0x1394), about 3/4 of its instructions in a race: every
+    // frame runs to the instruction cap (in_idle_loop does not list it, and
+    // that timing is the game's). Each pass reads the same RAM byte, compares
+    // equal and branches back, and nothing changes the byte until the next
+    // lockstep event (an interrupt, a callback). So when this read will
+    // compare equal, the passes up to just before that event are skipped:
+    // the count moves on by whole passes, to the same state the passes would
+    // have left. This read is under way (its boundary passed at `count`), so
+    // the last skipped pass ends at a count below the event's.
+    if (addr == 0x00500000u && cpu_->m_IP == 0x1394u && p.kind == Ram) {
+        const uint8_t v = p.base[addr & 0xfff];
+        if (v == cpu_->m_r[16]) {
+            const uint64_t limit = std::min(ls_->next_count, ls_->end_count), count = ls_->count;
+            if (limit > count + 2) {
+                const uint64_t skip = (limit - 1 - count) / 2 * 2;
+                ls_->count += skip;
+                spin_skipped_ += skip;
+            }
+        }
+        return v;
+    }
+#endif
 #ifdef M2_DC_MEMORY
     if (p.kind == Rom) return rom_page(p)[addr & 0xfff];
 #endif

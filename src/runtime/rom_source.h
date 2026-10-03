@@ -25,15 +25,36 @@ public:
     // at once.
     virtual const uint8_t *page(RomRegion region, uint32_t index) = 0;
 
-    // A little-endian word at a byte offset (aligned), through page().
+    // page(), remembering the last page of each region: most reads follow
+    // on in the same 4 KB, and page() is a virtual call and a cache lookup.
+    // The source calls forget() whenever it loads a page (which may evict
+    // one), so a remembered pointer is never stale.
+    const uint8_t *page_fast(RomRegion region, uint32_t index) {
+        Last &last = last_[int(region)];
+        if (last.page && last.index == index) return last.page;
+        const uint8_t *p = page(region, index);
+        last = {index, p};
+        return p;
+    }
+
+    // A little-endian word at a byte offset (aligned), through page_fast().
     uint32_t dword(RomRegion region, uint32_t offset) {
-        const uint8_t *p = page(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~3u);
+        const uint8_t *p = page_fast(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~3u);
         return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
     }
     uint16_t word(RomRegion region, uint32_t offset) {
-        const uint8_t *p = page(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~1u);
+        const uint8_t *p = page_fast(region, offset >> kPageBits) + (offset & (kPageSize - 1) & ~1u);
         return uint16_t(p[0] | p[1] << 8);
     }
+
+protected:
+    void forget() {
+        for (Last &last : last_) last.page = nullptr;
+    }
+
+private:
+    struct Last { uint32_t index = 0; const uint8_t *page = nullptr; };
+    Last last_[5];
 };
 
 } // namespace rt

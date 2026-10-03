@@ -8,12 +8,15 @@ desktop build, from the `daytona` (Revision A) set only, like platform/vita.
 Runtime changes are behind M2_DC_MEMORY (ROM read through a page cache the
 frontend supplies, texture and frame buffer RAM supplied, a two-level page
 table, no GPU-layer copies, lazy rasterizer buffers, reused Lockstep
-callback slots, geo_test's cursor moved on without its loop); the desktop
-does not define it. Checked after the changes: build-daytona m2run
+callback slots, geo_test's cursor moved on without its loop), M2_DC_SPIN_SKIP
+(the game's frame-wait loop at 0x1394 skipped by whole passes to the next
+lockstep event: 79% of the i960's instructions in a race) and M2_DC_SPEED
+(tilemap_draw in wrap-free runs, the same pixels); the desktop defines none
+of them. Checked after the changes: build-daytona m2run
 race_basic, screen hash 9427a612c5cb7511, 909,312,001 i960 and 195,261,176
 TGP instructions, as before. In Flycast a whole recorded race (race_basic) runs,
 drawn by the PVR with textures and both tile layers, in lockstep with the
-desktop at all 100 checkpoints; about 4 frames/s, no sound yet. Found for the desktop too, not changed
+desktop at all 100 checkpoints; 9.6 frames/s (626 s for the race, from 1,414 s), no sound yet. Found for the desktop too, not changed
 there: Lockstep::calls_ never shrinks (a callback every 1,024 instructions;
 estimated 270 KB a second on the desktop). KOS 2.2.1 in extern/kos-dc
 (git-ignored): DreamSDK R4's installed KOS master stops every C++ program

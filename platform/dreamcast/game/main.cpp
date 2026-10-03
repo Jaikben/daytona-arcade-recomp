@@ -1,10 +1,10 @@
-// The Dreamcast frontend (in progress). The game runs with sound off and no
-// inputs, its screen (the CPU renderer's) shown every 4th frame. ROM is read
-// from the disc image through a page cache (rt::RomSource, the runtime's
-// M2_DC_MEMORY); texture RAM, frame buffer RAM, the cache and the screen
-// texture are in video RAM. Every 60 frames the screen hash goes to the
-// serial console, to compare with the desktop's m2run at the same frame.
-// No input, sound or speed work yet.
+// The Dreamcast frontend (in progress). The game runs with sound off, from
+// the controller or a recorded input script, every 4th frame drawn by the PVR
+// (renderer.h). ROM is read from the disc image through a page cache
+// (rt::RomSource, the runtime's M2_DC_MEMORY); texture RAM is in video RAM.
+// Every 60 frames a TRACE line (to compare with the desktop's
+// tools/tracecheck) and a PROFILE line go to the serial console. No sound,
+// saves or frame pacing yet.
 
 // The runtime before kos.h: KOS defines a BIT(n) macro, the runtime a
 // BIT(x, n) function (cpu.h).
@@ -52,6 +52,7 @@ constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc
 constexpr size_t kGameStack = 512 * 1024;
 constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
+constexpr int kDrawEvery = 4;        // frames per picture
 constexpr int kFrames = 6000;        // then GAME DONE (a recorded race is 6,000 frames)
 
 // The ROM regions from the disc, a page at a time, through an LRU cache whose
@@ -93,6 +94,7 @@ private:
     // Read index and the pages after it that are not cached, up to kRun.
     void load(int r, uint32_t index) {
         ++misses;
+        forget(); // pages may be evicted below: no remembered pointer may outlive them
         uint32_t n = 1;
         if (index == next_[r])
             while (n < kRun && index + n < index_[r].size() && index_[r][index + n] < 0) ++n;
@@ -179,6 +181,10 @@ volatile bool g_done = false;
 DiscRom *volatile g_rom = nullptr;
 dc::Renderer *volatile g_renderer = nullptr;
 volatile int g_running = 0; // 1 while GameLoop::run_frame runs
+// --sample's latest report, printed by the game thread between frames (two
+// threads printing at once mix their lines, a TRACE line too).
+char g_report[200 * 24 + 96];
+volatile bool g_report_ready = false;
 
 void *run_game(void *) {
     try {
@@ -221,6 +227,15 @@ void *run_game(void *) {
 
         rt::GameLoop game(std::move(img), false);
         game.board().video().set_external_3d(true); // the PVR draws the 3D
+        // The desktop's draw mode: the screen (the tile layers) is updated
+        // every 4th frame, the one drawn; the game runs every frame as ever
+        // (the geometrizer too: the game reads its polygon count).
+        game.set_frame_skip(kDrawEvery - 1);
+        // Where the time goes: the runtime's frame profile (core: i960, TGP
+        // and scheduling; geometry; video: the tile layers) and the PVR
+        // renderer, in microseconds, averaged over 60 frames.
+        game.set_profile_clock([]() -> uint64_t { return timer_us_gettime64(); });
+        uint64_t prof_core = 0, prof_geo = 0, prof_video = 0, prof_draw = 0;
         // The single-cabinet settings (test mode), as tools/common/nvram.h.
         const auto eeprom = load_file(std::string(kRomDir) + "/ioboard_eeprom.bin");
         const auto backup = load_file(std::string(kRomDir) + "/backup_ram.bin");
@@ -260,6 +275,12 @@ void *run_game(void *) {
                 in = {c.steer, c.accel, c.brake, c.in0, c.in1, c.in2};
             }
             game.run_frame(in);
+            {
+                const rt::FrameProfile &fp = game.last_profile();
+                prof_core += fp.core();
+                prof_geo += fp.geometry;
+                prof_video += fp.video;
+            }
             g_running = 0;
             (void)game.board().take_sound_bytes();
             g_frame = frame;
@@ -270,7 +291,20 @@ void *run_game(void *) {
                 std::printf("TRACE %d i960 %llu tgp %llu buffer %016llx\n", frame, (unsigned long long)game.instructions(),
                             (unsigned long long)game.board().tgp().tgp_instructions(), (unsigned long long)h);
             }
-            if (frame % 4 == 0) renderer.draw(game.board().video());
+            // Just after a screen update (vblank_end updates when frame %
+            // kDrawEvery is 0, then counts on).
+            if (game.board().frame() % kDrawEvery == 1) {
+                const uint64_t d0 = timer_us_gettime64();
+                renderer.draw(game.board().video());
+                prof_draw += timer_us_gettime64() - d0;
+            }
+            if (frame % 60 == 0) {
+                std::printf("PROFILE %d ms/frame: core %.1f geometry %.1f video %.1f draw %.1f (every 4th frame: %.1f each); "
+                            "frame wait skipped %.0f%% of i960 instructions\n",
+                            frame, prof_core / 60e3, prof_geo / 60e3, prof_video / 60e3, prof_draw / 60e3,
+                            prof_draw / 15e3, 100.0 * double(game.board().spin_skipped()) / double(game.instructions()));
+                prof_core = prof_geo = prof_video = prof_draw = 0;
+            }
             if (frame % 60 == 0)
                 std::printf("GAME frame %d: %u polygons drawn (%u textured, flat for want of a palette %u / a build %u, %u skipped, %u KB; %u textures, %u flushes), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
                             ", pages read %" PRIu64 ", %.2f MB free)\n",
@@ -278,6 +312,10 @@ void *run_game(void *) {
                             unsigned(renderer.sources()), renderer.flushes,
                             game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
                             rom->misses, rom->pages_read, free_mb());
+            if (g_report_ready) {
+                std::fputs(g_report, stdout);
+                g_report_ready = false;
+            }
         }
         std::printf("GAME DONE\n");
     } catch (const std::exception &e) {
@@ -285,6 +323,41 @@ void *run_game(void *) {
     }
     g_done = true;
     return nullptr;
+}
+
+// --sample: the game thread's PC at each KOS timer tick (about every 10 ms; it is pre-empted, its
+// registers saved), counted in 32-byte buckets of the program, the 200 busiest
+// reported every 10,000 samples as "SAMPLE address count" for
+// scripts/pc_profile.py to name from game.elf. Runs until the game ends.
+extern "C" char end[]; // the linker's: the end of the program and its data
+void sample(kthread_t *game) {
+    constexpr uint32_t kStart = 0x8c010000, kBucketBits = 5;
+    const uint32_t buckets = (uint32_t(uintptr_t(end)) - kStart) >> kBucketBits;
+    std::vector<uint16_t> counts(buckets);
+    uint32_t taken = 0, outside = 0;
+    while (!g_done) {
+        thd_sleep(1);
+        const uint32_t pc = game->context.pc;
+        if (pc >= kStart && ((pc - kStart) >> kBucketBits) < buckets) {
+            uint16_t &c = counts[(pc - kStart) >> kBucketBits];
+            if (c < 0xffff) ++c;
+        } else {
+            ++outside;
+        }
+        if (++taken < 10000 || g_report_ready) continue; // (the last report not printed yet: keep counting)
+        int n = std::snprintf(g_report, sizeof g_report, "SAMPLE frame %d: %lu samples, %lu outside the program\n",
+                              g_frame, (unsigned long)taken, (unsigned long)outside);
+        for (int k = 0; k < 200; ++k) {
+            const auto top = std::max_element(counts.begin(), counts.end());
+            if (!*top) break;
+            n += std::snprintf(g_report + n, sizeof g_report - size_t(n), "SAMPLE %08lx %u\n",
+                               (unsigned long)(kStart + (uint32_t(top - counts.begin()) << kBucketBits)), unsigned(*top));
+            *top = 0;
+        }
+        g_report_ready = true;
+        std::fill(counts.begin(), counts.end(), 0);
+        taken = outside = 0;
+    }
 }
 
 } // namespace
@@ -305,6 +378,7 @@ int main() {
         std::printf("GAME FAILED: cannot create the game thread\n");
         return 1;
     }
+    if (kSample) sample(game);
     while (!g_done) {
         thd_sleep(5000);
         DiscRom *rom = g_rom;

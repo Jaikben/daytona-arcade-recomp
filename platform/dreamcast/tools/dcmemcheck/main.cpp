@@ -119,17 +119,23 @@ int main(int argc, char **argv) {
             // External 3D: the polygons handed to the host renderer, and the
             // PVR vertex data the Dreamcast's renderer makes of them (a 32-byte
             // header and a 32-byte vertex each).
+            // And a hash of both tile layers (the screen the CPU composes),
+            // to compare runtime builds (M2_DC_SPEED on and off).
             size_t polys = 0, pvr_bytes = 0, kept = 0;
+            uint64_t layers = 0xcbf29ce484222325ULL;
+            for (const auto *layer : {&game.board().video().background_layer(), &game.board().video().foreground_layer()})
+                for (uint32_t px : *layer) layers = (layers ^ px) * 0x100000001b3ULL;
             if (external) {
                 kept = game.board().video().gpu_polys().size();
                 for (const rt::GeoPoly &p : game.board().video().gpu_polys())
                     if (p.num_vertices >= 3 && p.num_vertices <= 8) ++polys, pvr_bytes += 32 + 32u * p.num_vertices;
             }
             std::printf("TRACE %d i960 %" PRIu64 " tgp %" PRIu64 " buffer %016" PRIx64
-                        "  pages: program %zu main %zu polygons %zu textures %zu copro %zu  3d: %zu polys, %zu KB, kept %zu\n",
+                        "  pages: program %zu main %zu polygons %zu textures %zu copro %zu  3d: %zu polys, %zu KB, kept %zu"
+                        "  layers %016" PRIx64 "\n",
                         frame, game.instructions(), game.board().tgp().tgp_instructions(), h, rom.read[0].size(),
                         rom.read[1].size(), rom.read[2].size(), rom.read[3].size(), rom.read[4].size(), polys,
-                        pvr_bytes / 1024, kept);
+                        pvr_bytes / 1024, kept, layers);
         }
         // How much of the RAM the frontend supplies the game ever wrote: 4 KB
         // pages that are not all zero (it starts zeroed).
@@ -143,6 +149,8 @@ int main(int argc, char **argv) {
         std::printf("RAM written: texture RAM tex0 %zu of 512 pages, tex1 %zu of 512; frame buffer RAM %zu of 256\n",
                     used_pages(texture_ram, 0, 0x200000), used_pages(texture_ram, 0x200000, 0x200000),
                     used_pages(frame_buffer_ram, 0, 0x100000));
+        std::printf("frame wait skipped: %llu of %llu i960 instructions\n",
+                    (unsigned long long)game.board().spin_skipped(), (unsigned long long)game.instructions());
         return 0;
     } catch (const std::exception &e) {
         std::printf("dcmemcheck: stopped: %s\n", e.what());

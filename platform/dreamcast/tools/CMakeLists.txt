@@ -158,10 +158,18 @@ endif()
 add_executable(tracecheck tracecheck/main.cpp)
 target_link_libraries(tracecheck PRIVATE dc_game)
 
+# Where the i960 spends its instructions: IP samples every 61 instructions
+# (see ipprof/main.cpp).
+add_executable(ipprof ipprof/main.cpp)
+target_link_libraries(ipprof PRIVATE dc_game)
+
 # dcmemcheck: the runtime built with M2_DC_MEMORY (the Dreamcast's memory
 # layout) on the desktop, ROM pages served from the images, against the
 # desktop's game code objects (which do not include the headers
 # M2_DC_MEMORY changes) and its other libraries. Reuse mode only.
+# DC_SPEED off: dcmemcheck without M2_DC_SPEED, to compare its layer hashes
+# with the default build (the speed changes must not change a pixel).
+option(DC_SPEED "dcmemcheck with M2_DC_SPEED" ON)
 if(HOST_FILES)
     set(DCMEM_SOURCES)
     foreach(name cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import archive m2_replay_bus
@@ -173,7 +181,8 @@ if(HOST_FILES)
     target_include_directories(dc_runtime_dcmem PUBLIC "${DAYTONA_ROOT}/src")
     target_include_directories(dc_runtime_dcmem SYSTEM PUBLIC "${DAYTONA_ROOT}/extern/ymfm/src"
         "${DAYTONA_ROOT}/extern/softfloat/source/include")
-    target_compile_definitions(dc_runtime_dcmem PUBLIC M2_ROMSET="${M2_ROMSET}" M2_DC_MEMORY
+    target_compile_definitions(dc_runtime_dcmem PUBLIC M2_ROMSET="${M2_ROMSET}" M2_DC_MEMORY M2_DC_SPIN_SKIP
+        $<$<BOOL:${DC_SPEED}>:M2_DC_SPEED>
         $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)
     set(HOST_OTHER_LIBS ${HOST_LIBS})
     list(FILTER HOST_OTHER_LIBS EXCLUDE REGEX "runtime\.(lib|a)$")
