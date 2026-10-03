@@ -138,7 +138,7 @@ def kos_make(args, target):
 TESTS = {
     "selftest": (("SELFTEST PASS", "SELFTEST FAIL"), 30, "Daytona USA recomp"),
     "videotest": (("VIDEOTEST DONE",), 60, "VIDEOTEST"),
-    "game": (("GAME DONE", "GAME FAILED"), 1800, "GAME"),
+    "game": (("GAME DONE", "GAME FAILED"), 3600, "GAME"),  # a 6,000-frame race at ~4 frames/s in Flycast
 }
 
 
@@ -161,6 +161,15 @@ def run_test(args, name, markers, timeout, start):
                      "build-daytona's daytona once (--nvram DIR)")
         game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} ROMS={msys_path(host / 'rom_cache' / 'daytona')} "
                 f"NVRAM={msys_path(nvram)} ")
+        # The recorded input script, compiled in (game/inputs.h; empty: the
+        # pad). Written only when it changes, so make rebuilds only then.
+        text = (ROOT / args.inputs).read_text() if args.inputs else ""
+        header = host / "dreamcast" / "game" / "inputs.h"
+        content = ("// Written by build_dreamcast.py: the recorded input script (--inputs), or none.\n"
+                   f"static const char kInputs[] = R\"INPUTS({text})INPUTS\";\n")
+        header.parent.mkdir(parents=True, exist_ok=True)
+        if not header.is_file() or header.read_text() != content:
+            header.write_text(content, newline="\n")
         gen_dir(args)
     out = kos_make(args, f"{game}{name} {name}.cdi")
     if args.no_run:
@@ -231,6 +240,7 @@ def main(argv=None):
     ap.add_argument("--flycast", default=os.environ.get("FLYCAST"), help="flycast.exe (default: $FLYCAST, "
                     "or Downloads/flycast-win64-2.7)")
     ap.add_argument("--no-run", action="store_true", help="build only")
+    ap.add_argument("--inputs", help="game: a recorded input script (scripts/inputs) played instead of the pad")
     args = ap.parse_args(argv)
     if args.command == "kos":
         setup_kos(args)

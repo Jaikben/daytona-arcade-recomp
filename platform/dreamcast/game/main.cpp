@@ -11,6 +11,9 @@
 #include "runtime/game_loop.h"
 #include "runtime/rom_source.h"
 
+#include "../../../tools/common/input_script.h"
+#include "controls.h"
+#include "inputs.h" // build_dreamcast.py: kInputs, the recorded input script or ""
 #include "renderer.h"
 
 #include <kos.h>
@@ -49,7 +52,7 @@ constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc
 constexpr size_t kGameStack = 512 * 1024;
 constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
-constexpr int kFrames = 3600;        // a minute of attract mode, then GAME DONE
+constexpr int kFrames = 6000;        // then GAME DONE (a recorded race is 6,000 frames)
 
 // The ROM regions from the disc, a page at a time, through an LRU cache whose
 // pages are in `storage`. A miss reads one page, or kRun pages (32 KB) when
@@ -141,6 +144,28 @@ std::vector<uint8_t> load_file(const std::string &path) {
 
 double heap_mb() { return mallinfo().uordblks / 1048576.0; }
 
+// tools::Script::load's format, without iostreams: "frames N" and "#" lines
+// skipped, then "<from>-<to> name=value" or "<at> name=value".
+void parse_script(const char *text, tools::Script &script) {
+    for (const char *line = text; *line;) {
+        const char *end = std::strchr(line, '\n');
+        const std::string s(line, end ? size_t(end - line) : std::strlen(line));
+        line = end ? end + 1 : line + s.size();
+        if (s.empty() || s[0] == '#' || s.compare(0, 6, "frames") == 0) continue;
+        const char *p = s.c_str();
+        char *after = nullptr;
+        tools::Script::Line l;
+        l.from = std::strtoull(p, &after, 10);
+        l.to = *after == '-' ? std::strtoull(after + 1, &after, 10) : l.from;
+        while (*after == ' ' || *after == '\t') ++after;
+        const char *eq = std::strchr(after, '=');
+        if (!eq) continue;
+        l.name.assign(after, size_t(eq - after));
+        l.value = unsigned(std::strtoul(eq + 1, nullptr, 0));
+        script.lines.push_back(l);
+    }
+}
+
 // Main RAM still free: the heap's free blocks and what sbrk has not given out
 // (the heap grows up to the end of the 16 MB).
 double free_mb() {
@@ -199,6 +224,21 @@ void *run_game(void *) {
         // The single-cabinet settings (test mode), as tools/common/nvram.h.
         const auto eeprom = load_file(std::string(kRomDir) + "/ioboard_eeprom.bin");
         const auto backup = load_file(std::string(kRomDir) + "/backup_ram.bin");
+        // A recorded input script on the disc (build_dreamcast.py game
+        // --inputs): the race is played from it, to compare with the desktop
+        // (tracecheck --inputs). Otherwise the controller in port A.
+        tools::Script script;
+        bool scripted = false;
+        // (Compiled in, game/inputs.h, and parsed here: Script::load reads
+        // with std::ifstream, which links libstdc++'s iostreams, whose
+        // start-up stopped KOS before main. Script::at, the desktop tools'
+        // own playback, is used as it is.)
+        if (kInputs[0]) {
+            parse_script(kInputs, script);
+            scripted = true;
+            std::printf("GAME inputs from the recorded script (%u lines)\n", unsigned(script.lines.size()));
+        }
+        dc::Controls controls;
         if (eeprom.size() == game.board().io().eeprom.size())
             std::copy(eeprom.begin(), eeprom.end(), game.board().io().eeprom.begin());
         if (backup.size() == game.board().backup_ram().size())
@@ -208,7 +248,18 @@ void *run_game(void *) {
         const uint64_t t0 = timer_ms_gettime64();
         for (int frame = 1; frame <= kFrames; frame++) {
             g_running = 1;
-            game.run_frame(rt::Inputs{});
+            rt::Inputs in;
+            if (scripted) {
+                in = script.at(game.board().frame());
+            } else {
+                dc::Pad pad;
+                if (maple_device_t *dev = maple_enum_type(0, MAPLE_FUNC_CONTROLLER))
+                    if (auto *state = static_cast<cont_state_t *>(maple_dev_status(dev)))
+                        pad = {uint32_t(state->buttons), state->joyx, state->ltrig, state->rtrig};
+                const dc::Input c = controls.sample(pad);
+                in = {c.steer, c.accel, c.brake, c.in0, c.in1, c.in2};
+            }
+            game.run_frame(in);
             g_running = 0;
             (void)game.board().take_sound_bytes();
             g_frame = frame;

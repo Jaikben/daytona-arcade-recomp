@@ -11,9 +11,9 @@ table, no GPU-layer copies, lazy rasterizer buffers, reused Lockstep
 callback slots, geo_test's cursor moved on without its loop); the desktop
 does not define it. Checked after the changes: build-daytona m2run
 race_basic, screen hash 9427a612c5cb7511, 909,312,001 i960 and 195,261,176
-TGP instructions, as before. In Flycast the attract mode runs, drawn by the PVR
-with textures and both tile layers, in lockstep with the desktop at every
-checkpoint. Found for the desktop too, not changed
+TGP instructions, as before. In Flycast a whole recorded race (race_basic) runs,
+drawn by the PVR with textures and both tile layers, in lockstep with the
+desktop at all 100 checkpoints; about 4 frames/s, no sound yet. Found for the desktop too, not changed
 there: Lockstep::calls_ never shrinks (a callback every 1,024 instructions;
 estimated 270 KB a second on the desktop). KOS 2.2.1 in extern/kos-dc
 (git-ignored): DreamSDK R4's installed KOS master stops every C++ program

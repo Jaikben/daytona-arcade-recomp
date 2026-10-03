@@ -18,32 +18,32 @@
 
 ## Current state (2026-10-03, overnight)
 
-The recompiled Revision A **runs the attract mode in Flycast, drawn by the
-PVR with textures and both tile layers** (`build_dreamcast.py game`): the
-runtime in external 3D mode (no CPU rasterizer), `game/renderer.h` drawing
-the polygons (textured through PAL4BPP textures and palette banks, see its
-header), the background tile layers (sky, clouds) behind and the front ones
-(HUD, logos) over them. About 4 frames/s in Flycast (not a console figure);
-the CPU still composes the tile layers each drawn frame.
+**A whole recorded race runs in Flycast, in lockstep with the desktop**:
+`build_dreamcast.py game --inputs scripts/inputs/race_basic.txt` (coin-up,
+course and transmission select, rolling start, the Beginner race) matched
+`tools/tracecheck` with the same inputs at all 100 checkpoints of its 6,000
+frames (i960 and TGP instruction counts, the display list's hash). Drawn by
+the PVR with textures and both tile layers (`game/renderer.h`); the busiest
+frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
+RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-Measured in one run: up to 2,182 polygons a frame, 993 of 1,289 textured in a
-busy one (the rest are untextured in the game), none left out for palettes,
-builds or vertex space; 226 source textures in the cache, no flushes; main
-RAM steady at 1.38 MB free.
+**Slow**: 6,000 frames in 1,414 s, about 4.2 frames/s in Flycast (not a
+console figure; the arcade runs 57.52). Every 4th frame is drawn; the CPU
+composes the tile layers for each.
 
-**Lockstep with the desktop**: every 60th frame the frontend prints
-`TRACE frame i960 tgp buffer` (instruction counts and a hash of the TGP's
-buffer RAM, the display list); `tools/tracecheck` prints the same on the
-desktop: every checkpoint of every run matched (39 in the longest).
+**Controls**: the controller in port A (`game/controls.h`, tested on the PC
+by `tools/test_controls`), or a recorded input script compiled in.
+
+**Lockstep tools**: every 60th frame the frontend prints `TRACE frame i960
+tgp buffer`; `tools/tracecheck` prints the same on the desktop.
 `tools/dcmemcheck` runs the runtime built with M2_DC_MEMORY on the desktop
 (ROM pages from the image files): it matches the desktop at all 60
 checkpoints of 3,600 attract frames and all 333 of a whole race
 (race_to_end), also with the texture cache's half of texture RAM filled with
 a pattern and no frame buffer RAM.
 
-Not done yet: controls, the racing itself (needs inputs), sound, speed
-(the tile layers on the CPU every drawn frame; every 4th frame drawn), the
-Medium and Long courses' ROM figures. Not run on a console.
+Not done yet: sound, speed, the Medium and Long courses' ROM figures, link
+play. Not run on a console.
 
 ## Plan
 
@@ -60,6 +60,7 @@ Medium and Long courses' ROM figures. Not run on a console.
    tile shaders. Done: polygons (textured: luma as grey palettes, colour and
    light per vertex, an approximation), both tile layers.
 5. **Controls (pad, racing controller), VMU saves, 57.52 Hz on 60 Hz.**
+   Controls done (`game/controls.h`); saves and pacing not yet.
 6. **Sound.** The native sequencer; samples in the 2 MB sound RAM (AICA
    ADPCM) or music from CD audio, decided by the Phase 0 numbers.
 7. **Speed.**
@@ -112,6 +113,18 @@ frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
   could be made unconditional.
 
 ## Found on the way (and what was wrong)
+
+- **iostreams stop KOS before `main`.** Reading the recorded input script
+  with `tools::Script::load` (an `std::ifstream`) linked libstdc++'s
+  iostreams (+263 KB of code) and their start-up, and the program stopped
+  during KOS's start-up ("SH4 exception when blocked" in Flycast), at
+  different points as the layout changed. Two theories were wrong and were
+  tested and dropped: the disc layout (an extra file on the disc in `rom/` or
+  the root) and the binary's size (padding 1ST_READ to whole sectors). With an
+  empty script the compiler had dropped the `load` call (`kInputs[0]` is a
+  constant), which is why that build booted. The frontend now parses the
+  script itself (`parse_script`) and uses `Script::at` as it is. Do not use
+  iostreams in the Dreamcast build.
 
 - **The geometrizer's ROM self-test (`geo_test`) and the compiler.** Its sums
   have no effect (the LEDs are not emulated), so the desktop's compiler
@@ -301,5 +314,7 @@ not changed.
 - Measurement hooks in `src/runtime`: not needed. `romuse` watches the ROM
   buffers from outside with guard pages, `ftzcheck` sets MXCSR.
 - Building the KOS side through `bash -c` from Git Bash (hangs).
+- iostreams (`<fstream>`, `<sstream>`, `<iostream>`) in anything the
+  Dreamcast build links: their start-up stops KOS before `main`.
 - DreamSDK's installed KOS master with its R4 toolchain (C++ programs stop at
   startup; see above). Use `extern/kos-dc`.

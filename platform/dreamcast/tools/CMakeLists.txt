@@ -180,3 +180,6 @@ if(HOST_FILES)
     add_executable(dcmemcheck dcmemcheck/main.cpp)
     target_link_libraries(dcmemcheck PRIVATE dc_runtime_dcmem ${HOST_OBJECTS} ${HOST_OTHER_LIBS})
 endif()
+
+# The Dreamcast controller mapping (game/controls.h, KOS-free) on the PC.
+add_executable(test_controls test_controls.cpp)

@@ -8,11 +8,10 @@ behind `M2_DC_*` compile-time defines that only this build sets, so the
 Windows, macOS and Linux builds are unchanged. It is built from the `daytona` ROM set only (Revision A, 1994, the set
 with link play).
 
-Status: **the attract mode runs in Flycast**, drawn by the PVR with textures
-and both tile layers, in lockstep with the desktop (instruction counts and
-display list identical at every checkpoint). Slow (about 4 frames/s in
-Flycast), no controls or sound yet, not yet on a console. Details and the
-plan: [HANDOFF.md](HANDOFF.md).
+Status: **the game runs and plays in Flycast**, drawn by the PVR with
+textures and both tile layers; a whole recorded race matches the desktop at
+every checkpoint. Slow (about 4 frames/s in Flycast), no sound yet, not yet on
+a console. Details and the plan: [HANDOFF.md](HANDOFF.md).
 
 ## Requirements
 
@@ -36,7 +35,7 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 | `selftest` | Builds the floating-point self-test as a bootable disc image and runs it in Flycast; exit 0 only if every result matches the PC's bits. |
 | `videotest` | The display path: a 496x384 frame through the PVR every frame; prints the per-frame cost. |
 | `compile` | Compiles the runtime and the generated game code for the SH-4 and reports their size. |
-| `game` | Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
+| `game` | (`--inputs FILE`: a recorded input script instead of the pad.) Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
 | `tools` | Builds the host measuring tools in `tools/` (desktop compiler). |
 | `measure` | Runs `romuse` over the input scripts: which ROM pages the game reads, and when. |
 | (tools) `tracecheck` | The desktop's side of the lockstep check: the per-frame `TRACE` line the Dreamcast prints every 60 frames. |
@@ -46,6 +45,23 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 portable copy in `build-daytona/dreamcast/flycast` with its own `emu.cfg`, so
 your own Flycast settings are not changed. The program's serial output is read
 from Flycast's console window (`scripts/flycast_run.py`).
+
+## Controls
+
+The controller in port A (a standard controller or the Racing Controller):
+
+| Dreamcast | Cabinet |
+| --- | --- |
+| Stick / wheel, or D-pad left and right | Steering |
+| Right trigger / left trigger | Accelerator / brake |
+| D-pad up / down | Shift up / down (gears 1-4) |
+| A, B, X | View buttons VR1, VR2, VR3 |
+| Y | Coin |
+| Start | Start |
+
+`build_dreamcast.py game --inputs scripts/inputs/race_basic.txt` plays a
+recorded input script instead (compiled into the program), so a race can be
+checked against the desktop (`tools/tracecheck` with the same `--inputs`).
 
 ## Build notes
 
@@ -58,5 +74,7 @@ from Flycast's console window (`scripts/flycast_run.py`).
   the source is not changed.
 - **The game's disc image contains your ROM set's images** (`rom/`), built
   locally from your own set. It is build output: never share or commit it.
+- No iostreams (`<fstream>`, `<sstream>`, `<iostream>`) in anything the
+  Dreamcast build links: their start-up stops KOS before `main`.
 - On Windows the KOS build runs in DreamSDK's own login shell. A plain
   `bash -c` from Git Bash mixes two MSYS runtimes and hangs.

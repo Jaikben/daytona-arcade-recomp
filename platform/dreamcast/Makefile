@@ -102,14 +102,18 @@ $(OUT)/game/libruntime.a: $(GAME_OBJ)
 .PHONY: game game.cdi
 game: $(OUT)/game.elf
 game.cdi: $(OUT)/game.cdi
+# game/inputs.h (the recorded input script, or none) is written by
+# build_dreamcast.py into $(OUT)/game.
 $(OUT)/game/main.o: $(ROOT)/platform/dreamcast/game/main.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -I$(OUT)/game -c $< -o $@ && $(FIXDEP)
 $(OUT)/game.elf: $(OUT)/game/main.o $(GAME_LIBS)
 	kos-c++ -o $@ $< -Wl,--start-group $(GAME_LIBS) -Wl,--end-group
 
 # The game's disc also carries rom/: the importer's images (ROMS, the host
-# build's rom_cache/daytona) and the settings EEPROM and backup RAM (NVRAM).
+# build's rom_cache/daytona) and the settings EEPROM and backup RAM (NVRAM),
+# (A recorded input script is compiled in instead, game/inputs.h, written by
+# build_dreamcast.py.)
 # Built from the user's own ROM set: build output, never committed.
 ROMS ?= $(error ROMS must be the importer's image directory)
 NVRAM ?= $(error NVRAM must be the directory with ioboard_eeprom.bin and backup_ram.bin)
