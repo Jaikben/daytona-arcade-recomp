@@ -70,9 +70,9 @@ public:
     // gpu_pens). Vita uses its separate GXM tile path, also with widescreen.
     void set_external_3d(bool enabled, bool desktop = false) {
         if (enabled == external_3d_ && desktop == desktop_) return;
-        if (enabled && !desktop && margin_) set_wide_margin(0);
         external_3d_ = enabled;
         desktop_ = desktop;
+        gpu_front_margin_ = -1;
         render_done_ = false;
     }
     // External 3D with widescreen and the HUD at the edges: how far the

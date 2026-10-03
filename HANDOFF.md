@@ -2,6 +2,50 @@
 
 ## Mobile touch controls and latest main (2026-10-06)
 
+## Vita Revision A link and dual-ROM launcher (2026-10-03)
+
+Rebased psvita-native-frontend with --rebase-merges onto fetched origin/main
+9ad266b (three-computer link validation). Recovery branch:
+backup/vita-before-link-20261003. Merge conflicts combined enhance and
+comm_board in Vita runtime; preserved Vita wide margins and foreground
+cache invalidation while accepting upstream scene detection. Main and PSP
+branches are unchanged; nothing pushed.
+
+User supplied roms/daytona.zip alongside daytona93.zip. Revision A import
+passes CRC validation; its i960/TGP/sound code is separately generated under
+build/revision-a-host, never committed. GXM build selects DAYTONA_VITA_ROMSET;
+the daytona93 VPK can bundle Revision A's SELF as app0:daytona.self.
+Options ROM selector + Start/Reset replaces the process using LoadExec.
+Each executable uses its own ux0:data/<set>/<set>.zip, vita.cfg, EEPROM and
+backup RAM; existing 1993 saves are not repurposed as Revision A saves.
+
+Vita SceNet IPv4 transport implements the shared TCP ring protocol with
+nonblocking connect/accept/read/write, partial-send retention, a 64 KiB
+bounded queue, reconnect delay and two-second no-progress timeout. Network
+modules/heap are owned only where initialized here. Options expose enable,
+four next-IP octets, local/next ports and optional frame sync (off by default).
+Reset applies changes; pause status shows local IP, RX/TX and cabinet ID.
+1993 link requests are rejected explicitly; Revision A is required on peers.
+Master/slave, unique car numbers and matching cabinet/region settings remain
+the game's test-menu choices. Native audio now tolerates unsupported effects
+as upstream does (linked vibrato omitted), while invalid data still faults.
+
+The host integration uses the real Vita transport through a narrow POSIX
+SceNet shim against desktop TcpLink: numbering and data both directions,
+37-byte partial sends, stalled-peer loss, reconnect and queue overflow pass.
+This is not evidence of Vita Wi-Fi, executable switching or a hardware race.
+Those remain the next device checks. CPU500/core options, road renderer,
+wide CPU tiles and removal of the buffer selector remain preserved.
+Address/undefined sanitizer execution of the socket integration also passes.
+Host suite after rebase: 24 tests pass, two optional Lua tests skip.
+Both ARM release executables and SELF/VPK builds pass. Final dual package:
+build/daytona-vita-dual-rom-link.vpk. Archive checks pass; bundled eboot.bin
+and daytona.self match their respective build outputs. The archive contains
+only executables, SFO and license documents, no ZIPs or extracted ROM assets.
+Build directories: build/vita-enhancements (1993, existing generated input),
+build/vita-revision-a (fresh Revision A generation). Both were incrementally
+rebuilt after final frontend edits, then bundled in that order.
+
 ## Remove configurable Vita display buffering (2026-10-02)
 
 User reports 30 FPS and requests removal of single/double/triple settings.

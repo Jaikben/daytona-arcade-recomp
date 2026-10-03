@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cross-compile the Vita frontend using already generated host game code.
 
-First run the existing setup/recompile pipeline with your own daytona93 ROMs.
+First run the setup/recompile pipeline with your own selected ROM set.
 This command never executes cross-built importers, copies ROMs, or packages
 ROM data. --compile-check builds objects without ROMs and does not make a VPK.
 """
@@ -23,6 +23,8 @@ def run(command, env):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--host-build-dir", type=Path, default=Path("build"))
+    ap.add_argument("--set", choices=("daytona93", "daytona"), default="daytona93")
+    ap.add_argument("--revision-a-self", type=Path, help="bundle the built Revision A eboot.bin as daytona.self")
     ap.add_argument("--build-dir", type=Path, default=Path("build/vita"))
     ap.add_argument("--vitasdk", type=Path, default=os.environ.get("VITASDK"))
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 2, 4))
@@ -31,6 +33,10 @@ def main(argv=None):
     ap.add_argument("--gpu-fast", action="store_true", help="build experimental vita2d/GXM 3D renderer (requires vdpm libvita2d)")
     ap.add_argument("--diagnostics", action="store_true", help="enable GXM startup/performance file logging (faults always recorded)")
     args = ap.parse_args(argv)
+    if args.set != "daytona93" and not args.gpu_fast:
+        ap.error("Revision A selection requires --gpu-fast")
+    if args.revision_a_self and (args.set != "daytona93" or not args.gpu_fast):
+        ap.error("--revision-a-self requires the daytona93 --gpu-fast launcher")
     if args.jobs < 1:
         ap.error("--jobs must be positive")
     if args.vitasdk is None:
@@ -45,13 +51,14 @@ def main(argv=None):
     if build == host or build == ROOT or build == gen or gen in build.parents:
         ap.error("use a separate cross-build directory, not the host build or its generated sources")
     if not args.compile_check:
-        missing = [str(gen / name) for name in REQUIRED if not (gen / name).is_file()]
+        required = tuple(name.replace("daytona93", args.set) for name in REQUIRED)
+        missing = [str(gen / name) for name in required if not (gen / name).is_file()]
         if missing:
             ap.error("missing host-generated code:\n" + "\n".join(missing) +
                      "\nRun python3 scripts/recompile.py with the host compiler first.")
     if args.gpu_fast and not args.compile_check:
         if not any("rt::hook_draw_list(" in source.read_text()
-                   for source in (gen / "daytona93").glob("chunk_*.cpp")):
+                   for source in (gen / args.set).glob("chunk_*.cpp")):
             ap.error("generated game code lacks the draw-distance hook; regenerate with scripts/recompile.py")
     env = os.environ.copy()
     env["VITASDK"] = str(sdk)
@@ -59,6 +66,8 @@ def main(argv=None):
     run(["cmake", "-S", ROOT / "platform/vita", "-B", build,
          f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", "-DCMAKE_BUILD_TYPE=Release",
          f"-DDAYTONA_GEN_ROOT={gen}",
+         f"-DDAYTONA_VITA_ROMSET={args.set}",
+         f"-DDAYTONA_VITA_REV_A_SELF={(ROOT / args.revision_a_self).resolve() if args.revision_a_self else ''}",
          f"-DDAYTONA_VITA_RENDER_OPT={'OFF' if args.reference_renderer else 'ON'}",
          f"-DDAYTONA_VITA_DIAGNOSTICS={'ON' if args.diagnostics else 'OFF'}",
          f"-DDAYTONA_VITA_GPU_FAST={'ON' if args.gpu_fast else 'OFF'}",
@@ -71,7 +80,7 @@ def main(argv=None):
         if not package.is_file():
             raise RuntimeError(f"build completed without the expected package: {package}")
         mode = "GPU FAST" if args.gpu_fast else "CPU EXACT"
-        print(f"VPK: {package}\nRenderer build: {mode}\nROM location on Vita: ux0:data/daytona93/daytona93.zip")
+        print(f"VPK: {package}\nRenderer build: {mode}\nROM location on Vita: ux0:data/{args.set}/{args.set}.zip")
     return 0
 
 

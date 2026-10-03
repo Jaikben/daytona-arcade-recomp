@@ -3,6 +3,7 @@
 #include "native_audio.h"
 #include "runtime/native_sound_engine.h"
 #include "sound_worker.h"
+#include "link.h"
 #include "controls.h"
 #include "diagnostic_log.h"
 #include "async_log.h"
@@ -13,6 +14,7 @@
 
 #include <SDL.h>
 #include <psp2/ctrl.h>
+#include <psp2/appmgr.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
@@ -38,8 +40,10 @@ extern "C" { unsigned int _newlib_heap_size_user = 192 * 1024 * 1024; }
 
 namespace {
 constexpr bool kDiagnostics = DAYTONA_VITA_DIAGNOSTICS != 0;
-constexpr const char *kDirectory = "ux0:data/daytona93";
-constexpr const char *kRom = "ux0:data/daytona93/daytona93.zip";
+constexpr const char *kDirectory = "ux0:data/" M2_ROMSET;
+constexpr const char *kRom = "ux0:data/" M2_ROMSET "/" M2_ROMSET ".zip";
+constexpr const char *kConfig = "ux0:data/" M2_ROMSET "/vita.cfg";
+constexpr const char *kConfigTemp = "ux0:data/" M2_ROMSET "/vita.cfg.tmp";
 
 vita::Pad read_pad() {
     SceCtrlData native{};
@@ -103,6 +107,14 @@ uint64_t diagnostic_ticks_us() {
 }
 
 struct VitaSettings {
+    bool revision_a = std::strcmp(M2_ROMSET, "daytona") == 0;
+    bool link_enabled = false, link_sync = false;
+    int link_port = 15112, next_port = 15112;
+    int next_ip[4] = {192, 168, 1, 2};
+    std::string next_address() const {
+        return std::to_string(next_ip[0]) + "." + std::to_string(next_ip[1]) + "." +
+            std::to_string(next_ip[2]) + "." + std::to_string(next_ip[3]);
+    }
     int cpu_clock = 333;
     int gpu_clock = 111;
     int volume = 80;
@@ -118,6 +130,9 @@ struct VitaSettings {
 
     void defaults() { *this = VitaSettings{}; }
     void sanitize() {
+        link_port = std::clamp(link_port, 1, 65535);
+        next_port = std::clamp(next_port, 1, 65535);
+        for (int &octet : next_ip) octet = std::clamp(octet, 0, 255);
         const auto valid = [](int value, const int *choices, int count, int fallback) {
             for (int i = 0; i < count; ++i) if (value == choices[i]) return value;
             return fallback;
@@ -133,12 +148,20 @@ struct VitaSettings {
         draw_distance = std::clamp(draw_distance, -2, 2);
     }
     void load() {
-        FILE *f = std::fopen("ux0:data/daytona93/vita.cfg", "r");
+        FILE *f = std::fopen(kConfig, "r");
         if (!f) return;
         char line[96], key[40]; int value = 0;
         while (std::fgets(line, sizeof line, f)) {
             if (std::sscanf(line, "%39[^=]=%d", key, &value) != 2) continue;
             if (!std::strcmp(key, "fourth_core")) fourth_core = value != 0;
+            else if (!std::strcmp(key, "link_enabled")) link_enabled = value != 0;
+            else if (!std::strcmp(key, "link_sync")) link_sync = value != 0;
+            else if (!std::strcmp(key, "link_port")) link_port = value;
+            else if (!std::strcmp(key, "next_port")) next_port = value;
+            else if (!std::strcmp(key, "next_ip0")) next_ip[0] = value;
+            else if (!std::strcmp(key, "next_ip1")) next_ip[1] = value;
+            else if (!std::strcmp(key, "next_ip2")) next_ip[2] = value;
+            else if (!std::strcmp(key, "next_ip3")) next_ip[3] = value;
             else if (!std::strcmp(key, "stretch_backdrop")) stretch_backdrop = value != 0;
             else if (!std::strcmp(key, "skip_launcher")) skip_launcher = value != 0;
             else if (!std::strcmp(key, "steer_curve")) steer_curve = value;
@@ -156,19 +179,22 @@ struct VitaSettings {
         std::fclose(f); sanitize();
     }
     bool save() const {
-        FILE *f = std::fopen("ux0:data/daytona93/vita.cfg.tmp", "w");
+        FILE *f = std::fopen(kConfigTemp, "w");
         if (!f) return false;
         std::fprintf(f, "cpu_clock=%d\ngpu_clock=%d\nvolume=%d\nmute=%d\nnative_audio=%d\ndeadzone=%d\nsteer_invert=%d\n",
                      cpu_clock, gpu_clock, volume, int(mute), int(native_audio), deadzone, int(steer_invert));
         std::fprintf(f, "stretch_backdrop=%d\nskip_launcher=%d\n", int(stretch_backdrop), int(skip_launcher));
         std::fprintf(f, "fourth_core=%d\n", int(fourth_core));
+        std::fprintf(f, "link_enabled=%d\nlink_sync=%d\nlink_port=%d\nnext_port=%d\n",
+            int(link_enabled), int(link_sync), link_port, next_port);
+        for (int i = 0; i < 4; ++i) std::fprintf(f, "next_ip%d=%d\n", i, next_ip[i]);
         std::fprintf(f, "steer_curve=%d\n", steer_curve);
         std::fprintf(f, "aspect=%d\ndraw_distance=%d\nhud_edges=%d\n", aspect, draw_distance, int(hud_edges));
         bool ok = std::fflush(f) == 0;
         if (std::fclose(f) != 0) ok = false;
-        if (!ok) { std::remove("ux0:data/daytona93/vita.cfg.tmp"); return false; }
-        std::remove("ux0:data/daytona93/vita.cfg");
-        return std::rename("ux0:data/daytona93/vita.cfg.tmp", "ux0:data/daytona93/vita.cfg") == 0;
+        if (!ok) { std::remove(kConfigTemp); return false; }
+        std::remove(kConfig);
+        return std::rename(kConfigTemp, kConfig) == 0;
     }
 };
 
@@ -181,13 +207,15 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - WIDE TILE RECOVERY", 30, 24, white, 3, 49, 1);
+    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - ROM / LINK", 30, 24, white, 3, 49, 1);
     char line[128];
     if (!options) {
         std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
                       scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency());
         vita::gpu_text(line, 30, 64, white, 2, 70, 1);
-        const char *labels[4] = {have_game ? "RESUME GAME" : "START GAME", "RESET GAME", "OPTIONS", "SAVE AND QUIT"};
+        const bool other_rom = settings.revision_a != (std::strcmp(M2_ROMSET, "daytona") == 0);
+        const char *labels[4] = {other_rom ? "START SELECTED ROM" : have_game ? "RESUME GAME" : "START GAME",
+                                "RESET GAME", "OPTIONS", "SAVE AND QUIT"};
         for (int i = 0; i < 4; ++i) {
             std::string label = std::string(i == selection ? "> " : "  ") + labels[i];
             vita::gpu_text(label, 46, 126 + i * 44, i == selection ? yellow : white, 2, 70, 1);
@@ -196,7 +224,17 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
         vita::gpu_text("CROSS SELECT  CIRCLE RESUME  START+SELECT MENU", 30, 516, white, 2, 74, 1);
         return;
     }
-    const char *values[20];
+    const char *values[28];
+    char link_fields[6][64];
+    for (int i = 0; i < 4; ++i) {
+        std::snprintf(link_fields[i], sizeof link_fields[i], "NEXT CABINET IP OCTET %d: %d", i + 1, settings.next_ip[i]);
+        values[19+i] = link_fields[i];
+    }
+    std::snprintf(link_fields[4], sizeof link_fields[4], "LISTEN PORT: %d", settings.link_port);
+    std::snprintf(link_fields[5], sizeof link_fields[5], "NEXT CABINET PORT: %d", settings.next_port);
+    values[23] = link_fields[4]; values[24] = link_fields[5];
+    values[18] = settings.link_enabled ? "LINK PLAY: ON (REVISION A)" : "LINK PLAY: OFF";
+    values[25] = settings.link_sync ? "LINK FRAME SYNC: ON" : "LINK FRAME SYNC: OFF";
     char cpu[64], gpu[32], volume[32], mute[32], deadzone[32], invert[32];
     std::snprintf(cpu, sizeof cpu, "CPU CLOCK: %d MHz (ACTUAL %d)", settings.cpu_clock,
                   scePowerGetArmClockFrequency());
@@ -207,12 +245,13 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     std::snprintf(invert, sizeof invert, "INVERT STEERING: %s", settings.steer_invert ? "ON" : "OFF");
     values[0]=cpu; values[1]=gpu; values[2]=volume; values[3]=mute; values[4]=deadzone; values[5]=invert;
     values[6]=settings.native_audio ? "AUDIO ENGINE: NATIVE (TEST)" : "AUDIO ENGINE: REFERENCE";
-    values[7]="GRAPHICS API: GXM"; values[8]="FULLSCREEN: ON"; values[9]="ROM: DAYTONA93.ZIP";
+    values[7]="GRAPHICS API: GXM"; values[8]="FULLSCREEN: ON";
+    values[9]=settings.revision_a ? "ROM: DAYTONA (1994 REVISION A)" : "ROM: DAYTONA93 (1993)";
     values[10]="BINDS: SELECT+TRIANGLE TEST / SELECT+SQUARE SERVICE";
     static const char* aspects[] = {"ASPECT: ORIGINAL", "ASPECT: 16:10", "ASPECT: 16:9", "ASPECT: 21:9"};
     static const char* distances[] = {"DISTANCE: SHORTEST", "DISTANCE: SHORTER", "DISTANCE: DEFAULT", "DISTANCE: FURTHER", "DISTANCE: FURTHEST"};
     values[11]=aspects[settings.aspect]; values[12]=settings.hud_edges ? "HUD: SCREEN EDGES" : "HUD: CENTRED";
-    values[13]=distances[settings.draw_distance + 2]; values[18]="RESET DEFAULTS"; values[19]="BACK";
+    values[13]=distances[settings.draw_distance + 2]; values[26]="RESET DEFAULTS"; values[27]="BACK";
     values[17]=!settings.fourth_core ? "4TH CORE: OFF" :
         vita::fourth_core_active() ? "4TH CORE: ENABLED" : "4TH CORE: UNAVAILABLE (PLUGIN REQUIRED)";
     values[15]=settings.stretch_backdrop ? "STRETCH TILE BACKGROUND: ON" : "STRETCH TILE BACKGROUND: OFF";
@@ -220,7 +259,7 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     static const char* curves[] = {"STEERING CURVE: LINEAR", "STEERING CURVE: SOFT", "STEERING CURVE: EXTRA SOFT"};
     values[14]=curves[settings.steer_curve];
     const int first = std::max(0, selection - 11);
-    for (int i = first; i < std::min(first + 12, 20); ++i) {
+    for (int i = first; i < std::min(first + 12, 28); ++i) {
         std::string label = std::string(i == selection ? "> " : "  ") + values[i];
         vita::gpu_text(label, 42, 68 + (i - first) * 32, i == selection ? yellow : white, 2, 70, 1);
     }
@@ -290,6 +329,7 @@ int main(int, char **) {
     audio.mute(settings.mute);
     log.literal("GPU25 stage: audio done; main loop ready\n");
 
+    std::unique_ptr<vita::TcpLink> link; // outlives the board's transport pointer
     std::unique_ptr<rt::GameLoop> game;
     // Destruction order keeps the detached packet, game and audio alive until
     // the worker has drained. Only one sound packet may be in flight.
@@ -315,6 +355,7 @@ int main(int, char **) {
     uint64_t perf_sort_us = 0, perf_polygon_us = 0, perf_tile_us = 0, perf_upload_us = 0;
     uint64_t previous_log_us = 0, perf_frame_peak_us = 0;
     bool sound_in_flight = false;
+    bool native_effect_warned = false;
     double display_fps = 0.0;
 
     // Join only after the following frame's board work, or before an operation
@@ -409,18 +450,38 @@ int main(int, char **) {
     };
     auto start_game = [&]() -> bool {
         if (!finish_sound()) return false;
-        save();
+        if (!save()) { status = "SAVE FAILED; ROM SWITCH CANCELLED."; return false; }
+        if (settings.revision_a != (std::strcmp(M2_ROMSET, "daytona") == 0)) {
+            const char *executable = settings.revision_a ? "app0:/daytona.self" : "app0:/eboot.bin";
+            // Only the dual package has daytona.self. A standalone Revision A
+            // eboot must not relaunch itself when the user selects daytona93.
+            FILE *check = std::fopen("app0:/daytona.self", "rb");
+            if (!check) { status = "SELECTED ROM EXECUTABLE NOT PACKAGED. INSTALL THE DUAL-ROM VPK."; return false; }
+            std::fclose(check);
+            settings.save();
+            native_audio.close(); audio.close(); sound_worker.close();
+            game.reset(); link.reset();
+            vita2d_wait_rendering_done();
+            sceGxmDisplayQueueFinish();
+            const int rc = sceAppMgrLoadExec(executable, nullptr, nullptr);
+            status = "ROM SWITCH FAILED: " + std::to_string(rc);
+            return false;
+        }
         active_sound = {};
         native_audio.close();
         audio.close();
         game.reset();
+        link.reset();
         gpu.reset_materials();
-        status = "LOADING DAYTONA93...";
+        status = std::string("LOADING ") + M2_ROMSET + "...";
         gpu.prepare_frame();
         vita2d_start_drawing(); vita2d_clear_screen(); draw_menu(false, false, 0, settings, status, display_fps); vita2d_end_drawing(); vita2d_swap_buffers();
         try {
+            if (settings.link_enabled && !settings.revision_a)
+                throw std::runtime_error("LINK PLAY REQUIRES DAYTONA REVISION A. SELECT THAT ROM OR TURN LINK OFF.");
             auto images = rt::import_rom_set(kRom);
             active_native_audio = settings.native_audio;
+            native_effect_warned = false;
             if (active_native_audio) {
                 sound_worker.close();
                 auto engine = std::make_unique<snd::NativeSoundEngine>(
@@ -440,6 +501,11 @@ int main(int, char **) {
             game->set_profile_clock(kDiagnostics ? ticks_us : nullptr);
             load_nv("ioboard_eeprom.bin", game->board().io().eeprom);
             load_nv("backup_ram.bin", game->board().backup_ram());
+            if (settings.link_enabled) {
+                link = std::make_unique<vita::TcpLink>(settings.link_port, settings.next_address(), settings.next_port);
+                if (!link->error().empty()) throw std::runtime_error("LINK: " + link->error());
+                game->board().set_link(link.get(), settings.link_sync);
+            }
             game->board().video().set_profile_clock(kDiagnostics ? ticks_us : nullptr);
             apply_mode();
             controls = vita::Controls{};
@@ -448,7 +514,7 @@ int main(int, char **) {
             wait_release = true;
             return true;
         } catch (const std::exception &e) {
-            native_audio.close(); audio.pause(); game.reset();
+            native_audio.close(); audio.pause(); game.reset(); link.reset();
             status = e.what();
             perf_log.sync([&] { log.fault("GPU25 start: %s\n", e.what()); });
             return false;
@@ -473,7 +539,7 @@ int main(int, char **) {
         }
         if (menu && !wait_release) {
             if (options) {
-                constexpr int kOptionCount = 20;
+                constexpr int kOptionCount = 28;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
                 if (pressed & vita::Down) selection = (selection + 1) % kOptionCount;
                 if (pressed & vita::Circle) { options = false; selection = 2; wait_release = true; }
@@ -505,11 +571,9 @@ int main(int, char **) {
                         status = "VITA RENDERER IS FIXED TO NATIVE GXM GPU FAST.";
                     } else if (selection == 8 && activate) {
                         status = "VITA OUTPUT IS FIXED FULLSCREEN AT 960 X 544.";
-                    } else if (selection == 9 && activate) {
-                        FILE *rom = std::fopen(kRom, "rb");
-                        status = rom ? "ROM CHECK OK: UX0:DATA/DAYTONA93/DAYTONA93.ZIP"
-                                     : "ROM MISSING: UX0:DATA/DAYTONA93/DAYTONA93.ZIP";
-                        if (rom) std::fclose(rom);
+                    } else if (selection == 9 && (direction || activate)) {
+                        settings.revision_a = !settings.revision_a;
+                        status = "ROM SELECTED. CHOOSE START/RESET TO SWITCH. SAVES ARE SEPARATE.";
                     } else if (selection == 10 && activate) {
                         status = "TEST: SELECT+TRIANGLE  SERVICE: SELECT+SQUARE  MENU: CROSS NEXT / START ENTER";
                     } else if (selection == 11 && (direction || activate)) {
@@ -527,13 +591,26 @@ int main(int, char **) {
                         settings.skip_launcher = !settings.skip_launcher; changed = true;
                     } else if (selection == 17 && (direction || activate)) {
                         settings.fourth_core = !settings.fourth_core; changed = true;
-                    } else if (selection == 18 && activate) {
+                    } else if (selection == 18 && (direction || activate)) {
+                        settings.link_enabled = !settings.link_enabled; changed = true;
+                    } else if (selection >= 19 && selection <= 22 && (direction || activate)) {
+                        int &octet = settings.next_ip[selection - 19];
+                        octet = (octet + (direction < 0 ? 255 : 1)) % 256; changed = true;
+                    } else if ((selection == 23 || selection == 24) && (direction || activate)) {
+                        int &port = selection == 23 ? settings.link_port : settings.next_port;
+                        port = std::clamp(port + (direction < 0 ? -1 : 1), 1, 65535); changed = true;
+                    } else if (selection == 25 && (direction || activate)) {
+                        settings.link_sync = !settings.link_sync; changed = true;
+                    } else if (selection == 26 && activate) {
                         settings.defaults(); changed = clocks_changed = true;
-                    } else if (selection == 19 && activate) {
+                    } else if (selection == 27 && activate) {
                         options = false; selection = 2; wait_release = true;
                     }
                     if (changed) {
                         commit_settings(clocks_changed);
+                        if (selection >= 18 && selection <= 25)
+                            status = "LINK SETTINGS SAVED. RESET GAME TO APPLY. NEXT: " +
+                                settings.next_address() + ":" + std::to_string(settings.next_port);
                         if (selection == 17) status = !settings.fourth_core
                             ? "4TH CORE OFF: ORDINARY THREE-CORE SCHEDULING."
                             : vita::fourth_core_active()
@@ -552,7 +629,8 @@ int main(int, char **) {
                     menu = false; clock.reset(); wait_release = true;
                 } else if (pressed & vita::Cross) {
                     if (selection == 0) {
-                        if (game || start_game()) { menu = false; clock.reset(); wait_release = true; }
+                        const bool same_rom = settings.revision_a == (std::strcmp(M2_ROMSET, "daytona") == 0);
+                        if ((game && same_rom) || start_game()) { menu = false; clock.reset(); wait_release = true; }
                     } else if (selection == 1) {
                         if (start_game()) { menu = false; clock.reset(); wait_release = true; }
                     } else if (selection == 2) {
@@ -583,7 +661,11 @@ int main(int, char **) {
                         // and mixes continuously, not once per graphics frame.
                         const auto bytes = game->board().take_sound_bytes();
                         const auto health = native_audio.stats();
-                        if (health.failed || health.invalid || health.unsupported) {
+                        if (health.unsupported && !native_effect_warned) {
+                            native_effect_warned = true;
+                            log.log("Native audio: unsupported effect omitted; playback continues\n");
+                        }
+                        if (health.failed || health.invalid) {
                             char error[192];
                             std::snprintf(error, sizeof error,
                                 "Native audio fault: callback=%u invalid=%u unsupported=%u. Reset with Reference audio.",
@@ -612,11 +694,22 @@ int main(int, char **) {
         } else clock.reset();
 
         const uint64_t gpu_begin = diagnostic_ticks_us();
+        if (link) link->poll();
         gpu.prepare_frame();
         const uint64_t gpu_ready = diagnostic_ticks_us();
         vita2d_start_drawing();
         vita2d_clear_screen();
-        if (menu) draw_menu(bool(game), options, selection, settings, status, display_fps);
+        if (menu) {
+            std::string shown_status = status;
+            if (link && game && !options) {
+                const auto *comm = game->board().comm_board();
+                shown_status += "\nIP " + link->local_ip() + " RX " + (link->rx_open() ? "YES" : "WAIT") +
+                    " TX " + (link->tx_open() ? "YES" : "WAIT");
+                if (comm) shown_status += " CABINET " + std::to_string(comm->id()) + "/" +
+                    std::to_string(comm->count()) + (comm->link() == rt::CommBoard::Link::Lost ? " LOST" : "");
+            }
+            draw_menu(bool(game), options, selection, settings, shown_status, display_fps);
+        }
         else if (game) {
             if (gpu_fast) gpu.draw(game->board().video()); else gpu.draw_exact(game->board().video());
         }

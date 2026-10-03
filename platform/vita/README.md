@@ -84,6 +84,47 @@ local, under the ignored `build/` directory.
 
 ## Install and play
 
+### Dual-ROM GXM package and LAN link play
+
+The dual package launches daytona93 by default. In Options, change ROM to
+DAYTONA (1994 REVISION A), then choose Start/Reset; switch back the same way.
+Switching replaces the native executable, not just the ROM data.
+Supply both complete ZIPs yourself:
+
+- `ux0:data/daytona93/daytona93.zip`
+- `ux0:data/daytona/daytona.zip`
+
+Settings, EEPROM and backup RAM stay in each set's own directory. Revision A
+has its own defaults; CPU/core and other options may need setting again.
+An older single-game package reports when the other executable is missing.
+
+Link play requires Revision A on all cabinets and a connected Wi-Fi LAN.
+Enable Link Play in its Vita options, set the four next-cabinet IPv4 octets,
+listen port and next-cabinet port (default 15112). Reset to apply.
+With two cabinets, each one's next address is the other. With more, form a
+ring. Desktop uses main's Link Play settings and the same TCP port/protocol.
+The pause menu shows the Vita IP, receive/transmit connection and cabinet ID.
+No discovery, hostname resolution or internet port forwarding is provided.
+
+Enter test mode with Select+Triangle; Select+Square is service, Cross advances
+the menu and Start confirms. Under GAME SYSTEM set one MASTER, the others
+SLAVE, and unique CAR NUMBERs. Cabinet type/region and game settings must
+match (for example TWIN/JPN); otherwise the game can cancel the link.
+Frame sync is optional, off by default. For solo Revision A play, disable
+link and configure a single cabinet in test mode.
+
+Build each set's generated sources separately using `scripts/recompile.py
+--set daytona --build-dir build/revision-a-host` and the existing daytona93
+host build. Then:
+
+```sh
+python3 scripts/build_vita.py --set daytona --gpu-fast --host-build-dir build/revision-a-host --build-dir build/vita-revision-a
+python3 scripts/build_vita.py --set daytona93 --gpu-fast --host-build-dir build --build-dir build/vita-dual --revision-a-self build/vita-revision-a/eboot.bin
+```
+
+The second VPK contains both executables. Actual Vita-to-Vita/Vita-to-desktop
+Wi-Fi operation and executable switching require hardware validation.
+
 Install your locally built VPK with VitaShell, then put your **complete
 ZIP ROM set** at:
 

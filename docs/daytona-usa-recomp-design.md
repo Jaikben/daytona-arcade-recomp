@@ -301,7 +301,19 @@ This section first assumed the board plays centring, jolts, road rumble and off-
 
 **Link play**
 
-The comm board exposes shared RAM that each cabinet reads in a ring. The HLE implements that ring over UDP with lockstep per frame: each peer sends its outgoing block, waits for the others, then advances. LAN first; internet play needs rollback and is out of scope for v1.
+The Revision A comm board exposes shared RAM that each cabinet reads in a
+ring. The implementation imported from MAME's m2comm simulation uses TCP,
+not the originally planned UDP. Each cabinet listens for the preceding one
+and connects to the next; frame synchronization is optional and off by
+default. Vita uses SceNet IPv4 with bounded non-blocking transmit queues
+and the same shared CommBoard protocol. LAN first; internet traversal is
+out of scope. The 1993 set does not support this Revision A link protocol.
+
+The Vita package can contain two native executables, one per recompiled ROM
+set. The options ROM selector replaces the current executable using
+sceAppMgrLoadExec after saving and stopping audio, rather than retaining
+both games in memory. Each set has its own ROM validation, settings, and
+NVRAM directory. Neither ZIP nor any extracted ROM assets are packaged.
 
 ## Reference & validation
 
