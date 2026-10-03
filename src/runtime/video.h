@@ -103,6 +103,11 @@ public:
     // same pixels as converting the 32-bit layers (rgb565/argb1555 below).
     const std::vector<uint16_t> &background16() const { return screen16_; }
     const std::vector<uint16_t> &foreground16() const { return sys24_16_; }
+    // Each moves when that layer is composed again: a layer whose inputs
+    // (its category's tiles, the pens, scroll, line tables, window masks)
+    // have not changed since is not composed, and keeps its pixels.
+    uint64_t background16_generation() const { return back16_generation_; }
+    uint64_t foreground16_generation() const { return front16_generation_; }
     static uint16_t rgb565(uint32_t c) { return uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f)); }
     static uint16_t argb1555(uint32_t c) {
         return uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f));
@@ -210,6 +215,9 @@ private:
     std::vector<uint32_t> screen_, sys24_;
 #ifdef M2_DC_SPEED
     std::vector<uint16_t> screen16_, sys24_16_;
+    bool back_dirty_ = true, front_dirty_ = true; // a tile of that category rebuilt, or a pen changed
+    std::vector<uint8_t> regs_copy_;              // tile RAM 0x8000-0xdfff (line tables, registers, masks) as composed
+    uint64_t back16_generation_ = 0, front16_generation_ = 0;
     uint16_t pens565_[8192], pens1555_[8192]; // pens_ as rgb565 and argb1555 (palette_w keeps them)
 #endif
     std::vector<uint32_t> background_gpu_, foreground_gpu_;

@@ -76,6 +76,9 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
 #endif
         system24_source_dirty_ = true;
         system24_palette_generation_ = system24_texture_generation_ + 1;
+#ifdef M2_DC_SPEED
+        back_dirty_ = front_dirty_ = true;
+#endif
     }
     pens_[offset & 0x1fff] = pen;
 #ifdef M2_DC_SPEED
@@ -134,6 +137,9 @@ void Video::build_layer(int layer) {
 #ifdef M2_DC_SPEED
         uint8_t &cls = tile_class_[layer][t];
         const uint32_t row = t >> 6;
+        // The layer buffers of the old and the new category change.
+        if (cls & 0x80) (cls & 1 ? front_dirty_ : back_dirty_) = true;
+        (category ? front_dirty_ : back_dirty_) = true;
         if (cls & 0x80) {
             --row_tiles_[layer][row][cls & 1];
             if (cls & 2) --row_opaque_[layer][row][cls & 1];
@@ -563,11 +569,27 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // 0, front layers over 0 = see-through), composed in the PVR's
         // 16-bit formats.
         before = ticks();
-        std::fill(screen16_.begin(), screen16_.end(), pens565_[0]);
-        for (int layer = 3; layer >= 2; --layer) draw(screen16_, layer << 1, DRAW_OPAQUE, pens565_);
-        for (int layer = 1; layer >= 0; --layer) draw(screen16_, layer << 1, 0, pens565_);
-        std::fill(sys24_16_.begin(), sys24_16_.end(), uint16_t(0));
-        for (int layer = 3; layer >= 0; --layer) draw(sys24_16_, (layer << 1) | 1, 0, pens1555_);
+        // Only a layer whose inputs changed since it was last composed (the
+        // same inputs give the same pixels): scroll, line tables and window
+        // masks live in tile RAM 0x8000-0xdfff, compared with a copy.
+        constexpr size_t kRegs = 0x8000, kRegsSize = 0x6000;
+        if (regs_copy_.empty() || std::memcmp(tile_ram_ + kRegs, regs_copy_.data(), kRegsSize) != 0) {
+            regs_copy_.assign(tile_ram_ + kRegs, tile_ram_ + kRegs + kRegsSize);
+            back_dirty_ = front_dirty_ = true;
+        }
+        if (back_dirty_) {
+            std::fill(screen16_.begin(), screen16_.end(), pens565_[0]);
+            for (int layer = 3; layer >= 2; --layer) draw(screen16_, layer << 1, DRAW_OPAQUE, pens565_);
+            for (int layer = 1; layer >= 0; --layer) draw(screen16_, layer << 1, 0, pens565_);
+            back_dirty_ = false;
+            ++back16_generation_;
+        }
+        if (front_dirty_) {
+            std::fill(sys24_16_.begin(), sys24_16_.end(), uint16_t(0));
+            for (int layer = 3; layer >= 0; --layer) draw(sys24_16_, (layer << 1) | 1, 0, pens1555_);
+            front_dirty_ = false;
+            ++front16_generation_;
+        }
         profile_.tile_draw += ticks() - before;
         profile_.layers_rebuilt = true;
         rendered_now_ = false;

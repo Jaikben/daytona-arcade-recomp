@@ -78,8 +78,15 @@ public:
             t = now;
         };
 #ifdef M2_DC_SPEED
-        upload16(video.background16(), background_, false);
-        upload16(video.foreground16(), foreground_, true);
+        // A layer the runtime did not compose again is already in video RAM.
+        if (video.background16_generation() != back_uploaded_) {
+            upload16(video.background16(), background_, false);
+            back_uploaded_ = video.background16_generation();
+        }
+        if (video.foreground16_generation() != front_uploaded_) {
+            upload16(video.foreground16(), foreground_, true);
+            front_uploaded_ = video.foreground16_generation();
+        }
 #else
         upload(video.background_layer(), background_, false);
         upload(video.foreground_layer(), foreground_, true);
@@ -456,6 +463,7 @@ private:
     pvr_ptr_t background_, foreground_;
     pvr_poly_hdr_t background_header_, foreground_header_, solid_header_;
     pvr_dr_state_t dr_ = 0;
+    uint64_t back_uploaded_ = ~0ull, front_uploaded_ = ~0ull; // the layers' generations in video RAM
     bool clear_row_[kH] = {}; // front layer rows all see-through in video RAM
     alignas(32) uint8_t texels_[kTextureLimit * kTextureLimit / 2] = {};
     std::vector<Entry> order_;
