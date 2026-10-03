@@ -27,9 +27,9 @@ the PVR with textures and both tile layers (`game/renderer.h`); the busiest
 frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-**Slow, but nearly four times as fast as at the start of the night**: 6,000
-frames in 374 s, about 16 frames/s in Flycast (not a console figure; the
-arcade runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
+**Slow, but four times as fast as at the start of the night**: 6,000 frames
+in 350 s, about 17 frames/s in Flycast (not a console figure; the arcade
+runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
 | Step | core (i960 code) | geometrizer | video | drawing | race |
@@ -40,12 +40,21 @@ arcade runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend print
 | Frame-wait skip (M2_DC_SPIN_SKIP) and tile runs (M2_DC_SPEED) | 39 | 41 | 22 | 16 | 626 s |
 | Tile rows with nothing to draw skipped; back layers straight onto the screen; clear front-layer rows not uploaded again | 39 | 41 | 11 | 13 | 540 s |
 | Geometrizer object data parsed only for frames that are shown; frame skip 3 really set (it was clamped to 2) | 39 | 11 | 8 | 13 | 374 s |
+| Renderer: polygons through KOS's direct rendering, no `std::isfinite` (soft-float calls at -fno-fast-math); layers written through the store queues; TGP status helpers inline | 38 | 11 | 8 | 9 | 350 s |
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched
 the desktop at all 100 checkpoints.
 
-Where the time goes now (`build_dreamcast.py game --sample`: the game
+Drawing, per drawn frame (`PROFILE draw` lines): the layers' conversion to
+16 bits and upload 27 ms, sorting and waiting for the PVR 1, materials 2,
+polygons 6 (21 before direct rendering).
+
+Screenshots of the Flycast window (`scripts/flycast_shot.ps1 OUT.png`, no
+input sent) at the attract mode's opening scene and mid-race (lap 1, HUD,
+cars, track, grandstand) show the picture right.
+
+Where the time went before that round (`build_dreamcast.py game --sample`: the game
 thread's PC at each KOS timer tick, about every 10 ms; `scripts/pc_profile.py`
 names the functions from `game.elf`), frames 2700-6000: `Renderer::draw` 11%
 (the layers' conversion to 16 bits), `Lockstep::boundary` 8% (once per i960
@@ -53,7 +62,10 @@ instruction, out of line at -Os), `tilemap_draw` 5%, `draw_rect` 3%, the
 geometrizer 9%, board memory access about 8%.
 
 **Controls**: the controller in port A (`game/controls.h`, tested on the PC
-by `tools/test_controls`), or a recorded input script compiled in.
+by `tools/test_controls`), or a recorded input script compiled in. With the
+controller (`build_dreamcast.py game` without `--inputs`) the game runs until
+Flycast is closed: tested past frame 10,000 in the attract mode, controller
+A0 found, free RAM steady at 1.33-1.37 MB.
 
 **Lockstep tools**: every 60th frame the frontend prints `TRACE frame i960
 tgp buffer`; `tools/tracecheck` prints the same on the desktop.
@@ -227,6 +239,15 @@ frames, single-cabinet settings): screen hash `9427a612c5cb7511`,
   build directory's copy (by path) before and after each run.
 - KOS's `kos.h` defines `BIT(n)`; the runtime has `BIT(x, n)`: the frontend
   includes the runtime's headers first.
+- **Serial lines cut in two**: the game thread and the watchdog (and the
+  `--sample` thread) printing at once mixed their characters, once inside a
+  TRACE line (the checkpoint was right; the comparison failed). The
+  frontend's prints go through `say()`, one line at a time under a mutex
+  (timed, so a stuck game thread cannot silence the watchdog); the sampler's
+  reports are printed by the game thread between frames.
+- **Inlining `Lockstep::boundary` is out**: forced inline, one generated
+  chunk grew from 97 KB to 191 KB (measured): the generated code would not
+  fit. It stays a call per i960 instruction.
 - Out of memory before the game ran: the ROM cache moved to video RAM and
   back to main RAM (1.25 MB) once the CPU rasterizer's buffers went; frame
   buffer RAM is in video RAM; the GPU layers are not allocated.

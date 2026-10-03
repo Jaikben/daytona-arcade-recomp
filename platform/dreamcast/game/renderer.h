@@ -71,8 +71,15 @@ public:
     // video: after GameLoop::run_frame, in external 3D mode.
     void draw(const rt::Video &video) {
         stage = 1;
+        uint64_t t = timer_us_gettime64();
+        auto lap = [&](int step) {
+            const uint64_t now = timer_us_gettime64();
+            step_us[step] += now - t;
+            t = now;
+        };
         upload(video.background_layer(), background_, false);
         upload(video.foreground_layer(), foreground_, true);
+        lap(0);
         stage = 2;
         const auto &polys = video.gpu_polys();
         const rt::VideoMem &mem = video.gpu_mem();
@@ -80,6 +87,7 @@ public:
 
         stage = 3;
         pvr_wait_ready(); // the last frame is drawn: its palettes and textures may change
+        lap(1);
         if (flush_) { // the texture cache filled up last frame
             sources_.clear();
             region_ = 0;
@@ -105,8 +113,10 @@ public:
             if (poly.window > video.gpu_windows() || poly.num_vertices < 3 || poly.num_vertices > 8) continue;
             if ((poly.texheader[0] >> 14) & 1) material_for(poly, mem);
         }
+        lap(2);
 
         pvr_list_begin(PVR_LIST_TR_POLY);
+        pvr_dr_init(&dr_);
         size_t used = sizeof(pvr_poly_hdr_t) + 4 * sizeof(pvr_vertex_t);
         drawn = textured = skipped = 0;
         const void *current = nullptr; // the header in force (polygons sharing one send it once)
@@ -134,8 +144,12 @@ public:
         vertex_bytes = used;
         stage = 6;
         pvr_scene_finish();
+        lap(3);
         stage = 0;
     }
+    // Microseconds in draw so far: the layers' conversion and upload,
+    // sorting and waiting for the PVR, materials (texture builds), polygons.
+    uint64_t step_us[4] = {};
 
     // Where draw is (the watchdog's): 0 not drawing, 1 uploading the tile
     // layers, 2 sorting, 3 waiting for the PVR, 4 submitting polygons,
@@ -169,11 +183,18 @@ private:
     static uint16_t le16(const uint8_t *p, uint32_t index) { return uint16_t(p[index * 2] | p[index * 2 + 1] << 8); }
 
     // ARGB8888 (W wide, the first H rows) to RGB565, or to ARGB1555 with
-    // zero (no tile pixel) see-through; a row at a time, main RAM is short.
-    // The front layer is mostly see-through: a row that is all zero and was
-    // all zero when last uploaded is already right in video RAM.
+    // zero (no tile pixel) see-through, written through the store queues
+    // straight into video RAM (32 bytes, 16 pixels, at a time; W is 31 of
+    // those). The front layer is mostly see-through: a row that is all zero
+    // and was all zero when last uploaded is already right in video RAM.
+    static uint32_t rgb565(uint32_t c) { return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f); }
+    static uint32_t argb1555(uint32_t c) {
+        return (c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f);
+    }
+    static_assert(kW % 16 == 0, "rows go out 16 pixels at a time");
     void upload(const std::vector<uint32_t> &layer, pvr_ptr_t texture, bool alpha) {
         auto *dst = static_cast<uint8_t *>(texture);
+        sq_lock(dst); // the texture is in one 64 MB window: one lock serves every row
         for (int y = 0; y < kH; y++) {
             const uint32_t *src = &layer[size_t(y) * kW];
             if (alpha) {
@@ -182,13 +203,16 @@ private:
                 if (!any && clear_row_[y]) continue;
                 clear_row_[y] = !any;
             }
-            for (int x = 0; x < kW; x++) {
-                const uint32_t c = src[x];
-                row_[x] = alpha ? uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f))
-                                : uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f));
+            auto *sq = reinterpret_cast<uint32_t *>(SQ_MASK_DEST(dst + size_t(y) * kTexW * 2));
+            for (int x = 0; x < kW; x += 16, sq += 8) {
+                if (alpha)
+                    for (int k = 0; k < 8; k++) sq[k] = argb1555(src[x + 2 * k]) | argb1555(src[x + 2 * k + 1]) << 16;
+                else
+                    for (int k = 0; k < 8; k++) sq[k] = rgb565(src[x + 2 * k]) | rgb565(src[x + 2 * k + 1]) << 16;
+                sq_flush(sq);
             }
-            pvr_txr_load(row_, dst + size_t(y) * kTexW * 2, kTexW * 2);
         }
+        sq_unlock();
     }
 
     void quad(const pvr_poly_hdr_t &header) {
@@ -345,37 +369,55 @@ private:
     // when it is not the one in force).
     bool polygon(const rt::GeoPoly &poly, const rt::Video &video, uint32_t argb, const Material *material,
                  const void *header, const void *&current) {
-        pvr_vertex_t v[8];
+        struct Vertex { float x, y, z, u, v; };
+        Vertex v[8];
         const int n = poly.num_vertices;
+        const float cx = float(video.crtc_x() + poly.center[0]), cy = float((384 - poly.center[1]) + video.crtc_y());
         for (int i = 0; i < n; i++) {
             const float pz = poly.v[i].p[0];
-            if (!(pz > 0.0f) || !std::isfinite(pz)) return false;
-            const float x = float(video.crtc_x() + poly.center[0]) + poly.v[i].x / pz;
-            const float y = float((384 - poly.center[1]) + video.crtc_y()) - poly.v[i].y / pz;
-            v[i] = {};
-            v[i].x = kOffsetX + x * kScale;
-            v[i].y = y * kScale;
-            v[i].z = 1.0f / pz;
-            v[i].argb = argb;
-            if (material) {
-                v[i].u = poly.v[i].p[1] * material->u_scale;
-                v[i].v = poly.v[i].p[2] * material->v_scale;
-            }
-            if (!std::isfinite(v[i].x) || !std::isfinite(v[i].y) || !std::isfinite(v[i].z)) return false;
+            if (!(pz > 0.0f) || !finite(pz)) return false;
+            const float inv = 1.0f / pz;
+            v[i].x = kOffsetX + (cx + poly.v[i].x * inv) * kScale;
+            v[i].y = (cy - poly.v[i].y * inv) * kScale;
+            v[i].z = inv;
+            v[i].u = material ? poly.v[i].p[1] * material->u_scale : 0.0f;
+            v[i].v = material ? poly.v[i].p[2] * material->v_scale : 0.0f;
+            if (!finite(v[i].x) || !finite(v[i].y) || !finite(v[i].z)) return false;
         }
+        // Straight into the store queues (KOS's direct rendering): the list
+        // is open, the queues point at the TA.
         if (header != current) {
-            pvr_prim(header, sizeof(pvr_poly_hdr_t));
+            auto *dst = reinterpret_cast<uint32_t *>(pvr_dr_target(dr_));
+            const auto *src = static_cast<const uint32_t *>(header);
+            for (int w = 0; w < 8; w++) dst[w] = src[w];
+            pvr_dr_commit(dst);
             current = header;
         }
         int lo = 1, hi = n - 1;
         int strip[8] = {0};
         for (int s = 1; s < n; s++) strip[s] = (s & 1) ? lo++ : hi--;
         for (int k = 0; k < n; k++) {
-            pvr_vertex_t out = v[strip[k]];
-            out.flags = k == n - 1 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
-            pvr_prim(&out, sizeof out);
+            const Vertex &in = v[strip[k]];
+            pvr_vertex_t *out = pvr_dr_target(dr_);
+            out->flags = k == n - 1 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+            out->x = in.x;
+            out->y = in.y;
+            out->z = in.z;
+            out->u = in.u;
+            out->v = in.v;
+            out->argb = argb;
+            out->oargb = 0;
+            pvr_dr_commit(out);
         }
         return true;
+    }
+
+    // std::isfinite without the soft-float compare helpers it costs at
+    // -fno-fast-math on the SH-4: exponent not all ones.
+    static bool finite(float f) {
+        uint32_t u;
+        std::memcpy(&u, &f, 4);
+        return (u & 0x7f800000u) != 0x7f800000u;
     }
 
     size_t budget_;
@@ -384,7 +426,7 @@ private:
     bool flush_ = false;
     pvr_ptr_t background_, foreground_;
     pvr_poly_hdr_t background_header_, foreground_header_, solid_header_;
-    alignas(32) uint16_t row_[kTexW] = {};
+    pvr_dr_state_t dr_ = 0;
     bool clear_row_[kH] = {}; // front layer rows all see-through in video RAM
     alignas(32) uint8_t texels_[kTextureLimit * kTextureLimit / 2] = {};
     std::vector<Entry> order_;

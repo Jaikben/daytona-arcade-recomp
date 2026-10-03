@@ -20,6 +20,14 @@
 #include <stdexcept>
 #include <string>
 
+// M2_DC_SPEED (Dreamcast): the one-line status helpers inline even at -Os,
+// where the generated code otherwise calls them (a call is as big as they are).
+#ifdef M2_DC_SPEED
+#define M2_TGP_INLINE __attribute__((always_inline))
+#else
+#define M2_TGP_INLINE
+#endif
+
 namespace rt {
 
 // What the TGP sees outside itself: its FIFOs and the banked external memory
@@ -95,9 +103,9 @@ struct Tgp {
 
     void pcs_push() { for (unsigned i = 3; i; i--) pcs[i] = pcs[i - 1]; pcs[0] = pc; }
     void pcs_pop() { pc = pcs[0]; for (unsigned i = 0; i != 3; i++) pcs[i] = pcs[i + 1]; }
-    void stset_int(uint32_t v) { alu_stset = v ? (v & 0x80000000 ? F_SGD : 0) : F_ZRD; }
-    void stset_fp(uint32_t v) { alu_stset = (v & 0x7fffffff) ? (v & 0x80000000 ? F_SGD : 0) : F_ZRD; }
-    void alu_update_st() { st = (st & ~alu_stmask) | alu_stset; }
+    M2_TGP_INLINE void stset_int(uint32_t v) { alu_stset = v ? (v & 0x80000000 ? F_SGD : 0) : F_ZRD; }
+    M2_TGP_INLINE void stset_fp(uint32_t v) { alu_stset = (v & 0x7fffffff) ? (v & 0x80000000 ? F_SGD : 0) : F_ZRD; }
+    M2_TGP_INLINE void alu_update_st() { st = (st & ~alu_stmask) | alu_stset; }
 
     static constexpr uint32_t STM = F_ZRD | F_SGD | F_CPD | F_OVD | F_DVZD;
 

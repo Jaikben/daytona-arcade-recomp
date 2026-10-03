@@ -35,11 +35,12 @@ host build directory (`build-daytona/dreamcast*`, git-ignored).
 | `selftest` | Builds the floating-point self-test as a bootable disc image and runs it in Flycast; exit 0 only if every result matches the PC's bits. |
 | `videotest` | The display path: a 496x384 frame through the PVR every frame; prints the per-frame cost. |
 | `compile` | Compiles the runtime and the generated game code for the SH-4 and reports their size. |
-| `game` | (`--inputs FILE`: a recorded input script instead of the pad; `--sample`: sample the game thread's PC, read with `scripts/pc_profile.py`.) Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
+| `game` | (`--inputs FILE`: a recorded input script instead of the pad, 6,000 frames, then `GAME DONE`; without it the game runs on the pad until Flycast is closed; `--sample`: sample the game thread's PC, read with `scripts/pc_profile.py`.) Builds the game and its disc image (with the ROM images and the saved settings EEPROM and backup RAM, `--nvram`, by default `%APPDATA%/daytona-recomp/daytona`) and runs it in Flycast. |
 | `tools` | Builds the host measuring tools in `tools/` (desktop compiler). |
 | `measure` | Runs `romuse` over the input scripts: which ROM pages the game reads, and when. |
 | (tools) `tracecheck` | The desktop's side of the lockstep check: the per-frame `TRACE` line the Dreamcast prints every 60 frames. |
 | (tools) `dcmemcheck` | The runtime built with the Dreamcast's defines (M2_DC_*) on the desktop, ROM pages from the image files: the Dreamcast's code paths at desktop speed. Prints hashes of the tile layers and of each drawn frame's polygons too (`--frame-skip N` as the frontend); configure with `-DDC_SPEED=OFF` to compare them without M2_DC_SPEED. |
+| (scripts) `flycast_shot.ps1 OUT.png` | A PNG of the running Flycast window (the picture check; no input sent). |
 | (tools) `ipprof` | Where the i960 spends its instructions: IP samples every 61 instructions, busiest blocks and addresses. |
 
 `--flycast PATH` (or `FLYCAST`) points at `flycast.exe`. Flycast runs from a

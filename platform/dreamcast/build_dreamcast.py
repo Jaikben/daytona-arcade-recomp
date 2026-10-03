@@ -181,8 +181,14 @@ def run_test(args, name, markers, timeout, start):
     flycast = Path(args.flycast) if args.flycast else flycast_run.DEFAULT_FLYCAST
     if not flycast.is_file():
         sys.exit(f"build_dreamcast: no Flycast at {flycast} (--flycast)")
-    text, seen = flycast_run.run(flycast, out / f"{name}.cdi", out / "flycast", markers, timeout)
+    # The game with the pad (no --inputs) runs until Flycast is closed.
+    play = name == "game" and not args.inputs
+    text, seen = flycast_run.run(flycast, out / f"{name}.cdi", out / "flycast", markers,
+                                 4 * 3600 if play else timeout)
     print(text[text.find(start):] if start in text else text)
+    if play and seen != markers[1]:
+        print("build_dreamcast: game closed")
+        return
     if seen != markers[0]:
         sys.exit(f"build_dreamcast: {name} " + ("failed" if seen else "did not finish in Flycast"))
 
