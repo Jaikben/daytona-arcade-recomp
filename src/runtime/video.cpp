@@ -27,7 +27,14 @@ inline uint32_t rgb(uint32_t r, uint32_t g, uint32_t b) { return 0xff000000u | (
 } // namespace
 
 Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
-    : tile_ram_(tile_ram), char_ram_(char_ram), screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
+    : tile_ram_(tile_ram), char_ram_(char_ram),
+#ifdef M2_DC_SPEED
+      // (The Dreamcast composes 16-bit layers: the 32-bit ones only if a
+      // frame is ever drawn without external 3D, allocated then.)
+      screen16_(size_t(W) * H), sys24_16_(size_t(W) * (H + 4)),
+#else
+      screen_(size_t(W) * H), sys24_(size_t(W) * (H + 4)),
+#endif
 #ifndef M2_DC_MEMORY
       // (Not on the Dreamcast: its layers are screen_ and sys24_ themselves.)
       background_gpu_(size_t(W) * H), foreground_gpu_(size_t(W) * H),
@@ -36,6 +43,10 @@ Video::Video(const uint8_t *tile_ram, const uint8_t *char_ram)
     static uint64_t instances = 0;
     instance_ = ++instances;
     for (auto &p : pens_) p = rgb(0, 0, 0); // palette_device starts black
+#ifdef M2_DC_SPEED
+    for (auto &p : pens565_) p = rgb565(rgb(0, 0, 0));
+    for (auto &p : pens1555_) p = argb1555(rgb(0, 0, 0));
+#endif
     for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
     for (int l = 0; l < 4; l++) pixmap_[l].assign(512 * 512, 0), flags_[l].assign(512 * 512, 0);
     system24_tile_generations_.resize(4 * 4096);
@@ -67,6 +78,10 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
         system24_palette_generation_ = system24_texture_generation_ + 1;
     }
     pens_[offset & 0x1fff] = pen;
+#ifdef M2_DC_SPEED
+    pens565_[offset & 0x1fff] = rgb565(pen);
+    pens1555_[offset & 0x1fff] = argb1555(pen);
+#endif
 }
 
 // segaic24 tile_info + MAME tilemap pixmap: 64x64 tiles (TILEMAP_SCAN_ROWS)
@@ -212,13 +227,30 @@ void Video::update_tile_cache() {
 }
 #endif
 
+// M2_DC_SPEED: draw, draw_rect and tilemap_draw are templates on the pixel
+// type with the pens to use (the Dreamcast's 16-bit layers); otherwise they
+// are the 32-bit functions with pens_, exactly as before.
+#ifdef M2_DC_SPEED
+#define M2_PIXEL_TEMPLATE template <typename Pixel>
+#define M2_PIXEL Pixel
+#define M2_PENS , const Pixel *pens
+#define M2_PENS_ARG , pens
+#define M2_PEN pens
+#else
+#define M2_PIXEL_TEMPLATE
+#define M2_PIXEL uint32_t
+#define M2_PENS
+#define M2_PENS_ARG
+#define M2_PEN pens_
+#endif
+
 // segaic24 draw_rect, rgb32 version (model 1/2): copy a rectangle of the
 // layer's pixmap to the bitmap through the 8-pixel window mask.
-void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t tpri, int flags, int win, int L, int sx,
-                      int sy, int xx1, int yy1, int xx2, int yy2) {
+M2_PIXEL_TEMPLATE void Video::draw_rect(std::vector<M2_PIXEL> &dm, const uint16_t *mask, uint16_t tpri, int flags, int win, int L, int sx,
+                      int sy, int xx1, int yy1, int xx2, int yy2 M2_PENS) {
     const uint16_t *source = &pixmap_[L][size_t(sy) * 512 + size_t(sx)];
     const uint8_t *trans = &flags_[L][size_t(sy) * 512 + size_t(sx)];
-    uint32_t *dest = &dm[size_t(yy1) * size_t(dw_) + size_t(xx1)];
+    M2_PIXEL *dest = &dm[size_t(yy1) * size_t(dw_) + size_t(xx1)];
     tpri |= PIXEL_LAYER0;
     mask += yy1 * 4;
     yy2 -= yy1;
@@ -241,7 +273,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
 #endif
         const uint16_t *src = source;
         const uint8_t *srct = trans;
-        uint32_t *dst = dest;
+        M2_PIXEL *dst = dest;
         const uint16_t *mask1 = mask;
         int llx = xx2;
         int cur_x = xx1;
@@ -251,7 +283,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
             if (!cur_x && llx >= 128) {
                 if (!m) {
                     for (int x = 0; x < 128; x++) {
-                        if (*srct++ == tpri || (flags & DRAW_OPAQUE)) *dst = pens_[*src];
+                        if (*srct++ == tpri || (flags & DRAW_OPAQUE)) *dst = M2_PEN[*src];
                         src++;
                         dst++;
                     }
@@ -263,7 +295,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
                     for (int x = 0; x < 128; x += 8) {
                         if (!(m & 0x8000))
                             for (int xx = 0; xx < 8; xx++)
-                                if (srct[xx] == tpri || (flags & DRAW_OPAQUE)) dst[xx] = pens_[src[xx]];
+                                if (srct[xx] == tpri || (flags & DRAW_OPAQUE)) dst[xx] = M2_PEN[src[xx]];
                         src += 8;
                         srct += 8;
                         dst += 8;
@@ -274,7 +306,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
                 const int llx1 = llx >= 128 ? 128 : llx;
                 if (!m) {
                     for (int x = cur_x; x < llx1; x++) {
-                        if (*srct++ == tpri || (flags & DRAW_OPAQUE)) *dst = pens_[*src];
+                        if (*srct++ == tpri || (flags & DRAW_OPAQUE)) *dst = M2_PEN[*src];
                         src++;
                         dst++;
                     }
@@ -284,7 +316,7 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
                     dst += 128 - cur_x;
                 } else {
                     for (int x = cur_x; x < llx1; x++) {
-                        if ((*srct++ == tpri || (flags & DRAW_OPAQUE)) && !(m & (0x8000 >> (x >> 3)))) *dst = pens_[*src];
+                        if ((*srct++ == tpri || (flags & DRAW_OPAQUE)) && !(m & (0x8000 >> (x >> 3)))) *dst = M2_PEN[*src];
                         src++;
                         dst++;
                     }
@@ -303,7 +335,8 @@ void Video::draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t 
 // tilemap_t::draw with one scroll value: dest (x, y) takes pixmap
 // ((x + sx) & 511, (y + sy) & 511) where (flags & mask) == value; mask is the
 // category, plus layer 0 (opacity) unless drawing opaque.
-void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int minx, int maxx, int miny, int maxy, int flags) {
+M2_PIXEL_TEMPLATE void Video::tilemap_draw(std::vector<M2_PIXEL> &dm, int L, int sx, int sy, int minx, int maxx, int miny, int maxy,
+                                           int flags M2_PENS) {
     const uint8_t cat = uint8_t(flags & CATEGORY_MASK);
     const uint8_t mask = (flags & DRAW_OPAQUE) ? CATEGORY_MASK : uint8_t(CATEGORY_MASK | PIXEL_LAYER0);
     const uint8_t value = (flags & DRAW_OPAQUE) ? cat : uint8_t(cat | PIXEL_LAYER0);
@@ -316,14 +349,14 @@ void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int m
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++) {
         if (row_empty(L, uint32_t(y + sy), cat, flags & DRAW_OPAQUE)) continue; // no pixel of this row can match
         const size_t row = size_t((y + sy) & 511) * 512;
-        uint32_t *const out = dm.data() + size_t(y) * size_t(dw_);
+        M2_PIXEL *const out = dm.data() + size_t(y) * size_t(dw_);
         for (int x = x0; x <= x1;) {
             const int from = (x + sx) & 511, n = std::min(x1 - x + 1, 512 - from);
             const uint16_t *p = pixmap + row + size_t(from);
             const uint8_t *f = fl + row + size_t(from);
-            uint32_t *o = out + x;
+            M2_PIXEL *o = out + x;
             for (int k = 0; k < n; k++)
-                if ((f[k] & mask) == value) o[k] = pens_[p[k]];
+                if ((f[k] & mask) == value) o[k] = M2_PEN[p[k]];
             x += n;
         }
     }
@@ -331,13 +364,13 @@ void Video::tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int m
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++)
         for (int x = std::max(minx, 0); x <= std::min(maxx, dw_ - 1); x++) {
             const size_t i = size_t((y + sy) & 511) * 512 + size_t((x + sx) & 511);
-            if ((flags_[L][i] & mask) == value) dm[size_t(y) * size_t(dw_) + size_t(x)] = pens_[pixmap_[L][i]];
+            if ((flags_[L][i] & mask) == value) dm[size_t(y) * size_t(dw_) + size_t(x)] = M2_PEN[pixmap_[L][i]];
         }
 #endif
 }
 
 // segaic24 draw_common for the rgb32 bitmap, cliprect = the whole screen.
-void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
+M2_PIXEL_TEMPLATE void Video::draw(std::vector<M2_PIXEL> &bitmap, int layer, int flags M2_PENS) {
     uint16_t hscr = tile(0x5000 + uint32_t(layer >> 1));
     uint16_t vscr = tile(0x5004 + uint32_t(layer >> 1));
     const uint16_t ctrl = tile(0x5004 + uint32_t((layer >> 1) & 2));
@@ -361,7 +394,7 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
                 for (int y = 0; y < H; y++) {
                     const int l1 = y >= v ? layer ^ 1 : layer;
                     const uint16_t h = tile(hscrtb + uint32_t(y)) & 0x1ff;
-                    tilemap_draw(bitmap, l1, -h, sy, 0, dw_ - 1, y, y, fl);
+                    tilemap_draw(bitmap, l1, -h, sy, 0, dw_ - 1, y, y, fl M2_PENS_ARG);
                 }
                 break;
             }
@@ -372,8 +405,8 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
                     const int h = hscr & 0x1ff;
                     int l1 = layer;
                     if (!(hscr & 0x200)) l1 ^= 1;
-                    tilemap_draw(bitmap, l1, -h, sy, 0, std::min(dw_ - 1, h - 1), y, y, fl);
-                    tilemap_draw(bitmap, l1 ^ 1, -h, sy, std::max(0, h), dw_ - 1, y, y, fl);
+                    tilemap_draw(bitmap, l1, -h, sy, 0, std::min(dw_ - 1, h - 1), y, y, fl M2_PENS_ARG);
+                    tilemap_draw(bitmap, l1 ^ 1, -h, sy, std::max(0, h), dw_ - 1, y, y, fl M2_PENS_ARG);
                 }
                 break;
             }
@@ -383,16 +416,16 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
             case 1: {
                 const int v = (-vscr) & 0x1ff;
                 if (!((-vscr) & 0x200)) layer ^= 1;
-                tilemap_draw(bitmap, layer, sx, sy, 0, dw_ - 1, 0, std::min(H - 1, v - 1), fl);
-                tilemap_draw(bitmap, layer ^ 1, sx, sy, 0, dw_ - 1, std::max(0, v), H - 1, fl);
+                tilemap_draw(bitmap, layer, sx, sy, 0, dw_ - 1, 0, std::min(H - 1, v - 1), fl M2_PENS_ARG);
+                tilemap_draw(bitmap, layer ^ 1, sx, sy, 0, dw_ - 1, std::max(0, v), H - 1, fl M2_PENS_ARG);
                 break;
             }
             case 2:
             case 3: {
                 const int h = hscr & 0x1ff;
                 if (!(hscr & 0x200)) layer ^= 1;
-                tilemap_draw(bitmap, layer, sx, sy, 0, std::min(dw_ - 1, h - 1), 0, H - 1, fl);
-                tilemap_draw(bitmap, layer ^ 1, sx, sy, std::max(0, h), dw_ - 1, 0, H - 1, fl);
+                tilemap_draw(bitmap, layer, sx, sy, 0, std::min(dw_ - 1, h - 1), 0, H - 1, fl M2_PENS_ARG);
+                tilemap_draw(bitmap, layer ^ 1, sx, sy, std::max(0, h), dw_ - 1, 0, H - 1, fl M2_PENS_ARG);
                 break;
             }
             }
@@ -407,10 +440,10 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
         for (int y = 0; y < 384; y++) {
             hscr = uint16_t((-tile(hscrtb + uint32_t(y))) & 0x1ff);
             if (hscr + dw_ <= 512) {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, dw_, y + 1);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, dw_, y + 1 M2_PENS_ARG);
             } else {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, 512 - hscr, y + 1);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, y, dw_, y + 1);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, y, 512 - hscr, y + 1 M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, y, dw_, y + 1 M2_PENS_ARG);
             }
             vscr = (vscr + 1) & 0x1ff;
         }
@@ -419,20 +452,20 @@ void Video::draw(std::vector<uint32_t> &bitmap, int layer, int flags) {
         vscr = uint16_t((+vscr) & 0x1ff);
         if (hscr + dw_ <= 512) {
             if (vscr + 384 <= 512) {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 384 M2_PENS_ARG);
             } else {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 512 - vscr);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, dw_, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, dw_, 512 - vscr M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, dw_, 384 M2_PENS_ARG);
             }
         } else {
             if (vscr + 384 <= 512) {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 384);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 384 M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 384 M2_PENS_ARG);
             } else {
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 512 - vscr);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 512 - vscr);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, 512 - hscr, 384);
-                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, 0, 512 - hscr, 512 - vscr, dw_, 384);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, vscr, 0, 0, 512 - hscr, 512 - vscr M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, vscr, 512 - hscr, 0, dw_, 512 - vscr M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, hscr, 0, 0, 512 - vscr, 512 - hscr, 384 M2_PENS_ARG);
+                draw_rect(bitmap, mask, tpri, flags, win, layer, 0, 0, 512 - hscr, 512 - vscr, dw_, 384 M2_PENS_ARG);
             }
         }
     }
@@ -506,6 +539,27 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // layer. Do not spend ~35 ms rebuilding CPU bitmaps for scrolling.
         rendered_now_ = false;
         return;
+    }
+#endif
+#ifdef M2_DC_SPEED
+    if (external_3d_ && !desktop_) {
+        // The Dreamcast: the same two layers as below (back layers over pen
+        // 0, front layers over 0 = see-through), composed in the PVR's
+        // 16-bit formats.
+        before = ticks();
+        std::fill(screen16_.begin(), screen16_.end(), pens565_[0]);
+        for (int layer = 3; layer >= 2; --layer) draw(screen16_, layer << 1, DRAW_OPAQUE, pens565_);
+        for (int layer = 1; layer >= 0; --layer) draw(screen16_, layer << 1, 0, pens565_);
+        std::fill(sys24_16_.begin(), sys24_16_.end(), uint16_t(0));
+        for (int layer = 3; layer >= 0; --layer) draw(sys24_16_, (layer << 1) | 1, 0, pens1555_);
+        profile_.tile_draw += ticks() - before;
+        profile_.layers_rebuilt = true;
+        rendered_now_ = false;
+        return;
+    }
+    if (screen_.empty()) { // a frame without external 3D (not the Dreamcast frontend's)
+        screen_.assign(size_t(width()) * H, 0u);
+        sys24_.assign(size_t(W) * (H + 4), 0u);
     }
 #endif
     // Non-zero pixels of a `width`-wide source onto the screen at column `at`.

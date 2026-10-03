@@ -125,9 +125,20 @@ int main(int argc, char **argv) {
             // And a hash of both tile layers (the screen the CPU composes),
             // to compare runtime builds (M2_DC_SPEED on and off).
             size_t polys = 0, pvr_bytes = 0, kept = 0;
+            // In the PVR's 16-bit formats: M2_DC_SPEED composes them; without
+            // it the 32-bit layers are converted as the renderer converts them.
             uint64_t layers = 0xcbf29ce484222325ULL;
-            for (const auto *layer : {&game.board().video().background_layer(), &game.board().video().foreground_layer()})
-                for (uint32_t px : *layer) layers = (layers ^ px) * 0x100000001b3ULL;
+            const rt::Video &video = game.board().video();
+#ifdef M2_DC_SPEED
+            for (const auto *layer : {&video.background16(), &video.foreground16()})
+                for (uint16_t px : *layer) layers = (layers ^ px) * 0x100000001b3ULL;
+#else
+            for (uint32_t c : video.background_layer())
+                layers = (layers ^ (((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f))) * 0x100000001b3ULL;
+            for (uint32_t c : video.foreground_layer())
+                layers = (layers ^ ((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f))) *
+                         0x100000001b3ULL;
+#endif
             // The geometrizer's polygons, on frames that were drawn (field
             // by field: the struct has padding).
 #ifdef M2_DC_SPEED

@@ -77,8 +77,13 @@ public:
             step_us[step] += now - t;
             t = now;
         };
+#ifdef M2_DC_SPEED
+        upload16(video.background16(), background_, false);
+        upload16(video.foreground16(), foreground_, true);
+#else
         upload(video.background_layer(), background_, false);
         upload(video.foreground_layer(), foreground_, true);
+#endif
         lap(0);
         stage = 2;
         const auto &polys = video.gpu_polys();
@@ -214,6 +219,30 @@ private:
         }
         sq_unlock();
     }
+
+#ifdef M2_DC_SPEED
+    // The runtime's 16-bit layers (rt::Video::background16/foreground16,
+    // already RGB565 and ARGB1555): copied as they are, 32 bytes at a time.
+    void upload16(const std::vector<uint16_t> &layer, pvr_ptr_t texture, bool alpha) {
+        auto *dst = static_cast<uint8_t *>(texture);
+        sq_lock(dst);
+        for (int y = 0; y < kH; y++) {
+            const auto *src = reinterpret_cast<const uint32_t *>(&layer[size_t(y) * kW]); // kW * 2 bytes: 4-aligned
+            if (alpha) {
+                uint32_t any = 0;
+                for (int x = 0; x < kW / 2; x++) any |= src[x];
+                if (!any && clear_row_[y]) continue;
+                clear_row_[y] = !any;
+            }
+            auto *sq = reinterpret_cast<uint32_t *>(SQ_MASK_DEST(dst + size_t(y) * kTexW * 2));
+            for (int x = 0; x < kW / 2; x += 8, sq += 8) {
+                for (int k = 0; k < 8; k++) sq[k] = src[x + k];
+                sq_flush(sq);
+            }
+        }
+        sq_unlock();
+    }
+#endif
 
     void quad(const pvr_poly_hdr_t &header) {
         pvr_prim(&header, sizeof header);

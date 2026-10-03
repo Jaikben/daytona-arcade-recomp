@@ -22,7 +22,7 @@
 
 // M2_DC_SPEED (Dreamcast): the one-line status helpers inline even at -Os,
 // where the generated code otherwise calls them (a call is as big as they are).
-#ifdef M2_DC_SPEED
+#if defined(M2_DC_SPEED) && defined(__GNUC__)
 #define M2_TGP_INLINE __attribute__((always_inline))
 #else
 #define M2_TGP_INLINE

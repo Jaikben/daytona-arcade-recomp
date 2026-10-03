@@ -12,12 +12,13 @@ callback slots, geo_test's cursor moved on without its loop), M2_DC_SPIN_SKIP
 (the game's frame-wait loop at 0x1394 skipped by whole passes to the next
 lockstep event: 79% of the i960's instructions in a race) and M2_DC_SPEED
 (the same output, faster: tile rows with nothing to draw skipped, geometrizer
-object data parsed only for frames that are shown, frame skip 3 allowed);
+object data parsed only for frames that are shown, frame skip 3 allowed, tile
+layers composed in the PVR's 16-bit formats);
 the desktop defines none of them. Checked after the changes: build-daytona m2run
 race_basic, screen hash 9427a612c5cb7511, 909,312,001 i960 and 195,261,176
 TGP instructions, as before. In Flycast a whole recorded race (race_basic) runs,
 drawn by the PVR with textures and both tile layers, in lockstep with the
-desktop at all 100 checkpoints; 17 frames/s (350 s for the race, from 1,414 s); with the controller it runs until Flycast is closed, no sound yet. Found for the desktop too, not changed
+desktop at all 100 checkpoints; 19 frames/s (315 s for the race, from 1,414 s); with the controller it runs until Flycast is closed, no sound yet. Found for the desktop too, not changed
 there: Lockstep::calls_ never shrinks (a callback every 1,024 instructions;
 estimated 270 KB a second on the desktop). KOS 2.2.1 in extern/kos-dc
 (git-ignored): DreamSDK R4's installed KOS master stops every C++ program

@@ -27,9 +27,9 @@ the PVR with textures and both tile layers (`game/renderer.h`); the busiest
 frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
-**Slow, but four times as fast as at the start of the night**: 6,000 frames
-in 350 s, about 17 frames/s in Flycast (not a console figure; the arcade
-runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
+**Slow, but four and a half times as fast as at the start of the night**:
+6,000 frames in 315 s, about 19 frames/s in Flycast (not a console figure;
+the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
 | Step | core (i960 code) | geometrizer | video | drawing | race |
@@ -41,14 +41,17 @@ runs 57.52). Every 4th frame is drawn. Every 60 frames the frontend prints
 | Tile rows with nothing to draw skipped; back layers straight onto the screen; clear front-layer rows not uploaded again | 39 | 41 | 11 | 13 | 540 s |
 | Geometrizer object data parsed only for frames that are shown; frame skip 3 really set (it was clamped to 2) | 39 | 11 | 8 | 13 | 374 s |
 | Renderer: polygons through KOS's direct rendering, no `std::isfinite` (soft-float calls at -fno-fast-math); layers written through the store queues; TGP status helpers inline | 38 | 11 | 8 | 9 | 350 s |
+| Tile layers composed in 16 bits (RGB565, ARGB1555) by the runtime: no conversion, 0.75 MB less RAM | 38 | 11 | 8 | 4 | 315 s |
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched
 the desktop at all 100 checkpoints.
 
-Drawing, per drawn frame (`PROFILE draw` lines): the layers' conversion to
-16 bits and upload 27 ms, sorting and waiting for the PVR 1, materials 2,
-polygons 6 (21 before direct rendering).
+Drawing, per drawn frame (`PROFILE draw` lines): the layers' upload 7 ms
+(27 when they were converted from 32 bits), sorting and waiting for the PVR
+1, materials 2, polygons 6 (21 before direct rendering). Core (the i960's
+code, the TGP's, the board's memory and devices, `Lockstep::boundary`) is
+now most of a frame.
 
 Screenshots of the Flycast window (`scripts/flycast_shot.ps1 OUT.png`, no
 input sent) at the attract mode's opening scene and mid-race (lap 1, HUD,
@@ -158,6 +161,16 @@ Also only in the Dreamcast Makefile and `tools/dcmemcheck`:
     30 Hz mode, the next is drawn): the rasterizer gets the command's
     opening and closing words, every other command runs, so the
     geometrizer's state is unchanged.
+  - `video.cpp`/`video.h`: in external 3D the two layers are composed
+    straight into the PVR's formats (`background16`: RGB565, `foreground16`:
+    ARGB1555, 0 see-through) with pens kept in both by `palette_w`; `draw`,
+    `draw_rect` and `tilemap_draw` are templates on the pixel type there
+    (macros expand to exactly the old 32-bit functions on the desktop). The
+    32-bit `screen_`/`sys24_` are allocated only if a frame is drawn without
+    external 3D. dcmemcheck hashes the layers in 16 bits in both builds (the
+    reference converts its 32-bit layers as the renderer did): identical at
+    every frame of race_basic and attract_long.
+  - `tgp.h`: the TGP's status helpers `always_inline` (GCC only).
   - `m2_board.h`: `set_frame_skip` allows 3. The desktop's range is 0-2, and
     the frontend's `set_frame_skip(3)` had been clamped to 2: the layers
     were composed every 3rd frame and drawn every 4th, up to two frames old.

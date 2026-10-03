@@ -96,6 +96,18 @@ public:
     // the background is the screen, the front tile layers sys24 (W x (H + 4)).
     const std::vector<uint32_t> &background_layer() const { return screen_; }
     const std::vector<uint32_t> &foreground_layer() const { return sys24_; }
+#ifdef M2_DC_SPEED
+    // With M2_DC_SPEED the external-3D layers are composed straight into the
+    // PVR's 16-bit formats (W x H, and screen_/sys24_ stay empty): the
+    // background RGB565, the front layers ARGB1555 with 0 see-through. The
+    // same pixels as converting the 32-bit layers (rgb565/argb1555 below).
+    const std::vector<uint16_t> &background16() const { return screen16_; }
+    const std::vector<uint16_t> &foreground16() const { return sys24_16_; }
+    static uint16_t rgb565(uint32_t c) { return uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f)); }
+    static uint16_t argb1555(uint32_t c) {
+        return uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f));
+    }
+#endif
 #else
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
     const std::vector<uint32_t> &foreground_layer() const { return foreground_gpu_; }
@@ -141,10 +153,23 @@ public:
 private:
     uint16_t tile(uint32_t i) const { return uint16_t(tile_ram_[i * 2] | tile_ram_[i * 2 + 1] << 8); }
     void build_layer(int layer); // pixmap_/flags_ for one tilemap
+#ifdef M2_DC_SPEED
+    // Any pixel type, with its own pens (the 16-bit layers); the 32-bit
+    // screen with pens_ as before.
+    template <typename Pixel> void draw(std::vector<Pixel> &bitmap, int layer, int flags, const Pixel *pens);
+    template <typename Pixel>
+    void draw_rect(std::vector<Pixel> &dm, const uint16_t *mask, uint16_t tpri, int flags, int win, int L, int sx, int sy,
+                   int xx1, int yy1, int xx2, int yy2, const Pixel *pens);
+    template <typename Pixel>
+    void tilemap_draw(std::vector<Pixel> &dm, int L, int sx, int sy, int minx, int maxx, int miny, int maxy, int flags,
+                      const Pixel *pens);
+    void draw(std::vector<uint32_t> &bitmap, int layer, int flags) { draw(bitmap, layer, flags, pens_); }
+#else
     void draw(std::vector<uint32_t> &bitmap, int layer, int flags);
     void draw_rect(std::vector<uint32_t> &dm, const uint16_t *mask, uint16_t tpri, int flags, int win, int L, int sx,
                    int sy, int xx1, int yy1, int xx2, int yy2);
     void tilemap_draw(std::vector<uint32_t> &dm, int L, int sx, int sy, int minx, int maxx, int miny, int maxy, int flags);
+#endif
 
     uint64_t ticks() const { return profile_clock_ ? profile_clock_() : 0; }
 #ifndef M2_VITA_RENDER_OPT
@@ -183,6 +208,10 @@ private:
     }
 #endif
     std::vector<uint32_t> screen_, sys24_;
+#ifdef M2_DC_SPEED
+    std::vector<uint16_t> screen16_, sys24_16_;
+    uint16_t pens565_[8192], pens1555_[8192]; // pens_ as rgb565 and argb1555 (palette_w keeps them)
+#endif
     std::vector<uint32_t> background_gpu_, foreground_gpu_;
     uint64_t background_generation_ = 0, foreground_generation_ = 0, system24_texture_generation_ = 0;
     bool system24_source_dirty_ = true;
