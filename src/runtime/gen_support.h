@@ -11,6 +11,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace gen {
 
@@ -35,6 +36,18 @@ inline double round_to_int(double v, uint32_t ac) {
     }
 }
 inline uint32_t f2u(float f) { return std::bit_cast<uint32_t>(f); }
+
+#ifdef M2_DC_SPEED
+// Work RAM at a fixed offset, for the Dreamcast's rewritten code
+// (platform/dreamcast/scripts/fast_gen.py): what the bus does for these
+// addresses (plain RAM, little-endian, aligned), without the calls.
+inline uint32_t wram_r32(const rt::Cpu &c, uint32_t o) { uint32_t v; std::memcpy(&v, c.work_ram + o, 4); return v; }
+inline uint16_t wram_r16(const rt::Cpu &c, uint32_t o) { uint16_t v; std::memcpy(&v, c.work_ram + o, 2); return v; }
+inline uint8_t wram_r8(const rt::Cpu &c, uint32_t o) { return c.work_ram[o]; }
+inline void wram_w32(rt::Cpu &c, uint32_t o, uint32_t v) { std::memcpy(c.work_ram + o, &v, 4); }
+inline void wram_w16(rt::Cpu &c, uint32_t o, uint16_t v) { std::memcpy(c.work_ram + o, &v, 2); }
+inline void wram_w8(rt::Cpu &c, uint32_t o, uint8_t v) { c.work_ram[o] = v; }
+#endif
 inline float u2f(uint32_t u) { return std::bit_cast<float>(u); }
 
 // Recompiled code entry points (generated): run from c.m_IP until it leaves

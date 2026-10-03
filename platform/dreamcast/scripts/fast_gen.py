@@ -13,7 +13,11 @@ it may run before the next lockstep event, worked out at the last full check
   frame-wait skip, calls) and, if the lockstep's epoch moved during its body
   (an interrupt line, a callback, the count jumping), makes the next
   instruction check in full;
-- dispatch, and any body that jumps away, start the count again (left = 1).
+- dispatch, and any body that jumps away, start the count again (left = 1);
+- a load or store at a fixed, aligned work-RAM address (0x00500000-0x005fffff,
+  plain RAM nothing watches) goes straight to it (gen::wram_*), and such an
+  instruction counts as register-only. The frame-wait byte (0x00500000, read
+  through the bus for the frame-wait skip) keeps its call.
 
 When `left` runs out the instruction stores its IP and jumps to the chunk's
 one `recheck:` (Lockstep::check, then back in through the chunk's own
@@ -35,7 +39,29 @@ LABEL = re.compile(r"^L_([0-9a-f]{8}): ")
 IP = re.compile(r"^    c\.m_IP = (0x[0-9a-f]{8}u);$")
 CHECK = "    if (ls.boundary()) goto dispatch;"
 COUNT = "    ++ls.count;"
-PURE_CALLS = re.compile(r"\bgen::cc_[su]\(")
+PURE_CALLS = re.compile(r"\bgen::(cc_[su]|wram_[rw](8|16|32))\(")
+
+# Fixed work-RAM accesses: (pattern, alignment, replacement).
+WRAM = [
+    (re.compile(r"c\.i960_read_dword_unaligned\(0x005([0-9a-f]{5})u\)"), 4, "gen::wram_r32(c, 0x{}u)"),
+    (re.compile(r"c\.i960_read_word_unaligned\(0x005([0-9a-f]{5})u\)"), 2, "gen::wram_r16(c, 0x{}u)"),
+    (re.compile(r"c\.bus->read_byte\(0x005([0-9a-f]{5})u\)"), 1, "gen::wram_r8(c, 0x{}u)"),
+    (re.compile(r"c\.i960_write_dword_unaligned\(0x005([0-9a-f]{5})u, "), 4, "gen::wram_w32(c, 0x{}u, "),
+    (re.compile(r"c\.i960_write_word_unaligned\(0x005([0-9a-f]{5})u, "), 2, "gen::wram_w16(c, 0x{}u, "),
+    (re.compile(r"c\.bus->write_byte\(0x005([0-9a-f]{5})u, "), 1, "gen::wram_w8(c, 0x{}u, "),
+]
+
+
+def direct_wram(line, stats):
+    for pattern, align, repl in WRAM:
+        def sub(m):
+            offset = int(m.group(1), 16)
+            if offset % align or (repl.startswith("gen::wram_r8") and offset == 0):
+                return m.group(0)  # unaligned, or the frame-wait byte: the bus as before
+            stats["wram"] += 1
+            return repl.format(m.group(1))
+        line = pattern.sub(sub, line)
+    return line
 
 
 def pure(body):
@@ -53,7 +79,7 @@ def rewrite(source):
     lines = source.split("\n")
     out = []
     i = 0
-    stats = {"pure": 0, "other": 0}
+    stats = {"pure": 0, "other": 0, "wram": 0}
     # Prologue: declare `left` after AC, reset it at dispatch.
     while i < len(lines) and not LABEL.match(lines[i]):
         line = lines[i]
@@ -89,7 +115,7 @@ def rewrite(source):
         if not ip or unit[2] != CHECK or COUNT not in unit:
             raise SystemExit(f"fast_gen: unexpected instruction at {line!r}")
         k = unit.index(COUNT)
-        body, tail = unit[3:k], unit[k:]
+        body, tail = [direct_wram(b, stats) for b in unit[3:k]], unit[k:]
         out.append(unit[0])
         if pure(body):
             stats["pure"] += 1
@@ -115,7 +141,7 @@ def main():
         raise SystemExit(__doc__)
     src, dst = Path(sys.argv[1]), Path(sys.argv[2])
     dst.mkdir(parents=True, exist_ok=True)
-    total = {"pure": 0, "other": 0}
+    total = {"pure": 0, "other": 0, "wram": 0}
     for f in sorted(src.glob("*.cpp")):
         text = f.read_text()
         if f.name.startswith("chunk_"):
@@ -126,7 +152,8 @@ def main():
         if not out.is_file() or out.read_text() != text:
             out.write_text(text, newline="\n")
     n = total["pure"] + total["other"]
-    print(f"fast_gen: {n} instructions, {total['pure']} register-only ({100 * total['pure'] / max(n, 1):.0f}%)")
+    print(f"fast_gen: {n} instructions, {total['pure']} register-only ({100 * total['pure'] / max(n, 1):.0f}%), "
+          f"{total['wram']} work-RAM accesses direct")
 
 
 if __name__ == "__main__":

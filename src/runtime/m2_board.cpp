@@ -173,6 +173,9 @@ void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t 
 void M2Board::attach(Cpu &cpu, Lockstep &ls) {
     cpu_ = &cpu;
     ls_ = &ls;
+#ifdef M2_DC_SPEED
+    cpu.work_ram = work_.data(); // plain RAM: nothing watches its writes (ram_written)
+#endif
 }
 
 // --- interrupts (MAME irq_update) --------------------------------------------

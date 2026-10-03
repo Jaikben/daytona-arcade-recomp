@@ -28,7 +28,7 @@ frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
 **Slow, but nearly five times as fast as at the start of the night**:
-6,000 frames in 258 s, about 23 frames/s in Flycast (not a console figure;
+6,000 frames in 255 s, about 23.5 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -47,6 +47,7 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Draw distance -1 (the runtime's enhancement: course cells one around the car); ROM cache 576 pages | 31 | 6 | 8 | 3 | 271 s |
 | Tiles drawn 8 pixels at a time by their class (skipped, copied, or tested) | 31 | 6 | 7 | 3 | 269 s |
 | The i960 code rewritten by `scripts/fast_gen.py`: register-only instructions (49%) count down instead of calling `boundary()` | 29 | 6 | 7 | 3 | 258 s |
+| `fast_gen.py`: 3,289 fixed, aligned work-RAM accesses straight to it (`gen::wram_*`, `Cpu::work_ram`); register-only now 58% | 28.5 | 6 | 7 | 3 | 255 s |
 
 **`scripts/fast_gen.py`** (run by the driver after the desktop build, into
 `build-daytona/dreamcast/gen_fast`; the Makefile's `GEN_I960`): each chunk
