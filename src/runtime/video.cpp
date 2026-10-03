@@ -95,6 +95,16 @@ void Video::build_layer(int layer) {
     uint16_t *pm = pixmap_[layer].data();
     uint8_t *fm = flags_[layer].data();
     for (uint32_t t = 0; t < 64 * 64; t++) {
+#if defined(M2_DC_SPEED) && !defined(M2_VITA_RENDER_OPT)
+        // No character changed: a block of 16 tiles whose values are all
+        // as last decoded needs nothing (tile RAM and the copy are both
+        // little-endian words).
+        if (dec_valid_ && !dec_dirty_any_ && (t & 15) == 0 &&
+            std::memcmp(tile_ram_ + size_t(t | base) * 2, &dec_tiles_[base + t], 32) == 0) {
+            t += 15;
+            continue;
+        }
+#endif
         const uint16_t val = tile(t | base);
         const uint32_t code = val & 0x3fff;
 #ifdef M2_VITA_RENDER_OPT
@@ -165,7 +175,12 @@ void Video::decode_layers() {
     if (dec_valid_ && write_tracking_ && !tile_memory_touched_ && !character_memory_touched_) return;
 #endif
     if (dec_valid_ && (character_memory_touched_ || !write_tracking_)) {
+#ifdef M2_DC_SPEED
+        if (dec_dirty_any_) std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+        dec_dirty_any_ = false;
+#else
         std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+#endif
         constexpr size_t kPage = 256;
         for (size_t page = 0; page < dec_chars_.size(); page += kPage) {
             if (std::memcmp(char_ram_ + page, dec_chars_.data() + page, kPage) == 0) continue;
@@ -173,11 +188,19 @@ void Video::decode_layers() {
                 if (std::memcmp(char_ram_ + c * 32, dec_chars_.data() + c * 32, 32) != 0) {
                     dec_char_dirty_[c] = 1;
                     ++profile_.characters_changed;
+#ifdef M2_DC_SPEED
+                    dec_dirty_any_ = true;
+#endif
                 }
             std::memcpy(dec_chars_.data() + page, char_ram_ + page, kPage);
         }
     } else if (dec_valid_) {
+#ifdef M2_DC_SPEED
+        if (dec_dirty_any_) std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+        dec_dirty_any_ = false;
+#else
         std::fill(dec_char_dirty_.begin(), dec_char_dirty_.end(), uint8_t(0));
+#endif
     } else {
         std::memcpy(dec_chars_.data(), char_ram_, dec_chars_.size());
     }

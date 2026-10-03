@@ -69,7 +69,10 @@ at every frame. Every frame drawn: geometry 20.8 -> 16.3 ms, race 462 ->
 429 s (about 14 frames/s). `model2_3d_process_polygon`'s temporaries
 (`quad_m2 object`, `GeoVertex vertices[2][8]`) are no longer zero-filled for
 every polygon (uninitialised union storage; every field used is written
-first): geometry 14.9 ms, race 419 s.
+first): geometry 14.9 ms, race 419 s. Tile decode: with no character
+changed, blocks of 16 tile values equal to the last decode's copy are
+skipped with one memcmp, and the 16 KB character-dirty table is cleared only
+when something was set: tile layers 19.6 -> 16.3 ms, race 404 s.
 
 **`M2_AL(p, n)`** (`cpu.h`): `__builtin_assume_aligned` with M2_DC_SPEED on
 GCC, otherwise `p` itself (the desktop compiles the same code). Found with

@@ -182,6 +182,9 @@ private:
     std::vector<uint8_t> dec_chars_, dec_char_dirty_; // char RAM as last decoded; characters changed since
     std::vector<uint16_t> dec_tiles_;          // tile values as last decoded
     bool dec_valid_ = false;
+#ifdef M2_DC_SPEED
+    bool dec_dirty_any_ = true; // some dec_char_dirty_ flag set (clear only then; build_layer skips by blocks without)
+#endif
 #endif
     ProfileClock profile_clock_ = nullptr;
     VideoProfile profile_;
