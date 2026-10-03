@@ -28,7 +28,7 @@ frame 1,826 polygons, 1,626 textured, none dropped; 292 textures cached; main
 RAM steady at 1.35 MB free; 1,133 ROM misses in the race.
 
 **Slow, but nearly five times as fast as at the start of the night**:
-6,000 frames in 284 s, about 21 frames/s in Flycast (not a console figure;
+6,000 frames in 271 s, about 22 frames/s in Flycast (not a console figure;
 the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is drawn. Every 60 frames the frontend prints
 `PROFILE` (ms per frame, `timer_us_gettime64`, Flycast), late in the race:
 
@@ -44,6 +44,22 @@ the arcade runs 57.52). Main RAM 2.0 MB free in the race. Every 4th frame is dra
 | Tile layers composed in 16 bits (RGB565, ARGB1555) by the runtime: no conversion, 0.75 MB less RAM | 38 | 11 | 8 | 4 | 315 s |
 | Board: last plain-memory page cached; `has_code` only after a run that did nothing; `Lockstep::boundary` one compare; TGP FIFOs a ring; PROFILE every 300 frames | 34 | 10 | 8 | 4 | 298 s |
 | The TGP's generated code at -O2 (146 KB instead of 88 KB; its template helpers inline) | 31 | 10 | 8 | 4 | 284 s |
+| Draw distance -1 (the runtime's enhancement: course cells one around the car); ROM cache 576 pages | 31 | 6 | 8 | 3 | 271 s |
+
+**Draw distance -1** (the user's choice, `kDrawDistance` in `game/main.cpp`):
+the game's own list of course cells is cut to those around the car, so the
+distant grandstand and treelines are not drawn (screenshot compared at the
+same moment); the i960 and TGP instruction counts stay the same, the
+display list changes. The lockstep reference is therefore `tools/tracecheck
+--draw-distance -1` (matched at all 100 checkpoints).
+
+**ROM cache 576 pages (2.25 MB)**: misses in the race 1,134 -> 710, no
+change in Flycast (its CD reads cost little); a real drive seeks, so it
+should matter on the console. 0.96 MB free in the race.
+
+A CPU-side fast path for the i960's memory helpers (straight to the board's
+last page, skipping the virtual call) was tried and measured: 286 s against
+284, no gain; taken out.
 
 (Drawing is about 64 ms for each drawn frame. The first row is from earlier
 in the race, so its core and geometry figures are lower.) Every step matched

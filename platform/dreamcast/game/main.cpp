@@ -66,9 +66,10 @@ namespace {
 
 constexpr const char *kRomDir = "/cd/rom"; // the importer's images, on the disc built locally
 constexpr size_t kGameStack = 512 * 1024;
-constexpr size_t kCachePages = 320; // 1.25 MB of ROM pages
+constexpr size_t kCachePages = 576; // 2.25 MB of ROM pages (1 MB free left in a race)
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
 constexpr int kDrawEvery = 4;        // frames per picture
+constexpr int kDrawDistance = -1;    // the runtime's draw distance (-2..2): one cell around the car
 constexpr int kReport = 300;         // frames between PROFILE and GAME frame lines
 constexpr int kFrames = 6000;        // a recorded script: then GAME DONE (a race is 6,000 frames); the pad: no end
 
@@ -248,6 +249,7 @@ void *run_game(void *) {
         // every 4th frame, the one drawn; the game runs every frame as ever
         // (the geometrizer too: the game reads its polygon count).
         game.set_frame_skip(kDrawEvery - 1);
+        rt::GameLoop::set_draw_distance(kDrawDistance); // fewer course cells: less work for the i960, TGP and geometrizer
         // Where the time goes: the runtime's frame profile (core: i960, TGP
         // and scheduling; geometry; video: the tile layers) and the PVR
         // renderer, in microseconds, averaged over 60 frames.

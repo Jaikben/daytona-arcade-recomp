@@ -5,7 +5,10 @@
 // board, the given settings), so the first frame where the two differ can be
 // found.
 //
-//   tracecheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR]
+//   tracecheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR] [--draw-distance N]
+//
+// --draw-distance: as the Dreamcast frontend's (it changes the game's draw
+// list, so the instruction counts with it).
 
 #include "runtime/game_loop.h"
 #include "../../../../tools/common/input_script.h"
@@ -19,7 +22,7 @@
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        std::fprintf(stderr, "usage: tracecheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR]\n");
+        std::fprintf(stderr, "usage: tracecheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR] [--draw-distance N]\n");
         return 2;
     }
     const std::string dir = argv[1];
@@ -28,6 +31,7 @@ int main(int argc, char **argv) {
     for (int i = 4; i + 1 < argc; i += 2) {
         if (!std::strcmp(argv[i], "--inputs")) inputs = argv[i + 1];
         else if (!std::strcmp(argv[i], "--nvram")) nvram = argv[i + 1];
+        else if (!std::strcmp(argv[i], "--draw-distance")) rt::GameLoop::set_draw_distance(std::atoi(argv[i + 1]));
     }
     try {
         rt::GameLoop game(dir, false);
