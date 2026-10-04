@@ -811,6 +811,19 @@ straight to it when it is in the same chunk (m2recomp does that); all
   board's last page and calling it without the virtual call: 180.0 s
   against 180.1.
 
+## The count a call sees: Lockstep::pending
+
+Before every instruction that calls the runtime, the generated code added
+its register count to the 64-bit `ls.count` (about seven SH-4
+instructions). Only three things read the count during such a call: the
+board's UART scheduling its shift callback, the frame-wait skip and
+`Lockstep::poke` (in free run, `on_take` does not). With M2_DC_SPEED the
+code stores the count in `Lockstep::pending` instead (one store) and adds
+it to `count` only at its rechecks and dispatches, which clear `pending`;
+those three read `Lockstep::now()` (count + pending). race_basic 176.6 ->
+175.9 s, and the generated code 210 KB smaller (0.55 -> 0.76 MB free).
+dcfastcheck identical every frame; desktop unchanged.
+
 ## Small renderer and geometrizer notes
 
 - `material_for` looks a material up in a 256-slot direct-mapped cache

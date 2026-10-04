@@ -279,7 +279,11 @@ void M2Board::uart_write_data(uint8_t v) {
     uart_txrdy(false);
     if (!uart_shift_busy_) {
         uart_shift_busy_ = true;
+#ifdef M2_DC_SPEED
+        ls_->add_callback(ls_->now() + 1, [this] { uart_shift_done(); }); // (now(): Lockstep::pending)
+#else
         ls_->add_callback(ls_->count + 1, [this] { uart_shift_done(); });
+#endif
     }
 }
 
@@ -461,7 +465,11 @@ uint8_t M2Board::read_byte(uint32_t addr) {
     if (addr == 0x00500000u && cpu_->m_IP == 0x1394u && p.kind == Ram) {
         const uint8_t v = p.base[addr & 0xfff];
         if (v == cpu_->m_r[16]) {
+#ifdef M2_DC_SPEED
+            const uint64_t limit = std::min(ls_->next_count, ls_->end_count), count = ls_->now();
+#else
             const uint64_t limit = std::min(ls_->next_count, ls_->end_count), count = ls_->count;
+#endif
             if (limit > count + 2) {
                 const uint64_t skip = (limit - 1 - count) / 2 * 2;
                 ls_->count += skip;

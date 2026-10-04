@@ -58,7 +58,14 @@ public:
     void add_callback(uint64_t at, std::function<void()> fn);
     // Free run: an interrupt line changed; take it at the next boundary.
 #ifdef M2_DC_SPEED
-    void poke() { next_count = std::min(next_count, count + 1); poked_ = true; ++epoch; }
+    // The rewritten generated code keeps the instructions it has run since
+    // it last added them to count in a register; before calling the runtime
+    // it stores them here (one store, not a 64-bit add), and adds them to
+    // count itself at its rechecks and dispatches. What the runtime reads
+    // during an instruction is now(), not count.
+    uint32_t pending = 0;
+    uint64_t now() const { return count + pending; }
+    void poke() { next_count = std::min(next_count, now() + 1); poked_ = true; ++epoch; }
     // The Dreamcast's rewritten generated code (platform/dreamcast/scripts/
     // fast_gen.py) counts down the instructions it may run before the next
     // event instead of calling boundary() before each one. check() is its

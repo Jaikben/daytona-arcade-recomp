@@ -15,10 +15,11 @@ it may run before the next lockstep event, worked out at the last full check
   instruction check in full;
 - dispatch, and any body that jumps away, start the count again (left = 1);
 - the instruction count is kept in a local (`n`, one register add instead
-  of a 64-bit add in memory) and added to ls.count where anything else can
-  see it: before any instruction that is not register-only (its body may
-  call the runtime, which reads the count), at recheck and at dispatch (so
-  before every return);
+  of a 64-bit add in memory) and added to ls.count at recheck and at
+  dispatch (so before every return); before any instruction that is not
+  register-only (its body may call the runtime) it is stored in
+  ls.pending, and what the runtime reads during an instruction is
+  ls.count + ls.pending (rt::Lockstep::now);
 - a load or store at a fixed, aligned work-RAM address (0x00500000-0x005fffff,
   plain RAM nothing watches) goes straight to it (gen::wram_*), and such an
   instruction counts as register-only. The frame-wait byte (0x00500000, read
@@ -152,12 +153,14 @@ def rewrite(source):
         elif line == "dispatch:":
             out.append("    ls.count += n;")
             out.append("    n = 0;")
+            out.append("    ls.pending = 0;")
             out.append("    left = 1;")
         elif line == "    if (ls.finished()) return;":
             out += ["    goto resume;",
                     "recheck: // left ran out at the instruction at c.m_IP",
                     "    ls.count += n;",
                     "    n = 0;",
+                    "    ls.pending = 0;",
                     "    left = ls.check(c.m_IP);",
                     "    if (!left) goto dispatch;",
                     "    ++left; // the instruction decrements it again",
@@ -196,8 +199,7 @@ def rewrite(source):
             stats["other"] += 1
             out.append(unit[1])
             out.append("    if (!--left) goto recheck;")
-            out.append("    ls.count += n; // the runtime may read the count")
-            out.append("    n = 0;")
+            out.append("    ls.pending = n; // the runtime reads ls.count + ls.pending (Lockstep::now)")
             if jumps(body):
                 out.append("    left = 1;")
                 out += body
