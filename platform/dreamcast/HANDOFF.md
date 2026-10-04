@@ -778,6 +778,21 @@ race_basic 193.4 -> 187.5 s (core 21.2 -> 20.7, geometry 10.2 -> 9.5 ms).
 hot objects (`___movmem` in vector growth, `___umoddi3` once a frame,
 `___unorddf2` in `geo_parse_nn_ns`) are not on hot paths.
 
+## Culled polygons: no texture reads, no lighting
+
+`model2_3d_process_polygon` read each polygon's texture coordinates and
+header (texture ROM) and its LOD (log RAM) before `check_culling`, which
+uses none of them. With M2_DC_SPEED those reads happen only for a polygon
+not culled (tp and th keep the addresses they were set to, before the
+address updates). 186.5 -> 181.7 s (geometry 9.5 -> 8.6 ms).
+
+`geo_parse_np_s`'s direct path skips the lighting (diffuse, the specular
+chain, the double-precision LOD distance) for a polygon check_culling will
+cull whatever its light: single-sided and facing away (its luma word keeps
+the face bit, bit 23, which luminance up to 255 never sets), or link type
+0. Neither word is read for a culled polygon. 181.7 -> 180.1 s (geometry
+8.3 ms). dcmemcheck identical; desktop unchanged.
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the

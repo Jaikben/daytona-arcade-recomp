@@ -376,15 +376,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 #endif
 
 #ifdef M2_DC_SPEED
-	{
-		uint16_t uv[NumVerts * 2]; // (the same words, read as a block)
-		tp.read(uv, NumVerts * 2);
-		for (uint32_t k = 0; k < NumVerts; k++)
-		{
-			object.v[k].pv = uv[2 * k];
-			object.v[k].pu = uv[2 * k + 1];
-		}
-	}
+	// (Read below, for a polygon not culled: tp keeps this address.)
 #else
 	object.v[0].pv = *tp++;
 	object.v[0].pu = *tp++;
@@ -413,7 +405,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 #endif
 
 #ifdef M2_DC_SPEED
-	th.read(object.texheader, 4);
+	// (Read below, for a polygon not culled: th keeps this address.)
 #else
 	object.texheader[0] = *th++;
 	object.texheader[1] = *th++;
@@ -434,9 +426,11 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	/* set the luma value of this polygon */
 	object.luma = (raster->command_buffer[9] >> 15) & 0xff;
 
+#ifndef M2_DC_SPEED
 	/* set the texture LOD of this polygon */
 	object.texlod = ((raster->command_buffer[10] >> 8) & 0x7f80) - 0x3f80;
 	object.texlod += raster->log_ram[raster->command_buffer[10] & 0x7fff];
+#endif
 
 	/* determine whether we can cull this polygon */
 	cull = check_culling(raster,attr,min_z,max_z);
@@ -472,6 +466,24 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		GeoVertex vertices[2][8];
 #endif
 		GeoVertex *verts_in = vertices[0], *verts_out = vertices[1];
+
+#ifdef M2_DC_SPEED
+		// Only a polygon not culled reads its texture coordinates, texture
+		// header and LOD (nothing above uses them; tp and th are where they
+		// were set, before the address updates): the same values.
+		{
+			uint16_t uv[NumVerts * 2]; // (as a block)
+			tp.read(uv, NumVerts * 2);
+			for (uint32_t k = 0; k < NumVerts; k++)
+			{
+				object.v[k].pv = uv[2 * k];
+				object.v[k].pu = uv[2 * k + 1];
+			}
+		}
+		th.read(object.texheader, 4);
+		object.texlod = ((raster->command_buffer[10] >> 8) & 0x7f80) - 0x3f80;
+		object.texlod += raster->log_ram[raster->command_buffer[10] & 0x7fff];
+#endif
 
 		for (int i = 0; i < NumVerts; i++)
 			verts_in[i] = object.v[i];
@@ -1062,6 +1074,19 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			face = 0x100; /* rear */
 			if (dotp >= 0) face = 0; /* front */
 
+#ifdef M2_DC_SPEED
+			// A polygon model2_3d_process_polygon will cull whatever its light
+			// (check_culling's first two tests: single-sided and facing away,
+			// or link type 0) needs no lighting: its luma word only the face
+			// bit, its LOD word nothing (neither is read for a culled one).
+			if (direct && ((((attr >> 17) & 1) == 0 && face != 0) || ((attr >> 8) & 3) == 0))
+			{
+				luma = int32_t(face);
+				distance = 0;
+			}
+			else
+#endif
+			{
 			/* get the texture parameters */
 			texparam = &geo->texture_parameters[(attr>>18) & 0x1f];
 
@@ -1091,6 +1116,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 
 			/* calculate texture level of detail */
 			distance = coef * fabs(dotp) * geo->lod;
+			}
 
 #ifdef M2_DC_SPEED
 			if (direct)
