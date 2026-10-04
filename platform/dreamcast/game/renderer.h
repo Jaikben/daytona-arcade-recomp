@@ -133,6 +133,7 @@ public:
             ++flushes;
         }
         materials_.clear();
+        ++colour_stamp_; // (palette and translation RAM may have changed since the last frame)
         banks_.clear();
         banks_used_ = 0;
         builds_ = 0;
@@ -179,7 +180,7 @@ public:
             const size_t bytes = size_t(poly.num_vertices) * sizeof(pvr_vertex_t) +
                                  (header != current ? sizeof(pvr_poly_hdr_t) : 0);
             if (used + bytes > budget_) { ++skipped; continue; }
-            if (polygon(poly, video, material ? textured_colour(poly, mem) : solid_color(poly, mem), material, header,
+            if (polygon(poly, video, colour(poly, mem, material != nullptr), material, header,
                         current)) {
                 ++drawn;
                 if (material) ++textured;
@@ -358,8 +359,17 @@ private:
             const size_t index = count - 1 - i;
             order_[i] = {((255u - uint32_t(polys[index].window)) << 16) | uint32_t(polys[index].z), index, nullptr};
         }
-        std::sort(order_.begin(), order_.end(),
-                  [](const Entry &a, const Entry &b) { return a.key != b.key ? a.key < b.key : a.index > b.index; });
+        // Key ascending, equal keys index descending (as built): a stable
+        // radix sort of the 24-bit key, a byte a pass (std::sort with that
+        // comparator gives the same order, slower).
+        order_tmp_.resize(count);
+        for (unsigned shift = 0; shift < 24; shift += 8) {
+            size_t at[257] = {};
+            for (const Entry &e : order_) ++at[((e.key >> shift) & 0xff) + 1];
+            for (int b = 0; b < 256; ++b) at[b + 1] += at[b];
+            for (const Entry &e : order_) order_tmp_[at[(e.key >> shift) & 0xff]++] = e;
+            order_.swap(order_tmp_);
+        }
     }
 
     // A textured polygon's vertex colour: its colour at full light (luma
@@ -374,6 +384,22 @@ private:
                std::min<uint32_t>(255, channel(0x4000 / 2, (color >> 5) & 0x1f)) << 8 |
                std::min<uint32_t>(255, channel(0x8000 / 2, (color >> 10) & 0x1f));
     }
+
+    // The polygon's vertex colour (textured_colour or solid_color), through
+    // a cache for this frame: within a frame it depends only on the colour
+    // entry and the light (luma & 0xf0 textured, luma >> 2 flat).
+    uint32_t colour(const rt::GeoPoly &poly, const rt::VideoMem &mem, bool textured) {
+        const uint32_t entry = (poly.texheader[3] >> 6) & 0x3ff;
+        const uint32_t key = textured ? 0x10000u | entry << 4 | (poly.luma & 0xf0u) >> 4 : entry << 6 | poly.luma >> 2;
+        ColourSlot &slot = colours_[(key ^ key >> 7) & (kColourSlots - 1)];
+        if (slot.stamp != colour_stamp_ || slot.key != key)
+            slot = {colour_stamp_, key, textured ? textured_colour(poly, mem) : solid_color(poly, mem)};
+        return slot.argb;
+    }
+    struct ColourSlot { uint32_t stamp, key, argb; };
+    static constexpr uint32_t kColourSlots = 1024;
+    ColourSlot colours_[kColourSlots] = {};
+    uint32_t colour_stamp_ = 1;
 
     uint32_t solid_color(const rt::GeoPoly &poly, const rt::VideoMem &mem) const {
         const uint32_t color = le16(mem.palram, ((poly.texheader[3] >> 6) & 0x3ff) + 0x1000);
@@ -543,7 +569,7 @@ private:
     uint64_t back_uploaded_ = ~0ull, front_uploaded_ = ~0ull; // the layers' generations in video RAM
     bool clear_row_[kH] = {}; // front layer rows all see-through in video RAM
     alignas(32) uint8_t texels_[kTextureLimit * kTextureLimit / 2] = {};
-    std::vector<Entry> order_;
+    std::vector<Entry> order_, order_tmp_;
     std::unordered_map<uint32_t, Source> sources_;
     std::unordered_map<uint64_t, Material> materials_;
     std::unordered_map<uint32_t, unsigned> banks_; // luma base and transparency -> palette bank, this frame

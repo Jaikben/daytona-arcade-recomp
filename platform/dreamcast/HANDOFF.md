@@ -751,6 +751,16 @@ with M2TGP_WITH_HOOK (a hook would see a stale count).
   the i960's instructions, skipped), nothing stands out: the busiest 64-byte
   block is 0.4%. The other loop polling 0x500000 (0x13d4) is negligible.
 
+## Renderer: radix sort, colour cache
+
+The draw order: a stable radix sort of the 24-bit key (window, z), a byte
+a pass, over entries built in descending index order: the order the
+`std::sort` comparator (key ascending, index descending) gave. A polygon's
+vertex colour (`textured_colour`/`solid_color`) through a 1,024-slot cache
+stamped per drawn frame: within a frame it depends only on the colour
+entry and the light. The same polygons drawn; race_basic 195.1 -> 193.4 s
+(drawing 3.5 -> 3.1 ms a frame).
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the
