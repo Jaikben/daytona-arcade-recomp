@@ -232,6 +232,19 @@ void Cpu::check_pending_irqs()
 	}
 }
 
+#ifdef M2_DC_SPEED
+// A register frame (16 words, 4-aligned): straight-line loads and stores.
+// GCC makes a 64-byte memcpy (or a copy loop) a library call on the SH-4,
+// several per call and return in the profile.
+static inline void copy_frame(uint32_t *d, const uint32_t *s)
+{
+	const uint32_t a0 = s[0], a1 = s[1], a2 = s[2], a3 = s[3], a4 = s[4], a5 = s[5], a6 = s[6], a7 = s[7];
+	const uint32_t a8 = s[8], a9 = s[9], a10 = s[10], a11 = s[11], a12 = s[12], a13 = s[13], a14 = s[14], a15 = s[15];
+	d[0] = a0, d[1] = a1, d[2] = a2, d[3] = a3, d[4] = a4, d[5] = a5, d[6] = a6, d[7] = a7;
+	d[8] = a8, d[9] = a9, d[10] = a10, d[11] = a11, d[12] = a12, d[13] = a13, d[14] = a14, d[15] = a15;
+}
+#endif
+
 void Cpu::do_call(uint32_t adr, int type, uint32_t stack)
 {
 	int i;
@@ -249,7 +262,7 @@ void Cpu::do_call(uint32_t adr, int type, uint32_t stack)
 		FP = m_r[I960_FP] & ~0x3f;
 #ifdef M2_DC_SPEED
 		if (work_ram && (FP >> 20) == 0x005) // work RAM (nothing watches its writes): one copy, not 16 bus calls
-			memcpy(M2_AL(work_ram + (FP & 0xfffff), 64), m_r, 0x10 * sizeof(uint32_t));
+			copy_frame(reinterpret_cast<uint32_t *>(M2_AL(work_ram + (FP & 0xfffff), 64)), m_r);
 		else
 #endif
 		for (i = 0; i < 16; i++) {
@@ -258,7 +271,11 @@ void Cpu::do_call(uint32_t adr, int type, uint32_t stack)
 	}
 	else    // a cache entry is available, use it
 	{
+#ifdef M2_DC_SPEED
+		copy_frame(&m_rcache[m_rcache_pos][0], m_r);
+#else
 		memcpy(&m_rcache[m_rcache_pos][0], m_r, 0x10 * sizeof(uint32_t));
+#endif
 		m_rcache_frame_addr[m_rcache_pos] = m_r[I960_FP] & ~0x3f;
 	}
 	m_rcache_pos++;
@@ -293,7 +310,7 @@ void Cpu::do_ret_0()
 		int i;
 #ifdef M2_DC_SPEED
 		if (work_ram && (m_r[I960_FP] >> 20) == 0x005) // (as do_call's spill: one copy)
-			memcpy(m_r, M2_AL(work_ram + (m_r[I960_FP] & 0xfffff), 64), 0x10 * sizeof(uint32_t));
+			copy_frame(m_r, reinterpret_cast<const uint32_t *>(M2_AL(work_ram + (m_r[I960_FP] & 0xfffff), 64)));
 		else
 #endif
 		for(i=0; i<0x10; i++)
@@ -306,7 +323,11 @@ void Cpu::do_ret_0()
 	}
 	else
 	{
+#ifdef M2_DC_SPEED
+		copy_frame(m_r, m_rcache[m_rcache_pos]);
+#else
 		memcpy(m_r, m_rcache[m_rcache_pos], 0x10*sizeof(uint32_t));
+#endif
 	}
 
 //  osd_printf_debug("RET (type %d): FP %x, %x => %x, rcache_pos %d\n", type, m_r[I960_FP], m_IP, m_r[I960_RIP], m_rcache_pos);

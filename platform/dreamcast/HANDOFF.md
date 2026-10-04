@@ -761,6 +761,18 @@ stamped per drawn frame: within a frame it depends only on the colour
 entry and the light. The same polygons drawn; race_basic 195.1 -> 193.4 s
 (drawing 3.5 -> 3.1 ms a frame).
 
+## Library copies out of the hot paths
+
+memcpy and memset were 3.2% of the samples (`--sample`'s CALLER lines):
+`polys.emplace_back()` zero-filling each kept `GeoPoly` (1.5%) and the
+i960 register frames copied in `Cpu::do_call`/`do_ret_0` (1.6%; GCC calls
+the library for a 64-byte copy on the SH-4). With M2_DC_SPEED, `GeoPoly`'s
+vertices are in an anonymous union under an empty constructor (only
+`v[0..num_vertices)` is read, and it is written first; the other fields
+keep their initialisers), and the frames are copied by `copy_frame`,
+16 straight-line loads and stores. dcmemcheck identical; desktop unchanged.
+race_basic 193.4 -> 187.5 s (core 21.2 -> 20.7, geometry 10.2 -> 9.5 ms).
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the

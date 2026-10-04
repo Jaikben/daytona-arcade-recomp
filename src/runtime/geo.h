@@ -41,7 +41,15 @@ struct GeoPoly {
     uint8_t window = 0;
     uint32_t reverse = 0;
     uint8_t num_vertices = 0;
+#ifdef M2_DC_SPEED
+    // Not zero-filled for every polygon kept (160 bytes): only
+    // v[0..num_vertices) is ever read, and model2_3d_process_polygon writes
+    // those.
+    GeoPoly() {}
+    union { GeoVertex v[8]; };
+#else
     GeoVertex v[8];
+#endif
 };
 
 // Cursors standing in for MAME's raw u32/u16 pointers. Reads run on from a
