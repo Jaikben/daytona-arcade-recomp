@@ -512,6 +512,14 @@ not changed.
   which redirecting stdout does not capture; `flycast_run.py` reads the
   console buffer.
 
+## -O3 with unrolling
+
+The runtime, the frontend and the TGP's code at `-O3 -funroll-loops` (the
+Makefile's O3FLAGS; the i960 code stays at -Os for size). race_basic, every
+2nd frame drawn: `video.cpp` alone 263 -> 246 s (tile layers 7.9 -> 5.5 ms a
+frame: their pixel loops unroll), `geo.cpp` 245 s, the rest 240 s; 0.46 MB
+of main RAM free after it. All 100 checkpoints match each time.
+
 ## Sound (first version)
 
 `game/audio.h`: the desktop's native sound sequencer
@@ -545,6 +553,10 @@ No software mixer: the SH-4's time is unchanged (race 266.7 s).
   key-rate scaling off (`3c1a`, read back during the race): about 18 ms for
   the whole fade by MAME's AICA timing, near the desktop mixer's 20 ms. Not
   judged by ear yet.
+- **ADPCM loops:** MAME's AICA keeps the ADPCM decoder state from the loop
+  start and restores it at each loop, which makes loops seamless with no
+  special encoding; if the chip does as MAME models it (Flycast too), the
+  pack's loops are fine. Not checked by ear.
 - **Not yet:** ADPCM loops are not checked by ear (a click at the loop point would
   mean the AICA does not restore the ADPCM state there; 8-bit PCM for the
   looping samples is the fallback); levels against the desktop not compared.

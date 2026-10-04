@@ -75,6 +75,8 @@ GAME_DEFS := -DM2_ROMSET='"$(SET)"' -DM2_DC_MEMORY -DM2_DC_SPIN_SKIP -DM2_DC_SPE
              -I$(SOFTFLOAT)/source/include -isystem $(YMFM)
 # Generated code at -Os: 2.5 MB instead of 6.7 MB at -O2 (daytona93's,
 # measured), compiled 6.5x faster.
+# -O3 with unrolling for the hot C++ (runtime, frontend, TGP code): measured faster.
+O3FLAGS = $(subst -O2,-O3,$(CXXFLAGS)) -funroll-loops
 GEN_FLAGS := $(subst -O2,-Os,$(CXXFLAGS)) $(GAME_DEFS) -Wno-unused-label
 
 RUNTIME := cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import archive m2_replay_bus \
@@ -113,7 +115,7 @@ game.cdi: $(OUT)/game.cdi
 # build_dreamcast.py into $(OUT)/game.
 $(OUT)/game/main.o: $(ROOT)/platform/dreamcast/game/main.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -I$(OUT)/game -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(O3FLAGS) $(GAME_DEFS) -I$(OUT)/game -c $< -o $@ && $(FIXDEP)
 $(OUT)/game.elf: $(OUT)/game/main.o $(GAME_LIBS)
 	kos-c++ -o $@ $< -Wl,--start-group $(GAME_LIBS) -Wl,--end-group
 
@@ -148,10 +150,14 @@ game-sizes: game-objects
 # copies are a few words, a library call costs more (the profile's callers).
 $(OUT)/game/runtime/geo.o: $(ROOT)/src/runtime/geo.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(CXXFLAGS) -fno-tree-loop-distribute-patterns $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(subst -O2,-O3,$(CXXFLAGS)) -funroll-loops -fno-tree-loop-distribute-patterns $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
+# The tile layers' pixel loops unrolled.
+$(OUT)/game/runtime/video.o: $(ROOT)/src/runtime/video.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(subst -O2,-O3,$(CXXFLAGS)) -funroll-loops $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/runtime/%.o: $(ROOT)/src/runtime/%.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(O3FLAGS) $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/i960/%.o: $(ROOT)/src/i960/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
@@ -172,7 +178,7 @@ $(OUT)/game/gen/%.o: $(GEN_I960)/%.cpp
 # helpers (alu_pre, write_reg, ...) become calls.
 $(OUT)/game/gen_tgp/%.o: $(GEN)/$(SET)_tgp/%.cpp
 	@mkdir -p $(dir $@)
-	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -Wno-unused-label -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(O3FLAGS) $(GAME_DEFS) -Wno-unused-label -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/gen_snd/%.o: $(GEN)/$(SET)_snd/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)
