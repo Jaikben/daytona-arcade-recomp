@@ -51,7 +51,7 @@ def main():
             continue
         m = re.match(r"CALLER ([0-9a-f]{8}) (\d+)", line)
         if m and frame >= args.first:
-            i = bisect.bisect_right(addrs, int(m.group(1), 16) + 64) - 1
+            i = bisect.bisect_right(addrs, int(m.group(1), 16) + 128) - 1  # (the middle of a 256-byte bucket)
             callers[names[i] if i >= 0 else "?"] += int(m.group(2))
             continue
         m = re.match(r"COARSE frame (\d+): (\d+) samples", line)

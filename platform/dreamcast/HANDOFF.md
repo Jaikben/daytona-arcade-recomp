@@ -688,6 +688,24 @@ over it, first in the translucent list.
   24,000 tile conversions over it (about six whole layers' worth, mostly
   palette changes).
 
+## The geometrizer's reads in blocks
+
+Line-level samples showed the geometrizer's ROM reads (each `*input++`
+copying a `GeoPtr` and going through `RomSource::dword` and `page_fast`, and
+the texture words through `RomSource::word`) at about 6% of all the game's
+time. `GeoPtr::read` and `GeoPtr16::read` (M2_DC_SPEED) copy n words a page
+(or up to the wrap) at a time: the same words. `geo_parse_np_s` reads each
+point and normal as one block of 3 (`read_point`), and
+`model2_3d_process_polygon` its texture coordinates and header as blocks.
+dcmemcheck (`--no-scroll-layer`) identical to the references, polygon
+hashes included. race_basic 218.2 -> 212.8 s (geometry 12.3 -> 11.2 ms a
+frame).
+
+Not a gain: the renderer reusing each polygon's material from the
+materials pass instead of a second hash lookup (kept: simpler, 213.0 s).
+The polygon step (about 4.5 ms a drawn frame for about 1,400 polygons) is
+not the DMA waits (`PROFILE draw` now prints them: under 1 ms).
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the

@@ -66,6 +66,35 @@ struct GeoPtr {
     uint32_t &operator*() const { return at(); }
     GeoPtr operator++(int) { GeoPtr t = *this; ++i; return t; }
     GeoPtr &operator+=(uint32_t n) { i += n; return *this; }
+#ifdef M2_DC_SPEED
+    // n words from here into out, moving past them: the values n times
+    // *(*this)++ gives, a page (or up to the wrap) at a time instead of a
+    // page lookup each. (The ROM's pages are little-endian words, as the
+    // hosts M2_DC_SPEED builds for.)
+    void read(uint32_t *out, uint32_t n) {
+        while (n) {
+            const uint32_t w = i & (size - 1);
+            uint32_t run = n < size - w ? n : size - w;
+            const uint32_t *src;
+#ifdef M2_DC_MEMORY
+            if (rom) {
+                constexpr uint32_t kWords = RomSource::kPageSize / 4;
+                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
+                src = reinterpret_cast<const uint32_t *>(rom->page_fast(RomRegion::Polygons, w / kWords)) +
+                      (w & (kWords - 1));
+            } else
+#endif
+            {
+                if (!base) throw GeoFatal("geometrizer read from missing memory");
+                src = base + w;
+            }
+            for (uint32_t k = 0; k < run; ++k) out[k] = src[k];
+            out += run;
+            n -= run;
+            i += run;
+        }
+    }
+#endif
 };
 struct GeoPtr16 {
     const uint16_t *base = nullptr;
@@ -81,6 +110,32 @@ struct GeoPtr16 {
         return base[i & (size - 1)];
     }
     GeoPtr16 operator++(int) { GeoPtr16 t = *this; ++i; return t; }
+#ifdef M2_DC_SPEED
+    // As GeoPtr::read, 16-bit words.
+    void read(uint16_t *out, uint32_t n) {
+        while (n) {
+            const uint32_t w = i & (size - 1);
+            uint32_t run = n < size - w ? n : size - w;
+            const uint16_t *src;
+#ifdef M2_DC_MEMORY
+            if (rom) {
+                constexpr uint32_t kWords = RomSource::kPageSize / 2;
+                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
+                src = reinterpret_cast<const uint16_t *>(rom->page_fast(RomRegion::Textures, w / kWords)) +
+                      (w & (kWords - 1));
+            } else
+#endif
+            {
+                if (!base) throw GeoFatal("rasterizer read from missing texture memory");
+                src = base + w;
+            }
+            for (uint32_t k = 0; k < run; ++k) out[k] = src[k];
+            out += run;
+            n -= run;
+            i += run;
+        }
+    }
+#endif
 };
 
 class Geo {

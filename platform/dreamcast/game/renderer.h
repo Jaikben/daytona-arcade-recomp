@@ -149,10 +149,10 @@ public:
         // Materials front to back first: the 64 palette banks and the build
         // budget go to what is nearest (drawn last, largest on screen).
         no_bank = no_build = 0;
-        for (const Entry &e : order_) {
+        for (Entry &e : order_) {
             const rt::GeoPoly &poly = polys[e.index];
             if (poly.window > video.gpu_windows() || poly.num_vertices < 3 || poly.num_vertices > 8) continue;
-            if ((poly.texheader[0] >> 14) & 1) material_for(poly, mem);
+            if ((poly.texheader[0] >> 14) & 1) e.material = material_for(poly, mem);
         }
         lap(2);
 
@@ -172,7 +172,7 @@ public:
             if (poly.window > video.gpu_windows() || poly.num_vertices < 3 || poly.num_vertices > 8) continue;
             const int renderer = (poly.texheader[0] >> 13) & 3;
             const Material *material = nullptr;
-            if (renderer & 2) material = material_found(poly);
+            if (renderer & 2) material = e->material; // (found in the pass above)
             else if (renderer & 1) continue; // as the Vita: not drawn
             const void *header = material ? static_cast<const void *>(&material->header)
                                           : static_cast<const void *>(&solid_header_);
@@ -219,9 +219,9 @@ private:
     static constexpr unsigned kBuildsPerFrame = 32; // new source textures a frame
     static constexpr unsigned kBanks = 64;          // the PVR's 16-colour palette banks
     static constexpr unsigned kPaletteLuma = 0xf0;  // the material light palettes are shaded at (luma & 0xf0 at most)
-    struct Entry { uint32_t key; size_t index; };
     struct Source { pvr_ptr_t texture; uint32_t w, h, source_w, source_h; };
     struct Material { pvr_poly_hdr_t header; float u_scale, v_scale; };
+    struct Entry { uint32_t key; size_t index; const Material *material; }; // (material: set by the materials pass)
 
     // No depth test (the game's order), no culling (its own facing decides).
     static void unordered(pvr_poly_cxt_t &cxt) {
@@ -271,9 +271,15 @@ private:
     // width): one DMA each, while the CPU carries on. KOS flushes the cache
     // for it; the buffers are 32-byte aligned (main.cpp's operator new).
     static_assert(rt::Video::kLayerStride == kTexW, "a layer's rows are the texture's");
-    static void wait_dma() {
+    void wait_dma() {
+        const uint64_t t0 = timer_us_gettime64();
         while (!pvr_dma_ready()) thd_pass();
+        dma_wait_us += timer_us_gettime64() - t0;
     }
+
+public:
+    uint64_t dma_wait_us = 0; // microseconds waiting for a layer DMA (inside the draw steps)
+private:
     void upload_layer(const std::vector<uint16_t> &layer, pvr_ptr_t texture) {
         wait_dma(); // one PVR DMA at a time
         if (pvr_txr_load_dma(layer.data(), texture, size_t(kTexW) * kH * 2, false, nullptr, nullptr) < 0)
@@ -350,7 +356,7 @@ private:
         order_.resize(count);
         for (size_t i = 0; i < count; ++i) {
             const size_t index = count - 1 - i;
-            order_[i] = {((255u - uint32_t(polys[index].window)) << 16) | uint32_t(polys[index].z), index};
+            order_[i] = {((255u - uint32_t(polys[index].window)) << 16) | uint32_t(polys[index].z), index, nullptr};
         }
         std::sort(order_.begin(), order_.end(),
                   [](const Entry &a, const Entry &b) { return a.key != b.key ? a.key < b.key : a.index > b.index; });
@@ -441,11 +447,6 @@ private:
                uint64_t(poly.texheader[2] & 0x1fff) << 22;
     }
 
-    // This frame's material for the polygon, if the front-to-back pass made one.
-    const Material *material_found(const rt::GeoPoly &poly) const {
-        auto found = materials_.find(material_key(poly));
-        return found != materials_.end() ? &found->second : nullptr;
-    }
 
     const Material *material_for(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
         const uint64_t key = material_key(poly);

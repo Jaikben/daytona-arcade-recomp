@@ -137,6 +137,23 @@ static inline void xmtrx_apply(GeoVertex *v, float w)
 #define M2_GEO_VECTOR(v, geo) transform_vector((v), (geo)->matrix)
 #endif
 
+// Three words (a point or a normal) from the input: one block read with
+// M2_DC_SPEED (GeoPtr::read: the same words), otherwise word by word.
+static inline void read_point(GeoPtr &input, GeoVertex &v)
+{
+#ifdef M2_DC_SPEED
+	uint32_t w[3];
+	input.read(w, 3);
+	v.x = u2f(w[0]);
+	v.y = u2f(w[1]);
+	v.pz = u2f(w[2]);
+#else
+	v.x = u2f(*input++);
+	v.y = u2f(*input++);
+	v.pz = u2f(*input++);
+#endif
+}
+
 static inline void normalize_vector(GeoVertex *vector)
 {
 	const float n = sqrt((vector->x * vector->x) + (vector->y * vector->y) + (vector->pz * vector->pz));
@@ -358,6 +375,17 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		tp = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[0] & raster->texture_rom_mask};
 #endif
 
+#ifdef M2_DC_SPEED
+	{
+		uint16_t uv[NumVerts * 2]; // (the same words, read as a block)
+		tp.read(uv, NumVerts * 2);
+		for (uint32_t k = 0; k < NumVerts; k++)
+		{
+			object.v[k].pv = uv[2 * k];
+			object.v[k].pu = uv[2 * k + 1];
+		}
+	}
+#else
 	object.v[0].pv = *tp++;
 	object.v[0].pu = *tp++;
 	object.v[1].pv = *tp++;
@@ -369,6 +397,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		object.v[3].pv = *tp++;
 		object.v[3].pu = *tp++;
 	}
+#endif
 
 	/* update the address */
 	raster->command_buffer[0] += NumVerts * 2;
@@ -383,10 +412,14 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		th = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[1] & raster->texture_rom_mask};
 #endif
 
+#ifdef M2_DC_SPEED
+	th.read(object.texheader, 4);
+#else
 	object.texheader[0] = *th++;
 	object.texheader[1] = *th++;
 	object.texheader[2] = *th++;
 	object.texheader[3] = *th++;
+#endif
 
 	/* extract the texture header offset */
 	tho = (attr >> 12) & 0x1f;
@@ -951,9 +984,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	uint32_t  attr, i;
 
 	/* read the 1st point */
-	point.x = u2f(*input++);
-	point.y = u2f(*input++);
-	point.pz = u2f(*input++);
+	read_point(input, point);
 
 	/* transform with the current matrix */
 	M2_GEO_POINT(&point, geo);
@@ -965,9 +996,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
-	point.x = u2f(*input++);
-	point.y = u2f(*input++);
-	point.pz = u2f(*input++);
+	read_point(input, point);
 
 	/* transform with the current matrix */
 	M2_GEO_POINT(&point, geo);
@@ -1002,9 +1031,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 		model2_3d_push(raster, attr & 0x0003ffff);
 
 		/* read in the normal */
-		normal.x = u2f(*input++);
-		normal.y = u2f(*input++);
-		normal.pz = u2f(*input++);
+		read_point(input, normal);
 
 		/* transform with the current matrix */
 		M2_GEO_VECTOR(&normal, geo);
@@ -1017,9 +1044,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			texture_parameter * texparam;
 
 			/* read in the next point */
-			point.x = u2f(*input++);
-			point.y = u2f(*input++);
-			point.pz = u2f(*input++);
+			read_point(input, point);
 
 			/* transform with the current matrix */
 			M2_GEO_POINT(&point, geo);
@@ -1078,9 +1103,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 				cb[13] = f2u(point.pz) >> 8;
 				if (attr & 1)
 				{
-					point.x = u2f(*input++);
-					point.y = u2f(*input++);
-					point.pz = u2f(*input++);
+					read_point(input, point);
 					M2_GEO_POINT(&point, geo);
 					apply_focus(geo, &point);
 					cb[14] = f2u(point.x) >> 8;
@@ -1108,9 +1131,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			if (attr & 1)
 			{
 				/* read in the next point */
-				point.x = u2f(*input++);
-				point.y = u2f(*input++);
-				point.pz = u2f(*input++);
+				read_point(input, point);
 
 				/* transform with the current matrix */
 				M2_GEO_POINT(&point, geo);

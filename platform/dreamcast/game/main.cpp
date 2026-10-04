@@ -344,9 +344,11 @@ void *run_game(void *) {
                     "frame wait skipped %.0f%% of i960 instructions\n",
                     frame, prof_core / frame_us, prof_geo / frame_us, prof_video / frame_us, prof_draw / frame_us,
                     prof_draw / drawn_us, 100.0 * double(game.board().spin_skipped()) / double(game.instructions()));
-                say("PROFILE draw, ms per drawn frame: layers %.1f sort+wait %.1f materials %.1f polygons %.1f\n",
+                say("PROFILE draw, ms per drawn frame: layers %.1f sort+wait %.1f materials %.1f polygons %.1f "
+                    "(of which waiting for layer DMA %.1f)\n",
                     renderer.step_us[0] / drawn_us, renderer.step_us[1] / drawn_us, renderer.step_us[2] / drawn_us,
-                    renderer.step_us[3] / drawn_us);
+                    renderer.step_us[3] / drawn_us, renderer.dma_wait_us / drawn_us);
+                renderer.dma_wait_us = 0;
                 say("PROFILE waits, ms per frame: ROM disc reads %.2f sound %.2f printing %.2f; frame total %.1f\n",
                     rom->read_us / frame_us, prof_audio / frame_us, g_say_us / frame_us,
                     (timer_us_gettime64() - report_t0) / frame_us);
@@ -404,8 +406,8 @@ void sample(kthread_t *game) {
     const uint32_t buckets = (uint32_t(uintptr_t(end)) - kStart) >> kBucketBits;
     std::vector<uint16_t> counts(buckets);
     // Callers of memcpy and memset (leaf functions: PR is where they were
-    // called from), 128-byte buckets, reported as "CALLER address count".
-    std::vector<uint16_t> callers(buckets / 2); // 128-byte buckets
+    // called from), 256-byte buckets, reported as "CALLER address count".
+    std::vector<uint16_t> callers(buckets / 4); // 256-byte buckets (RAM is short)
     // Every sample also in 16 KB buckets, all reported ("COARSE address
     // count"): the long tail the 200 busiest small buckets leave out (the
     // generated code is megabytes, a few samples in each small bucket).
@@ -419,8 +421,8 @@ void sample(kthread_t *game) {
         const uint32_t pc = game->context.pc;
         if (pc - copy < 0x200 || pc - fill < 0x200) {
             const uint32_t pr = game->context.pr;
-            if (pr >= kStart && ((pr - kStart) >> 7) < callers.size() && callers[(pr - kStart) >> 7] < 0xffff)
-                ++callers[(pr - kStart) >> 7];
+            if (pr >= kStart && ((pr - kStart) >> 8) < callers.size() && callers[(pr - kStart) >> 8] < 0xffff)
+                ++callers[(pr - kStart) >> 8];
         }
         if (pc >= kStart && ((pc - kStart) >> kBucketBits) < buckets) {
             uint16_t &c = counts[(pc - kStart) >> kBucketBits];
@@ -459,7 +461,7 @@ void sample(kthread_t *game) {
             const auto top = std::max_element(callers.begin(), callers.end());
             if (!*top) break;
             n += std::snprintf(g_report + n, sizeof g_report - size_t(n), "CALLER %08lx %u\n",
-                               (unsigned long)(kStart + (uint32_t(top - callers.begin()) << 7)), unsigned(*top));
+                               (unsigned long)(kStart + (uint32_t(top - callers.begin()) << 8)), unsigned(*top));
             *top = 0;
         }
         g_report_ready = true;
