@@ -111,6 +111,11 @@ public:
     // have not changed since is not composed, and keeps its pixels.
     uint64_t background16_generation() const { return back16_generation_; }
     uint64_t foreground16_generation() const { return front16_generation_; }
+    // Since the start, per layer buffer (0 back, 1 front): composes, those
+    // of every line, and the lines composed.
+    uint64_t composes(int cat) const { return composes_[cat]; }
+    uint64_t full_composes(int cat) const { return full_composes_[cat]; }
+    uint64_t composed_lines(int cat) const { return composed_lines_[cat]; }
     static uint16_t rgb565(uint32_t c) { return uint16_t(((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f)); }
     static uint16_t argb1555(uint32_t c) {
         return uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f));
@@ -222,6 +227,21 @@ private:
 #ifdef M2_DC_SPEED
     std::vector<uint16_t> screen16_, sys24_16_;
     bool back_dirty_ = true, front_dirty_ = true; // a tile of that category rebuilt, or a pen changed
+    // Every line of that layer buffer to compose again: a pen or the
+    // registers, line tables or window masks changed. Otherwise only the
+    // lines that show a row of tiles build_layer rebuilt (dirty_rows_:
+    // [category][pixmap layer][row of tiles]) are composed (line_filter_).
+    bool back_full_ = true, front_full_ = true;
+    uint8_t dirty_rows_[2][4][64] = {};
+    const uint8_t *line_filter_ = nullptr; // compose only lines y with line_filter_[y] set (nullptr: all)
+    bool composed_uses_[2][4] = {}; // [category][pixmap layer]: the layer (or its split pair) had such tiles when composed
+    uint64_t composed_lines_[2] = {}, composes_[2] = {}, full_composes_[2] = {}; // counts (lines composed, and how)
+    bool layer_has(int L, int cat) const {
+        for (int r = 0; r < 64; ++r)
+            if (row_tiles_[L][r][cat]) return true;
+        return false;
+    }
+    void compose16(int cat, const bool uses[4], const uint8_t *extra_lines);
     std::vector<uint8_t> regs_copy_;              // tile RAM 0x8000-0xdfff (line tables, registers, masks) as composed
     uint64_t back16_generation_ = 0, front16_generation_ = 0;
     uint16_t pens565_[8192], pens1555_[8192]; // pens_ as rgb565 and argb1555 (palette_w keeps them)

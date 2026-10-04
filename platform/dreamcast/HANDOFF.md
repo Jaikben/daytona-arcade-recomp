@@ -634,11 +634,62 @@ PVR's own translucent sort is per triangle, not the game's z order, so
 direct submission would still need the order kept. Not worth its
 complexity for that.
 
+## Tile layers: only the lines that changed
+
+`Video::compose16` (`video.cpp`, M2_DC_SPEED) composes a 16-bit layer
+buffer (back or front) again only on the lines that can differ:
+- **Rows of tiles rebuilt.** `build_layer` marks the rows it rebuilt, per
+  category and pixmap layer (`dirty_rows_`). Screen line y shows pixmap row
+  `(y + vscroll) & 511` of a layer, or of its split pair, in every path of
+  `draw()`.
+- **Line-scroll entries.** With line scroll on (scroll word bit 15), a
+  layer's line-scroll table entries that changed mark only their lines.
+- **Every line** when a pen changes, or when a layer the buffer uses (now or
+  at the last compose) changes another of its inputs: vscroll, mode word,
+  window mask, or the scroll word outside line-scroll mode.
+
+`draw_rect` and `tilemap_draw` skip lines outside `line_filter_`. Exact:
+dcmemcheck's per-frame layer hashes for race_basic and attract_long (15,000
+frames, frame skip 2) are identical to the M2_DC_SPEED-off references.
+
+race_basic, every 2nd frame drawn: 237.0 -> 228.5 s (tile layers 5.6 -> 4.1
+ms a frame). The front layer (the HUD) went from 384 lines on every drawn
+frame to 128 lines on average (528 of 2146 composes still whole). The back
+layers scroll and cover nearly every line, so they stay whole (1611 of 1749
+composes). Marking only the rows of a sideways-scrolled layer that have
+tiles made no difference (they have tiles on nearly every line) and was
+taken out.
+
+## Where the time is now (race, every 2nd frame drawn, Flycast)
+
+- **PROFILE waits line** (frontend timers): disc reads for ROM pages, the
+  sound frame and serial printing together under 1 ms a frame. The core,
+  geometry, tile and draw figures add up to the frame. `genwait_wait` in a
+  `--sample` profile is the sampler's own report being printed, not a wait
+  in the game.
+- **All samples** (`--sample` now also prints `COARSE` 16 KB buckets, every
+  other report; `pc_profile.py` sums them): geometrizer about 17%, generated
+  i960 code 15%, tile layers 15% (before the change above), the rest of the
+  runtime (board memory and port access, interrupts) 13%, generated TGP
+  code 9%. The i960 code's samples are spread over a dozen chunks (the
+  busiest 3.5%), so compiling the hot ones at -O2 would gain about 1%.
+- **Flycast models neither the SH-4's caches nor memory latency.** Its
+  timing is about one cycle per SH-4 instruction, so these figures measure
+  instruction counts. On a console, cache misses add to it (16 KB of
+  operand cache against 1 MB of work RAM, the ROM page cache and the layer
+  buffers).
+- **A double in the geometrizer:** `distance = coef * fabs(dotp) * lod`
+  (`::fabs`, the double one) switches the FPU to double precision and back
+  for each polygon. The desktop computes the same in double, so changing it
+  changes the polygons' LOD bits. Small; not changed.
+
 ## What not to re-propose
 
 - The i960's generated code at -O2: after the frame-wait skip it runs about
-  32,000 instructions a frame and its chunks are under 1% of the samples;
-  the RAM is better spent elsewhere.
+  32,000 instructions a frame. Its samples are 15% of all (the COARSE
+  histogram; the 200 busiest 64-byte buckets missed them, which had made
+  them look under 1%), spread over a dozen chunks; -O2 for everything does
+  not fit in RAM.
 
 - Measurement hooks in `src/runtime`: not needed. `romuse` watches the ROM
   buffers from outside with guard pages, `ftzcheck` sets MXCSR.

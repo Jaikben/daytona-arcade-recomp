@@ -35,14 +35,17 @@ extern "C" void *sbrk(ptrdiff_t increment); // newlib's; not declared under stri
 // line came out cut in two). Timed, so that a game thread stuck while
 // printing cannot silence the watchdog.
 mutex_t g_print = MUTEX_INITIALIZER;
+uint64_t g_say_us = 0; // microseconds in say (PROFILE waits)
 void say(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void say(const char *format, ...) {
+    const uint64_t t0 = timer_us_gettime64();
     const bool locked = mutex_lock_timed(&g_print, 200) == 0;
     va_list args;
     va_start(args, format);
     std::vprintf(format, args);
     va_end(args);
     if (locked) mutex_unlock(&g_print);
+    g_say_us += timer_us_gettime64() - t0;
 }
 
 // Large C++ allocations (256 KB and up) with the caller, for addr2line: main
@@ -103,7 +106,7 @@ public:
         s.used = ++clock_;
         return &data_[size_t(slot) * kPageSize];
     }
-    uint64_t misses = 0, pages_read = 0;
+    uint64_t misses = 0, pages_read = 0, read_us = 0; // read_us: in the disc reads
     volatile bool in_read = false; // a disc read in progress (the watchdog's)
     bool verbose = false;          // print each read (found the thrashing at frame 188)
 
@@ -122,8 +125,10 @@ private:
         std::vector<uint8_t> run(size_t(n) * kPageSize);
         if (verbose) say("GAME read region %d page %u x%u ...", r, unsigned(index), unsigned(n));
         in_read = true;
+        const uint64_t t0 = timer_us_gettime64();
         std::fseek(files_[r], long(index) << kPageBits, SEEK_SET);
         const size_t got = std::fread(run.data(), kPageSize, n, files_[r]);
+        read_us += timer_us_gettime64() - t0;
         in_read = false;
         if (verbose) say(" done\n");
         if (got != n) throw std::runtime_error("ROM read failed");
@@ -255,7 +260,7 @@ void *run_game(void *) {
         // and scheduling; geometry; video: the tile layers) and the PVR
         // renderer, in microseconds, averaged over 60 frames.
         game.set_profile_clock([]() -> uint64_t { return timer_us_gettime64(); });
-        uint64_t prof_core = 0, prof_geo = 0, prof_video = 0, prof_draw = 0;
+        uint64_t prof_core = 0, prof_geo = 0, prof_video = 0, prof_draw = 0, prof_audio = 0;
         // The single-cabinet settings (test mode), as tools/common/nvram.h.
         const auto eeprom = load_file(std::string(kRomDir) + "/ioboard_eeprom.bin");
         const auto backup = load_file(std::string(kRomDir) + "/backup_ram.bin");
@@ -292,6 +297,7 @@ void *run_game(void *) {
         say("GAME constructed, heap %.2f MB, %.2f MB free\n", heap_mb(), free_mb());
 
         const uint64_t t0 = timer_ms_gettime64();
+        uint64_t report_t0 = timer_us_gettime64();
         for (int frame = 1; !kInputs[0] || frame <= kFrames; frame++) {
             g_running = 1;
             rt::Inputs in;
@@ -313,8 +319,10 @@ void *run_game(void *) {
                 prof_video += fp.video;
             }
             g_running = 0;
+            const uint64_t a0 = timer_us_gettime64();
             if (audio) audio->frame(game.board().take_sound_bytes());
             else (void)game.board().take_sound_bytes();
+            prof_audio += timer_us_gettime64() - a0;
             g_frame = frame;
             if (frame % 60 == 0) { // the lockstep check: the same line as tools/tracecheck on the desktop
                 uint64_t h = 0xcbf29ce484222325ULL;
@@ -339,6 +347,22 @@ void *run_game(void *) {
                 say("PROFILE draw, ms per drawn frame: layers %.1f sort+wait %.1f materials %.1f polygons %.1f\n",
                     renderer.step_us[0] / drawn_us, renderer.step_us[1] / drawn_us, renderer.step_us[2] / drawn_us,
                     renderer.step_us[3] / drawn_us);
+                say("PROFILE waits, ms per frame: ROM disc reads %.2f sound %.2f printing %.2f; frame total %.1f\n",
+                    rom->read_us / frame_us, prof_audio / frame_us, g_say_us / frame_us,
+                    (timer_us_gettime64() - report_t0) / frame_us);
+                {
+                    const rt::Video &v = game.board().video();
+                    say("PROFILE layers composed (since the start): back %llu (%llu whole, %.0f lines each), "
+                        "front %llu (%llu whole, %.0f lines each)\n",
+                        (unsigned long long)v.composes(0), (unsigned long long)v.full_composes(0),
+                        v.composes(0) ? double(v.composed_lines(0)) / double(v.composes(0)) : 0.0,
+                        (unsigned long long)v.composes(1), (unsigned long long)v.full_composes(1),
+                        v.composes(1) ? double(v.composed_lines(1)) / double(v.composes(1)) : 0.0);
+                }
+                rom->read_us = 0;
+                prof_audio = 0;
+                g_say_us = 0;
+                report_t0 = timer_us_gettime64();
                 for (uint64_t &us : renderer.step_us) us = 0;
                 prof_core = prof_geo = prof_video = prof_draw = 0;
             }
@@ -380,8 +404,14 @@ void sample(kthread_t *game) {
     // Callers of memcpy and memset (leaf functions: PR is where they were
     // called from), 128-byte buckets, reported as "CALLER address count".
     std::vector<uint16_t> callers(buckets / 2); // 128-byte buckets
+    // Every sample also in 16 KB buckets, all reported ("COARSE address
+    // count"): the long tail the 200 busiest small buckets leave out (the
+    // generated code is megabytes, a few samples in each small bucket).
+    constexpr uint32_t kCoarseBits = 14;
+    std::vector<uint16_t> coarse(((uint32_t(uintptr_t(end)) - kStart) >> kCoarseBits) + 1);
     const uint32_t copy = uint32_t(uintptr_t(&memcpy)), fill = uint32_t(uintptr_t(&memset));
-    uint32_t taken = 0, outside = 0;
+    uint32_t taken = 0, outside = 0, coarse_taken = 0;
+    bool coarse_turn = false;
     while (!g_done) {
         thd_sleep(1);
         const uint32_t pc = game->context.pc;
@@ -393,10 +423,27 @@ void sample(kthread_t *game) {
         if (pc >= kStart && ((pc - kStart) >> kBucketBits) < buckets) {
             uint16_t &c = counts[(pc - kStart) >> kBucketBits];
             if (c < 0xffff) ++c;
+            uint16_t &k = coarse[(pc - kStart) >> kCoarseBits];
+            if (k < 0xffff) ++k;
         } else {
             ++outside;
         }
+        ++coarse_taken;
         if (++taken < 10000 || g_report_ready) continue; // (the last report not printed yet: keep counting)
+        if (coarse_turn) { // every other report: the 16 KB buckets since the last of these (no room for both)
+            int n = std::snprintf(g_report, sizeof g_report, "COARSE frame %d: %lu samples\n", g_frame,
+                                  (unsigned long)coarse_taken);
+            for (size_t k = 0; k < coarse.size() && sizeof g_report - size_t(n) > 32; ++k)
+                if (coarse[k])
+                    n += std::snprintf(g_report + n, sizeof g_report - size_t(n), "COARSE %08lx %u\n",
+                                       (unsigned long)(kStart + (uint32_t(k) << kCoarseBits)), unsigned(coarse[k]));
+            std::fill(coarse.begin(), coarse.end(), 0);
+            coarse_taken = 0;
+            coarse_turn = false;
+            g_report_ready = true;
+            continue; // (the small buckets keep counting into the next report)
+        }
+        coarse_turn = true;
         int n = std::snprintf(g_report, sizeof g_report, "SAMPLE frame %d: %lu samples, %lu outside the program\n",
                               g_frame, (unsigned long)taken, (unsigned long)outside);
         for (int k = 0; k < 200; ++k) {

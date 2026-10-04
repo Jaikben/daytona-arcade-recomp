@@ -78,6 +78,7 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
         system24_palette_generation_ = system24_texture_generation_ + 1;
 #ifdef M2_DC_SPEED
         back_dirty_ = front_dirty_ = true;
+        back_full_ = front_full_ = true;
 #endif
     }
     pens_[offset & 0x1fff] = pen;
@@ -148,8 +149,12 @@ void Video::build_layer(int layer) {
         uint8_t &cls = tile_class_[layer][t];
         const uint32_t row = t >> 6;
         // The layer buffers of the old and the new category change.
-        if (cls & 0x80) (cls & 1 ? front_dirty_ : back_dirty_) = true;
+        if (cls & 0x80) {
+            (cls & 1 ? front_dirty_ : back_dirty_) = true;
+            dirty_rows_[cls & 1][layer][row] = 1;
+        }
         (category ? front_dirty_ : back_dirty_) = true;
+        dirty_rows_[category][layer][row] = 1;
         if (cls & 0x80) {
             --row_tiles_[layer][row][cls & 1];
             if (cls & 2) --row_opaque_[layer][row][cls & 1];
@@ -299,7 +304,9 @@ M2_PIXEL_TEMPLATE void Video::draw_rect(std::vector<M2_PIXEL> &dm, const uint16_
 #ifdef M2_DC_SPEED
         // A row where no tile of this category has an opaque pixel draws
         // nothing (unless drawing opaque).
-        if (!(flags & DRAW_OPAQUE) && row_empty(L, uint32_t(sy + y), tpri & 1, false)) {
+        // (Or a line not being composed again: compose16.)
+        if ((line_filter_ && !line_filter_[yy1 + y]) ||
+            (!(flags & DRAW_OPAQUE) && row_empty(L, uint32_t(sy + y), tpri & 1, false))) {
             source += 512;
             trans += 512;
             dest += dw_;
@@ -383,6 +390,7 @@ M2_PIXEL_TEMPLATE void Video::tilemap_draw(std::vector<M2_PIXEL> &dm, int L, int
     const uint8_t *const fl = flags_[L].data();
     const int x0 = std::max(minx, 0), x1 = std::min(maxx, dw_ - 1);
     for (int y = std::max(miny, 0); y <= std::min(maxy, H - 1); y++) {
+        if (line_filter_ && !line_filter_[y]) continue;                         // not composed again (compose16)
         if (row_empty(L, uint32_t(y + sy), cat, flags & DRAW_OPAQUE)) continue; // no pixel of this row can match
         const size_t row = size_t((y + sy) & 511) * 512;
         M2_PIXEL *const out = dm.data() + size_t(y) * size_t(dw_);
@@ -551,6 +559,67 @@ const std::vector<GeoPoly> &Video::gpu_polys() const {
     return gpu_polys_ ? *gpu_polys_ : empty;
 }
 
+#ifdef M2_DC_SPEED
+// One of the Dreamcast's 16-bit layer buffers (cat 0: the back layers over
+// pen 0; 1: the front layers over see-through), kLayerStride wide. Every
+// line when its full flag is set; otherwise only the lines that show a row
+// of tiles rebuilt since (screen line y shows pixmap row (y + vscroll) & 511
+// of the layer, or of its pair in the split modes: draw()'s every path),
+// and those in extra_lines (line-scroll entries changed; may be null),
+// cleared and drawn again: the same pixels as composing all of it.
+void Video::compose16(int cat, const bool uses[4], const uint8_t *extra_lines) {
+    bool &dirty = cat ? front_dirty_ : back_dirty_;
+    bool &full = cat ? front_full_ : back_full_;
+    std::vector<uint16_t> &buffer = cat ? sys24_16_ : screen16_;
+    const uint16_t clear = cat ? uint16_t(0) : pens565_[0];
+    if (dirty || full || extra_lines) {
+        uint8_t lines[H];
+        int count = H;
+        if (!full) {
+            uint32_t vscroll[4];
+            for (uint32_t l = 0; l < 4; ++l) vscroll[l] = tile(0x5004 + l);
+            count = 0;
+            for (int y = 0; y < H; ++y) {
+                uint8_t d = extra_lines ? extra_lines[y] : 0;
+                for (int l = 0; l < 4 && !d; ++l) {
+                    const uint32_t r = ((uint32_t(y) + vscroll[l]) & 511) >> 3;
+                    d = dirty_rows_[cat][l][r] | dirty_rows_[cat][l ^ 1][r];
+                }
+                lines[y] = d;
+                count += d;
+            }
+        }
+        if (count) {
+            if (full) {
+                std::fill(buffer.begin(), buffer.end(), clear);
+            } else {
+                for (int y = 0; y < H; ++y)
+                    if (lines[y]) std::fill_n(buffer.data() + size_t(y) * kLayerStride, kLayerStride, clear);
+                line_filter_ = lines;
+            }
+            const int dw = dw_;
+            dw_ = kLayerStride; // composed kLayerStride wide: the rows are the texture's
+            if (cat) {
+                for (int layer = 3; layer >= 0; --layer) draw(buffer, (layer << 1) | 1, 0, pens1555_);
+                ++front16_generation_;
+            } else {
+                for (int layer = 3; layer >= 2; --layer) draw(buffer, layer << 1, DRAW_OPAQUE, pens565_);
+                for (int layer = 1; layer >= 0; --layer) draw(buffer, layer << 1, 0, pens565_);
+                ++back16_generation_;
+            }
+            dw_ = dw;
+            line_filter_ = nullptr;
+            ++composes_[cat];
+            if (full) ++full_composes_[cat];
+            composed_lines_[cat] += uint64_t(count);
+        }
+    }
+    dirty = full = false;
+    std::memset(dirty_rows_[cat], 0, sizeof dirty_rows_[cat]);
+    for (int l = 0; l < 4; ++l) composed_uses_[cat][l] = uses[l];
+}
+#endif
+
 void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem) {
     gpu_polys_ = &polys;
     gpu_windows_ = windows;
@@ -619,27 +688,56 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
         // Only a layer whose inputs changed since it was last composed (the
         // same inputs give the same pixels): scroll, line tables and window
         // masks live in tile RAM 0x8000-0xdfff, compared with a copy.
+        // Per pixmap layer: draw() reads its scroll words (0x5000 + L,
+        // 0x5004 + L), the mode word (0x5004 + (L & 2)), its window mask
+        // (0x6000 or 0x6800) and, with line scroll on (0x5000 + L bit 15,
+        // when the rest of that word is not read), its line-scroll table
+        // (0x4000 + 0x200 L, a word for each line). A change to any of them
+        // composes every line, except table entries in line-scroll mode:
+        // only those lines (scroll_lines).
         constexpr size_t kRegs = 0x8000, kRegsSize = 0x6000;
-        if (regs_copy_.empty() || std::memcmp(tile_ram_ + kRegs, regs_copy_.data(), kRegsSize) != 0) {
+        bool state_changed[4] = {}, lines_changed[4] = {};
+        uint8_t scroll_lines[4][H];
+        if (regs_copy_.empty()) {
             regs_copy_.assign(tile_ram_ + kRegs, tile_ram_ + kRegs + kRegsSize);
-            back_dirty_ = front_dirty_ = true;
+            for (bool &c : state_changed) c = true;
+        } else if (std::memcmp(tile_ram_ + kRegs, regs_copy_.data(), kRegsSize) != 0) {
+            auto old_word = [&](uint32_t word) { return le16(regs_copy_.data(), word - kRegs / 2); };
+            auto differs = [&](uint32_t word, uint32_t words) {
+                const size_t at = size_t(word) * 2;
+                return std::memcmp(tile_ram_ + at, regs_copy_.data() + (at - kRegs), size_t(words) * 2) != 0;
+            };
+            for (uint32_t l = 0; l < 4; ++l) {
+                const uint16_t h = tile(0x5000 + l), was = old_word(0x5000 + l);
+                state_changed[l] = differs(0x5004 + l, 1) || differs(0x5004 + (l & 2), 1) ||
+                                   differs(l & 2 ? 0x6800 : 0x6000, 0x800) || ((h ^ was) & 0x8000) ||
+                                   (!(h & 0x8000) && h != was);
+                if (!state_changed[l] && (h & 0x8000) && differs(0x4000 + 0x200 * l, H)) {
+                    lines_changed[l] = true;
+                    for (int y = 0; y < H; ++y)
+                        scroll_lines[l][y] = tile(0x4000 + 0x200 * l + uint32_t(y)) != old_word(0x4000 + 0x200 * l + uint32_t(y));
+                }
+            }
+            regs_copy_.assign(tile_ram_ + kRegs, tile_ram_ + kRegs + kRegsSize);
         }
-        const int dw = dw_;
-        dw_ = kLayerStride; // composed kLayerStride wide: the rows are the texture's
-        if (back_dirty_) {
-            std::fill(screen16_.begin(), screen16_.end(), pens565_[0]);
-            for (int layer = 3; layer >= 2; --layer) draw(screen16_, layer << 1, DRAW_OPAQUE, pens565_);
-            for (int layer = 1; layer >= 0; --layer) draw(screen16_, layer << 1, 0, pens565_);
-            back_dirty_ = false;
-            ++back16_generation_;
+        for (int cat = 0; cat < 2; ++cat) {
+            // A layer draws its own tiles and, in the split modes (mode word
+            // bits 13-14), its pair's.
+            bool uses[4];
+            for (int l = 0; l < 4; ++l)
+                uses[l] = layer_has(l, cat) || ((tile(0x5004 + uint32_t(l & 2)) & 0x6000) && layer_has(l ^ 1, cat));
+            uint8_t extra[H] = {};
+            bool any_extra = false;
+            for (int l = 0; l < 4; ++l) {
+                if (!(uses[l] || composed_uses_[cat][l])) continue;
+                if (state_changed[l]) (cat ? front_full_ : back_full_) = true;
+                if (lines_changed[l]) {
+                    any_extra = true;
+                    for (int y = 0; y < H; ++y) extra[y] |= scroll_lines[l][y];
+                }
+            }
+            compose16(cat, uses, any_extra ? extra : nullptr);
         }
-        if (front_dirty_) {
-            std::fill(sys24_16_.begin(), sys24_16_.end(), uint16_t(0));
-            for (int layer = 3; layer >= 0; --layer) draw(sys24_16_, (layer << 1) | 1, 0, pens1555_);
-            front_dirty_ = false;
-            ++front16_generation_;
-        }
-        dw_ = dw;
         profile_.tile_draw += ticks() - before;
         profile_.layers_rebuilt = true;
         rendered_now_ = false;
