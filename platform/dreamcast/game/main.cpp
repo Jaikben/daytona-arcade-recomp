@@ -70,7 +70,7 @@ constexpr size_t kCachePages = 512; // 2 MB of ROM pages
 constexpr size_t kVertexBuffer = 448 * 1024; // the busiest frame: 2,182 polygons, ~340 KB with a header each
 // kDrawEvery (frames per picture: 1 every frame, 2, 3 or 4) is in inputs.h,
 // from build_dreamcast.py --draw-every.
-constexpr int kDrawDistance = -1;    // the runtime's draw distance (-2..2): one cell around the car
+constexpr int kDrawDistance = 0;     // the runtime's draw distance (-2..2): 0, the game's own
 constexpr int kReport = 300;         // frames between PROFILE and GAME frame lines
 constexpr int kFrames = 6000;        // a recorded script: then GAME DONE (a race is 6,000 frames); the pad: no end
 

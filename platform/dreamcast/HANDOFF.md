@@ -114,7 +114,13 @@ out of memory; this one is 320 KB bigger, 0.65 MB free in the race).
 compiles the rewritten code on the desktop: identical to the reference at
 every frame of race_basic and attract_long.
 
-**Draw distance -1** (the user's choice, `kDrawDistance` in `game/main.cpp`):
+**Draw distance: back to the game's own (0)** at the user's request
+(`kDrawDistance` in `game/main.cpp`); the lockstep reference is plain
+`tools/tracecheck` again. race_basic, every 4th frame drawn: 207 s, about 29
+frames/s (core 25.4, geometry 7.0, tile layers 3.9, drawing 2.1 ms a
+frame), all 100 checkpoints match.
+
+**Draw distance -1** (was the user's choice for a while):
 the game's own list of course cells is cut to those around the car, so the
 distant grandstand and treelines are not drawn (screenshot compared at the
 same moment); the i960 and TGP instruction counts stay the same, the
