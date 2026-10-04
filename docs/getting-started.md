@@ -205,6 +205,33 @@ anyway, with the reason. For one run only:
 
     build/daytona --rom roms/daytona93.zip --autostart
 
+## Dreamcast (in progress)
+
+A Dreamcast build of the game, from the `daytona` (Revision A) set only. It
+runs in the Flycast emulator; it is not yet tested on a console, and has no
+sound yet. Details: [platform/dreamcast/README.md](../platform/dreamcast/README.md).
+
+You need, besides the above: [DreamSDK](https://dreamsdk.org/) (R4, at
+`C:/DreamSDK`) on Windows, or a KallistiOS toolchain elsewhere, and
+[Flycast](https://github.com/flyinghead/flycast) to run it.
+
+1. Run setup as above, then recompile the Revision A set into its own
+   build folder:
+
+       python scripts/recompile.py --set daytona --build-dir build-daytona
+
+2. Start `build-daytona`'s game once, set it to a single cabinet in test
+   mode, and quit: the Dreamcast build starts from those saved settings.
+3. Build the Dreamcast disc image and run it in Flycast:
+
+       python platform/dreamcast/build_dreamcast.py game
+
+   The first time it also sets up KallistiOS. The disc image is
+   `build-daytona/dreamcast/game.cdi` (`--no-run` builds it without
+   starting Flycast). It plays on the controller in port A: Y coin, Start,
+   stick or D-pad to steer, triggers for the pedals, D-pad up/down to shift.
+   `--draw-every N` sets how many frames per picture (default 2).
+
 ## Updating
 
 To get a newer version, from the project folder:

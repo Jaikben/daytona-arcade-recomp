@@ -512,6 +512,20 @@ not changed.
   which redirecting stdout does not capture; `flycast_run.py` reads the
   console buffer.
 
+## Where the core's time goes (race, every 2nd frame)
+
+Sampled: i960 memory access about 14% of the frame, the TGP side 11%, i960
+call/return 3%, the i960 code and lockstep 2.5%; geometrizer 21%, tile
+layers 17%. Counted on the desktop (frames 0-6000): the i960's loads and
+stores are mostly work RAM (about 57 million) and the TGP's ports at
+0x008xxxxx (about 26 million, mostly FIFO writes).
+
+Tried for the work-RAM accesses with computed addresses, not kept: an inline
+plain-RAM check in front of each of the 12,500 calls (`gen::rd32` and
+friends, through `fast_gen.py`). Not inlined (GCC at -Os made them calls):
+slower, 278.6 s against 272.5. Forced inline: the program grew 960 KB (3.9
+to 4.9 MB) and the race did not finish (0.86 MB was free).
+
 ## What not to re-propose
 
 - The i960's generated code at -O2: after the frame-wait skip it runs about

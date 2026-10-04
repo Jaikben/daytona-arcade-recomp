@@ -10,8 +10,8 @@ with link play).
 
 Status: **the game runs and plays in Flycast**, drawn by the PVR with
 textures and both tile layers; a whole recorded race matches the desktop at
-every checkpoint. Slow (about 4 frames/s in Flycast), no sound yet, not yet on
-a console. Details and the plan: [HANDOFF.md](HANDOFF.md).
+every checkpoint. About 22 game frames/s in Flycast with every 2nd frame
+drawn (the arcade runs 57.52), no sound yet, not yet on a console. Details and the plan: [HANDOFF.md](HANDOFF.md).
 
 ## Requirements
 
