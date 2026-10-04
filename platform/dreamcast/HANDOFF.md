@@ -726,6 +726,31 @@ the references; the same polygons drawn. race_basic 212.8 -> 205.3 s
   /c/), and make then never matched that object's dependencies: a changed
   `game/inputs.h` (a `--sample` build) did not rebuild `main.o`.
 
+## Instruction counts in registers
+
+`++ls.count` (a 64-bit count in memory) compiled to nine SH-4 instructions
+on every i960 instruction; a register-only instruction is otherwise two to
+five. `fast_gen.py` now counts in a local (`n`) and adds it to `ls.count`
+before every instruction that is not register-only (its body may call the
+runtime, which reads the count), at `recheck:` and at `dispatch:` (before
+every return). race_basic 205.3 -> 197.1 s (core 23.3 -> 21.7 ms), 0.11 MB
+more RAM free (smaller code). dcfastcheck identical to the references on
+every frame (race_basic, attract_long); all 100 checkpoints match.
+
+The TGP's code did the same with `Tgp::count`. `fast_gen.py` run on
+`gen/daytona_tgp` (the Makefile's new `GEN_TGP`) keeps it in a local of
+`tgpgen::run`, stored back at every return: nothing `run` calls reads it.
+197.1 -> 195.1 s (core 21.2 ms). The TGP code it writes refuses to build
+with M2TGP_WITH_HOOK (a hook would see a stale count).
+
+- **Measured, not kept:** the board's single-page read and write caches
+  (`fast_read_page_`) as two entries: no change (206.3 s against 205.3). Its
+  slow path per frame: about 1,900 ROM reads, 1,800 RAM accesses, 950
+  device accesses.
+- **ipprof** (desktop): apart from the frame-wait loop at 0x1394 (76% of
+  the i960's instructions, skipped), nothing stands out: the busiest 64-byte
+  block is 0.4%. The other loop polling 0x500000 (0x13d4) is negligible.
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the

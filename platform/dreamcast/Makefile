@@ -89,6 +89,9 @@ SOFTFLOAT_SRC := $(shell sed -n 's|.*$${SOFTFLOAT_DIR}/source/\(.*\.c\).*|\1|p' 
 # desktop's own.
 GEN_I960 ?= $(GEN)/$(SET)
 GEN_SRC := $(notdir $(wildcard $(GEN_I960)/*.cpp))
+# The TGP code: fast_gen.py's rewrite (its count in a local; GEN_TGP from
+# build_dreamcast.py) or the desktop's own.
+GEN_TGP ?= $(GEN)/$(SET)_tgp
 
 GAME_OBJ := $(RUNTIME:%=$(OUT)/game/runtime/%.o) \
             $(addprefix $(OUT)/game/i960/,isa.o decode.o reach.o fp.o) $(OUT)/game/trace/trace.o \
@@ -182,7 +185,7 @@ $(OUT)/game/gen/%.o: $(GEN_I960)/%.cpp
 	kos-c++ $(GEN_FLAGS) -c $< -o $@ && $(FIXDEP)
 # The TGP's code at -O2: small (2,024 TGP words), and at -Os its template
 # helpers (alu_pre, write_reg, ...) become calls.
-$(OUT)/game/gen_tgp/%.o: $(GEN)/$(SET)_tgp/%.cpp
+$(OUT)/game/gen_tgp/%.o: $(GEN_TGP)/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(O3FLAGS) $(GAME_DEFS) -Wno-unused-label -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/gen_snd/%.o: $(GEN)/$(SET)_snd/%.cpp

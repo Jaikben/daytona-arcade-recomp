@@ -200,12 +200,15 @@ def run_test(args, name, markers, timeout, start):
         if not (nvram / "ioboard_eeprom.bin").is_file():
             sys.exit(f"build_dreamcast: no saved settings in {nvram}: set a single cabinet in test mode with "
                      "build-daytona's daytona once (--nvram DIR)")
-        # The i960 code with fewer lockstep checks (scripts/fast_gen.py; it
-        # rewrites only the files whose output changes).
+        # The i960 code with fewer lockstep checks and the TGP code with its
+        # count in a local (scripts/fast_gen.py; it rewrites only the files
+        # whose output changes).
         fast = host / "dreamcast" / "gen_fast" / args.set
+        fast_tgp = host / "dreamcast" / "gen_fast" / f"{args.set}_tgp"
         run([sys.executable, HERE / "scripts" / "fast_gen.py", host / "gen" / args.set, fast])
+        run([sys.executable, HERE / "scripts" / "fast_gen.py", host / "gen" / f"{args.set}_tgp", fast_tgp])
         pack = sound_pack(args, host, nvram)
-        game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} GEN_I960={msys_path(fast)} "
+        game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} GEN_I960={msys_path(fast)} GEN_TGP={msys_path(fast_tgp)} "
                 f"ROMS={msys_path(host / 'rom_cache' / 'daytona')} NVRAM={msys_path(nvram)} "
                 f"SOUND_PACK={msys_path(pack)} NATIVE_GEO={int(args.native_geo)} ")
         # The recorded input script, compiled in (game/inputs.h; empty: the

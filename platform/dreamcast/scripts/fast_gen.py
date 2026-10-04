@@ -14,6 +14,11 @@ it may run before the next lockstep event, worked out at the last full check
   (an interrupt line, a callback, the count jumping), makes the next
   instruction check in full;
 - dispatch, and any body that jumps away, start the count again (left = 1);
+- the instruction count is kept in a local (`n`, one register add instead
+  of a 64-bit add in memory) and added to ls.count where anything else can
+  see it: before any instruction that is not register-only (its body may
+  call the runtime, which reads the count), at recheck and at dispatch (so
+  before every return);
 - a load or store at a fixed, aligned work-RAM address (0x00500000-0x005fffff,
   plain RAM nothing watches) goes straight to it (gen::wram_*), and such an
   instruction counts as register-only. The frame-wait byte (0x00500000, read
@@ -86,11 +91,16 @@ def rewrite(source):
         out.append(line)
         if line == "    uint32_t &AC = c.m_AC;":
             out.append("    uint32_t left = 1; // instructions until the next lockstep event (fast_gen.py)")
+            out.append("    uint32_t n = 0;    // instructions run and not yet added to ls.count (fast_gen.py)")
         elif line == "dispatch:":
+            out.append("    ls.count += n;")
+            out.append("    n = 0;")
             out.append("    left = 1;")
         elif line == "    if (ls.finished()) return;":
             out += ["    goto resume;",
                     "recheck: // left ran out at the instruction at c.m_IP",
+                    "    ls.count += n;",
+                    "    n = 0;",
                     "    left = ls.check(c.m_IP);",
                     "    if (!left) goto dispatch;",
                     "    ++left; // the instruction decrements it again",
@@ -116,6 +126,9 @@ def rewrite(source):
             raise SystemExit(f"fast_gen: unexpected instruction at {line!r}")
         k = unit.index(COUNT)
         body, tail = [direct_wram(b, stats) for b in unit[3:k]], unit[k:]
+        if any("ls.count" in t for t in body + tail[1:]):
+            raise SystemExit(f"fast_gen: ls.count used inside the instruction at {line!r}")
+        tail = ["    ++n;"] + tail[1:]
         out.append(unit[0])
         if pure(body):
             stats["pure"] += 1
@@ -125,6 +138,8 @@ def rewrite(source):
             stats["other"] += 1
             out.append(unit[1])
             out.append("    if (!--left) goto recheck;")
+            out.append("    ls.count += n; // the runtime may read the count")
+            out.append("    n = 0;")
             if jumps(body):
                 out.append("    left = 1;")
                 out += body
@@ -134,6 +149,33 @@ def rewrite(source):
                 out.append("    if (ls.epoch != epoch) left = 1; }")
         out += tail
     return "\n".join(out), stats
+
+
+TGP_RUN = "void run(Tgp &t, uint64_t budget) {\n"
+
+
+def rewrite_tgp(source):
+    """The TGP's generated code (tgp_gen.cpp): its instruction count kept in
+    a local of run() instead of Tgp::count, stored back at every return.
+    Nothing run() calls reads the count (the board's FIFOs, memory and bank
+    hooks do not), so the count everything else sees is the same; the
+    increment is a register add instead of a 64-bit add through memory."""
+    start = source.index(TGP_RUN) + len(TGP_RUN)
+    end = source.index("\n}\n\n} // namespace rt::tgpgen")
+    body = source[start:end]
+    if "t.hook" in body or "count = " in body:
+        raise SystemExit("fast_gen: unexpected tgp_gen.cpp")
+    body = re.sub(r"\bt\.count\b", "count", body.replace("return;", "{ t.count = count; return; }"))
+    # (The stores back just made by the line above, spelled out again.)
+    body = body.replace("{ count = count; return; }", "{ t.count = count; return; }")
+    if re.search(r"\bt\.count\b", body.replace("{ t.count = count; return; }", "")):
+        raise SystemExit("fast_gen: tgp_gen.cpp uses the count elsewhere")
+    head = ("#ifdef M2TGP_WITH_HOOK\n"
+            "#error \"fast_gen.py's TGP code keeps the count in a local: a hook would not see it\"\n"
+            "#endif\n")
+    return (source[:start].replace('#include "runtime/tgp.h"\n', '#include "runtime/tgp.h"\n' + head, 1) +
+            "    uint64_t count = t.count; // (fast_gen.py) Tgp::count, stored back at every return\n" + body +
+            source[end:])
 
 
 def main():
@@ -148,10 +190,15 @@ def main():
             text, stats = rewrite(text)
             for k in total:
                 total[k] += stats[k]
+        elif f.name == "tgp_gen.cpp":
+            text = rewrite_tgp(text)
         out = dst / f.name
         if not out.is_file() or out.read_text() != text:
             out.write_text(text, newline="\n")
     n = total["pure"] + total["other"]
+    if not n:
+        print(f"fast_gen: {src.name}: no chunks (tgp_gen.cpp's count kept in a local)")
+        return
     print(f"fast_gen: {n} instructions, {total['pure']} register-only ({100 * total['pure'] / max(n, 1):.0f}%), "
           f"{total['wram']} work-RAM accesses direct")
 
