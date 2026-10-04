@@ -811,6 +811,16 @@ straight to it when it is in the same chunk (m2recomp does that); all
   board's last page and calling it without the virtual call: 180.0 s
   against 180.1.
 
+## Small renderer and geometrizer notes
+
+- `material_for` looks a material up in a 256-slot direct-mapped cache
+  (stamped per drawn frame) before the map: the same pointer. 176.9 ->
+  176.6 s (materials 1.7 -> 1.5 ms a drawn frame).
+- **Measured, not kept:** clipping on positions first so polygons clipped
+  away (19% of those not culled; 1.6% are cut) skip their texture reads,
+  re-clipping the cut ones with their coordinates: 179.3 s against 176.9
+  (the extra zeroing and copies cost more than the reads).
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the

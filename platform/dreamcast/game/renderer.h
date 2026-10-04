@@ -399,7 +399,10 @@ private:
     struct ColourSlot { uint32_t stamp, key, argb; };
     static constexpr uint32_t kColourSlots = 1024;
     ColourSlot colours_[kColourSlots] = {};
-    uint32_t colour_stamp_ = 1;
+    uint32_t colour_stamp_ = 1; // (the material slots' too: both move once a drawn frame)
+    struct MaterialSlot { uint64_t key; uint32_t stamp; const Material *material; };
+    static constexpr uint32_t kMaterialSlots = 256;
+    MaterialSlot material_slots_[kMaterialSlots] = {};
 
     uint32_t solid_color(const rt::GeoPoly &poly, const rt::VideoMem &mem) const {
         const uint32_t color = le16(mem.palram, ((poly.texheader[3] >> 6) & 0x3ff) + 0x1000);
@@ -476,8 +479,17 @@ private:
 
     const Material *material_for(const rt::GeoPoly &poly, const rt::VideoMem &mem) {
         const uint64_t key = material_key(poly);
+        // This frame's materials found so far, direct-mapped in front of the
+        // map (its nodes stay put until materials_.clear() at the frame's
+        // start, when the stamp moves): the same pointer, without the hash
+        // and bucket walk for most polygons.
+        MaterialSlot &slot = material_slots_[(key ^ key >> 9 ^ key >> 22) & (kMaterialSlots - 1)];
+        if (slot.stamp == colour_stamp_ && slot.key == key) return slot.material;
         auto found = materials_.find(key);
-        if (found != materials_.end()) return &found->second;
+        if (found != materials_.end()) {
+            slot = {key, colour_stamp_, &found->second};
+            return &found->second;
+        }
         const uint32_t bank_key = uint32_t(poly.texheader[1] & 0xff) | uint32_t((poly.texheader[0] >> 13) & 1) << 8;
         auto bank_found = banks_.find(bank_key);
         if (bank_found == banks_.end() && banks_used_ >= kBanks) { ++no_bank; return nullptr; }
@@ -501,7 +513,9 @@ private:
         pvr_poly_compile(&m.header, &cxt);
         m.u_scale = 1.0f / (8.0f * float(source->source_w));
         m.v_scale = 1.0f / (8.0f * float(source->source_h));
-        return &materials_.emplace(key, m).first->second;
+        const Material *made = &materials_.emplace(key, m).first->second;
+        slot = {key, colour_stamp_, made};
+        return made;
     }
 
     // A convex polygon as one strip: 0, 1, n-1, 2, n-2, ... (its header first
