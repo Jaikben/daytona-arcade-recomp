@@ -50,16 +50,17 @@ $installerDir = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Inst
 $vswhere = Join-Path $installerDir 'vswhere.exe'
 function Test-VsClang {
     if (-not (Test-Path $vswhere)) { return $false }
-    $found = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang `
+    $found = & $vswhere -latest -version '[17,18)' -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang `
         Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset -property installationPath
     return [bool]$found
 }
 
 if (-not $useMsvc -and -not (Test-VsClang)) {
-    # winget leaves an existing Visual Studio or Build Tools install as it is:
-    # add the Clang tools to it. Changing an install needs administrator
+    # winget leaves an existing Visual Studio 2022 or Build Tools install as it is:
+    # add the Clang tools to that version, never a newer side-by-side install.
+    # Changing an install needs administrator
     # rights, so the Visual Studio Installer runs elevated (Windows asks).
-    $vsPath = if (Test-Path $vswhere) { & $vswhere -latest -products * -property installationPath } else { $null }
+    $vsPath = if (Test-Path $vswhere) { & $vswhere -latest -version '[17,18)' -products * -property installationPath } else { $null }
     if ($vsPath) {
         Write-Host "== Adding the C++ and Clang tools to $vsPath (Windows will ask for permission)"
         $modify = @('modify', '--installPath', "`"$vsPath`"", '--passive', '--norestart', '--includeRecommended') +
@@ -74,8 +75,8 @@ if (-not $useMsvc -and -not (Test-VsClang)) {
         }
     }
     if (-not (Test-VsClang)) {
-        Write-Error ("The Clang tools for Visual Studio are not installed, and setup builds with Clang.`n" +
-            "Add them in the Visual Studio Installer: Modify > Individual components > " +
+        Write-Error ("The Clang tools for Visual Studio 2022 are not installed, and setup builds with Clang.`n" +
+            "Add them to Visual Studio 2022 in the Visual Studio Installer: Modify > Individual components > " +
             "'C++ Clang Compiler for Windows' and 'MSBuild support for LLVM (clang-cl) toolset', " +
             "then run setup.ps1 again. Or run setup.ps1 --msvc to build with Microsoft's compiler.")
     }

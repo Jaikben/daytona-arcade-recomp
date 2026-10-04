@@ -2,6 +2,15 @@
 
 ## Current state
 
+**Windows setup: pin Clang discovery to VS 2022.** Both setup scripts now
+select the documented VS 2022 toolchain when newer versions are installed
+alongside it. CMake receives the matching generator and installation path;
+mismatched cached configuration is cleared, preserving generated sources.
+
+Checked: three setup regression tests pass. Revision A built with VS 2022
+and Clang 19.1.5; 12 CTest tests passed, two optional Lua tests skipped.
+CI now runs the setup tests and builds on branch pushes. Remote CI pending.
+
 **Vita build: the ROM set.** The 1994 set's M2_ROMSET broke the Vita compile
 check (its CMake builds the runtime itself, without the define);
 platform/vita/CMakeLists.txt defines M2_ROMSET="daytona93", and
