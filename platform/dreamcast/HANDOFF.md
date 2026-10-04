@@ -526,6 +526,13 @@ friends, through `fast_gen.py`). Not inlined (GCC at -Os made them calls):
 slower, 278.6 s against 272.5. Forced inline: the program grew 960 KB (3.9
 to 4.9 MB) and the race did not finish (0.86 MB was free).
 
+**TGP ports straight to the TGP board** (`m2_board.cpp`, M2_DC_SPEED):
+`read_dword`/`write_dword` check the TGP's FIFO, function port, status and
+buffer RAM first and call the TGP board as `dev_read`/`dev_write` would,
+without the page table and the dispatch chain; the status read no longer
+calls `getenv` (a desktop debugging print). dcmemcheck identical; race 272.5
+-> 268.7 s (core 25.5 -> 24.6 ms), every 2nd frame drawn.
+
 ## What not to re-propose
 
 - The i960's generated code at -O2: after the frame-wait skip it runs about

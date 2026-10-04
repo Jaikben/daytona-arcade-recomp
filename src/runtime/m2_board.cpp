@@ -306,7 +306,9 @@ uint32_t M2Board::dev_read(uint32_t addr, uint32_t mask) {
     case 0x00980000: return tgp_.coproctl_r();
     case 0x00980004: {
         const uint32_t v = tgp_.fifo_out_empty() ? 1 : 0;
+#ifndef M2_DC_SPEED // (a desktop debugging print: getenv on every status read)
         if (std::getenv("M2RUN_VERBOSE")) std::fprintf(stderr, "fifo status read -> %u (frame %llu)\n", v, (unsigned long long)frame_);
+#endif
         return v;
     }
     case 0x0098000c: { // videoctl_r
@@ -524,6 +526,16 @@ uint16_t M2Board::read_word(uint32_t addr) {
 uint32_t M2Board::read_dword(uint32_t addr) {
     addr &= ~3u;
 #ifdef M2_DC_SPEED
+    // The TGP's FIFO, status and buffer RAM (dev_read's answers), without the
+    // page table and the dispatch chain: tens of millions of reads a race.
+    if ((addr & 0xffffc000u) == 0x00884000u) return tgp_.fifo_r();
+    if (addr == 0x00980004u) return tgp_.fifo_out_empty() ? 1 : 0;
+    if (addr - 0x00900000u < 0x80000u) {
+        tgp_.sync();
+        return tgp_.buffer_r(addr & 0x1ffff);
+    }
+#endif
+#ifdef M2_DC_SPEED
     if ((addr >> kPageBits) == fast_read_page_) {
         uint32_t v;
         std::memcpy(&v, M2_AL(fast_read_base_ + (addr & 0xfff), 4), 4);
@@ -608,6 +620,15 @@ void M2Board::write_word(uint32_t addr, uint16_t data) {
 
 void M2Board::write_dword(uint32_t addr, uint32_t data) {
     addr &= ~3u;
+#ifdef M2_DC_SPEED
+    // The TGP's function port and FIFO (dev_write's, all lanes written),
+    // without the page table and the dispatch chain.
+    if ((addr & 0xffff8000u) == 0x00880000u) {
+        if (addr & 0x4000) tgp_.fifo_w(data);
+        else tgp_.function_port_w((addr - 0x00880000u) >> 2, data);
+        return;
+    }
+#endif
 #ifdef M2_DC_SPEED
     if ((addr >> kPageBits) == fast_write_page_) {
         std::memcpy(M2_AL(fast_write_base_ + (addr & 0xfff), 4), &data, 4);
