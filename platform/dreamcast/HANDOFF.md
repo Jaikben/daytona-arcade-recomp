@@ -595,6 +595,45 @@ calls `getenv` (a desktop debugging print). dcmemcheck identical; race 272.5
 spilled to or reloaded from work RAM in one copy (`Cpu::do_call`/`do_ret_0`,
 M2_DC_SPEED): 266.0 s (core 24.1 ms).
 
+## The geometrizer: the SH-4's vector maths, and straight to the PVR
+
+**ftrv (default; `build_dreamcast.py game --no-native-geo` or Makefile
+`NATIVE_GEO=0` for the desktop's arithmetic; define M2_DC_NATIVE_GEO in
+`geo.cpp`).** The SH-4 transforms a vector by its 4x4 matrix registers in
+one `ftrv`. The four polygon parsers load the object's 3x4 matrix once into
+XMTRX and transform its points and normals with it. The picture only:
+nothing the geometrizer computes goes back to the game. ftrv rounds
+differently from separate multiplies and adds, so the polygons differ from
+the desktop's in their last bits. Race in Flycast, every 2nd frame drawn:
+240.8 -> 237.0 s (geometry 13.0 -> 12.3 ms a frame). All 100 checkpoints
+match, and the same polygon counts are drawn at every report (20 of them).
+Flycast's dynarec may not cost ftrv as the console does, so the gain on
+hardware is still to be measured.
+
+- **The guard is `__sh__`, not `__SH4__`.** KOS's GCC 13.2 does not define
+  `__SH4__` with `-m4-single` (it has `__sh__` and `__SH4_SINGLE__`). Under
+  `__SH4__` the code silently compiled out, and a first run "measured" the
+  plain path. Count the ftrv instructions in `game/runtime/geo.o`
+  (sh-elf-objdump), not in game.elf, which has KOS's own.
+- **Switching the setting:** the driver rewrites `game/native_geo.txt` when it
+  changes, and geo.o depends on it. A stamp file made by make itself is never
+  made: the Makefile's `.SECONDARY` with no prerequisites treats every
+  target as an intermediate.
+
+Where the geometrizer's time goes (every frame drawn, sampled):
+`geo_parse_np_s` 13% and `model2_3d_process_polygon<4>` 12% of the samples.
+Within them it is spread out: the polygon ROM reads (`GeoPtr` through the
+page cache), the clip-plane dot products, the perspective divide
+(`apply_focus`), the `GeoPoly` set-up. The matrix multiplies are a small part.
+
+**Straight to the PVR: not done.** The separate pass it would remove costs
+about 3-4% of the samples: `Renderer::draw` (4.5%, including the material
+builds), `Renderer::polygon` 1.2%, the sort 0.6%, the new `GeoPoly`'s
+zeroing about 1.2%. The clipping, divide and lighting stay either way. The
+PVR's own translucent sort is per triangle, not the game's z order, so
+direct submission would still need the order kept. Not worth its
+complexity for that.
+
 ## What not to re-propose
 
 - The i960's generated code at -O2: after the frame-wait skip it runs about

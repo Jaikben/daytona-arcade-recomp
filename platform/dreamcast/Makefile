@@ -148,9 +148,15 @@ game-sizes: game-objects
 
 # The geometrizer without loops turned into memcpy/memset calls: its vertex
 # copies are a few words, a library call costs more (the profile's callers).
-$(OUT)/game/runtime/geo.o: $(ROOT)/src/runtime/geo.cpp
+# NATIVE_GEO=1 (the default; build_dreamcast.py --no-native-geo for 0):
+# M2_DC_NATIVE_GEO, the transforms by the SH-4's ftrv (the picture only; not
+# bit-exact). The driver rewrites game/native_geo.txt when the setting
+# changes, which rebuilds geo.o.
+NATIVE_GEO ?= 1
+$(OUT)/game/runtime/geo.o: $(ROOT)/src/runtime/geo.cpp $(wildcard $(OUT)/game/native_geo.txt)
 	@mkdir -p $(dir $@)
-	kos-c++ $(subst -O2,-O3,$(CXXFLAGS)) -funroll-loops -fno-tree-loop-distribute-patterns $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
+	kos-c++ $(subst -O2,-O3,$(CXXFLAGS)) -funroll-loops -fno-tree-loop-distribute-patterns $(GAME_DEFS) \
+	        $(if $(filter 1,$(NATIVE_GEO)),-DM2_DC_NATIVE_GEO) -c $< -o $@ && $(FIXDEP)
 # The tile layers' pixel loops unrolled.
 $(OUT)/game/runtime/video.o: $(ROOT)/src/runtime/video.cpp
 	@mkdir -p $(dir $@)

@@ -91,6 +91,52 @@ static inline void transform_vector(GeoVertex *vector, float *matrix)
 	vector->pz = tz;
 }
 
+#if defined(M2_DC_NATIVE_GEO) && defined(__sh__)
+// The Dreamcast (picture only: nothing the geometrizer computes goes back
+// into the game): the SH-4 transforms a vector by its 4x4 matrix registers
+// (XMTRX) in one ftrv. The 3x4 matrix is loaded once per object as
+// columns (m0 m1 m2 0) (m3 m4 m5 0) (m6 m7 m8 0) (m9 m10 m11 1); a point
+// has w 1, a vector w 0 (no translation), as transform_point/_vector.
+// ftrv's rounding is not the separate multiplies' and adds': the polygons
+// differ from the desktop's in their last bits.
+static inline void xmtrx_load(const float *matrix)
+{
+	alignas(8) float m[16] = {matrix[0], matrix[1], matrix[2], 0.0f, matrix[3], matrix[4], matrix[5], 0.0f,
+	                          matrix[6], matrix[7], matrix[8], 0.0f, matrix[9], matrix[10], matrix[11], 1.0f};
+	const float *p = m;
+	__asm__ __volatile__(
+		"fschg\n\t"
+		"fmov.d @%0+, xd0\n\t"
+		"fmov.d @%0+, xd2\n\t"
+		"fmov.d @%0+, xd4\n\t"
+		"fmov.d @%0+, xd6\n\t"
+		"fmov.d @%0+, xd8\n\t"
+		"fmov.d @%0+, xd10\n\t"
+		"fmov.d @%0+, xd12\n\t"
+		"fmov.d @%0+, xd14\n\t"
+		"fschg\n"
+		: "+r"(p) : : "memory");
+}
+static inline void xmtrx_apply(GeoVertex *v, float w)
+{
+	register float x __asm__("fr0") = v->x;
+	register float y __asm__("fr1") = v->y;
+	register float z __asm__("fr2") = v->pz;
+	register float ww __asm__("fr3") = w;
+	__asm__ __volatile__("ftrv xmtrx, fv0\n" : "+f"(x), "+f"(y), "+f"(z), "+f"(ww));
+	v->x = x;
+	v->y = y;
+	v->pz = z;
+}
+#define M2_GEO_LOAD_MATRIX(geo) xmtrx_load((geo)->matrix)
+#define M2_GEO_POINT(p, geo) xmtrx_apply((p), 1.0f)
+#define M2_GEO_VECTOR(v, geo) xmtrx_apply((v), 0.0f)
+#else
+#define M2_GEO_LOAD_MATRIX(geo) ((void)0)
+#define M2_GEO_POINT(p, geo) transform_point((p), (geo)->matrix)
+#define M2_GEO_VECTOR(v, geo) transform_vector((v), (geo)->matrix)
+#endif
+
 static inline void normalize_vector(GeoVertex *vector)
 {
 	const float n = sqrt((vector->x * vector->x) + (vector->y * vector->y) + (vector->pz * vector->pz));
@@ -760,6 +806,7 @@ inline void Geo::model2_3d_push_point(raster_state *raster, const GeoVertex &poi
 void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal;
 	uint32_t  attr, i;
 
@@ -769,7 +816,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -783,7 +830,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -806,7 +853,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 		normal.pz = u2f(*input++);
 
 		/* transform with the current matrix */
-		transform_vector(&normal, geo->matrix);
+		M2_GEO_VECTOR(&normal, geo);
 
 		if ((attr & 3) != 0) /* quad or triangle */
 		{
@@ -821,7 +868,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* calculate the dot product of the normal and the light vector */
 			dotl = dot_product(normal, geo->light);
@@ -871,7 +918,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* apply focus */
 				apply_focus(geo, &point);
@@ -900,6 +947,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
 	GeoVertex point, normal;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	uint32_t  attr, i;
 
 	/* read the 1st point */
@@ -908,7 +956,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -922,7 +970,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -959,7 +1007,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 		normal.pz = u2f(*input++);
 
 		/* transform with the current matrix */
-		transform_vector(&normal, geo->matrix);
+		M2_GEO_VECTOR(&normal, geo);
 
 		if ((attr & 3) != 0) /* quad or triangle */
 		{
@@ -974,7 +1022,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* calculate the dot product of the normal and the light vector */
 			dotl = dot_product(normal, geo->light);
@@ -1033,7 +1081,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 					point.x = u2f(*input++);
 					point.y = u2f(*input++);
 					point.pz = u2f(*input++);
-					transform_point(&point, geo->matrix);
+					M2_GEO_POINT(&point, geo);
 					apply_focus(geo, &point);
 					cb[14] = f2u(point.x) >> 8;
 					cb[15] = f2u(point.y) >> 8;
@@ -1065,7 +1113,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* apply focus */
 				apply_focus(geo, &point);
@@ -1093,6 +1141,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal, p0, p1, p2, p3;
 	uint32_t  attr, i;
 
@@ -1102,7 +1151,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p0.x = point.x; p0.y = point.y; p0.pz = point.pz;
@@ -1119,7 +1168,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p1.x = point.x; p1.y = point.y; p1.pz = point.pz;
@@ -1155,7 +1204,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* save for normal calculation */
 			p2.x = point.x; p2.y = point.y; p2.pz = point.pz;
@@ -1214,7 +1263,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* save for normal calculation */
 				p3.x = point.x; p3.y = point.y; p3.pz = point.pz;
@@ -1275,6 +1324,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal, p0, p1, p2, p3;
 	uint32_t  attr, i;
 
@@ -1284,7 +1334,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p0.x = point.x; p0.y = point.y; p0.pz = point.pz;
@@ -1301,7 +1351,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p1.x = point.x; p1.y = point.y; p1.pz = point.pz;
@@ -1337,7 +1387,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* save for normal calculation */
 			p2.x = point.x; p2.y = point.y; p2.pz = point.pz;
@@ -1405,7 +1455,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* save for normal calculation */
 				p3.x = point.x; p3.y = point.y; p3.pz = point.pz;

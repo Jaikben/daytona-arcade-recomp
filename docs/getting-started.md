@@ -231,6 +231,9 @@ You need, besides the above: [DreamSDK](https://dreamsdk.org/) (R4, at
    starting Flycast). It plays on the controller in port A: Y coin, Start,
    stick or D-pad to steer, triggers for the pedals, D-pad up/down to shift.
    `--draw-every N` sets how many frames per picture (default 2).
+   `--no-native-geo` keeps the desktop's arithmetic for the 3D transforms
+   (the default uses the SH-4's vector instruction: slightly faster, the
+   same game).
 
 ## Updating
 
