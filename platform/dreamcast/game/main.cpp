@@ -296,6 +296,10 @@ void *run_game(void *) {
             std::copy(backup.begin(), backup.end(), game.board().backup_ram().begin());
         say("GAME constructed, heap %.2f MB, %.2f MB free\n", heap_mb(), free_mb());
 
+        // Frames between PROFILE and GAME frame lines: every 5 s of game time
+        // with a recorded race (the measurements), every 30 s with the pad
+        // (about 800 bytes a report, and the serial port is slow).
+        const int report = scripted ? kReport : kReport * 6;
         const uint64_t t0 = timer_ms_gettime64();
         uint64_t report_t0 = timer_us_gettime64();
         for (int frame = 1; !kInputs[0] || frame <= kFrames; frame++) {
@@ -324,7 +328,11 @@ void *run_game(void *) {
             else (void)game.board().take_sound_bytes();
             prof_audio += timer_us_gettime64() - a0;
             g_frame = frame;
-            if (frame % 60 == 0) { // the lockstep check: the same line as tools/tracecheck on the desktop
+            // The lockstep check: the same line as tools/tracecheck on the
+            // desktop. Only with a recorded race (there is nothing to compare
+            // a pad game with, and the serial port costs time: at 115,200
+            // baud KOS waits on its FIFO).
+            if (scripted && frame % 60 == 0) {
                 uint64_t h = 0xcbf29ce484222325ULL;
                 const uint32_t *buffer = game.board().tgp().buffer_data();
                 for (int i = 0; i < 0x8000; i++) h = (h ^ buffer[i]) * 0x100000001b3ULL;
@@ -338,8 +346,8 @@ void *run_game(void *) {
                 renderer.draw(game.board().video());
                 prof_draw += timer_us_gettime64() - d0;
             }
-            if (frame % kReport == 0) { // every 5 s of game time: the serial console is slow
-                const double frame_us = kReport * 1e3, drawn_us = kReport / kDrawEvery * 1e3; // us -> ms per frame
+            if (frame % report == 0) { // the serial console is slow (see report)
+                const double frame_us = report * 1e3, drawn_us = report / kDrawEvery * 1e3; // us -> ms per frame
                 say("PROFILE %d ms/frame: core %.1f geometry %.1f video %.1f draw %.1f (%.1f each drawn frame); "
                     "frame wait skipped %.0f%% of i960 instructions\n",
                     frame, prof_core / frame_us, prof_geo / frame_us, prof_video / frame_us, prof_draw / frame_us,
@@ -370,14 +378,14 @@ void *run_game(void *) {
                 for (uint64_t &us : renderer.step_us) us = 0;
                 prof_core = prof_geo = prof_video = prof_draw = 0;
             }
-            if (frame % kReport == 0)
+            if (frame % report == 0)
                 say("GAME frame %d: %u polygons drawn (%u textured, flat for want of a palette %u / a build %u, %u skipped, %u KB; %u textures, %u flushes), i960 %" PRIu64 " (%.1f s, ROM misses %" PRIu64
                             ", pages read %" PRIu64 ", %.2f MB free)\n",
                             frame, renderer.drawn, renderer.textured, renderer.no_bank, renderer.no_build, renderer.skipped, unsigned(renderer.vertex_bytes / 1024),
                             unsigned(renderer.sources()), renderer.flushes,
                             game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
                             rom->misses, rom->pages_read, free_mb());
-            if (audio && frame % kReport == 0)
+            if (audio && frame % report == 0)
                 say("GAME sound: %u samples in sound RAM, %llu loaded from the disc, %llu not in the pack, %llu not loaded, "
                     "release register %04lx%s%s\n",
                     audio->loaded(), (unsigned long long)audio->disc_loads, (unsigned long long)audio->missing,

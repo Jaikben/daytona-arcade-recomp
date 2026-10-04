@@ -824,6 +824,18 @@ those three read `Lockstep::now()` (count + pending). race_basic 176.6 ->
 175.9 s, and the generated code 210 KB smaller (0.55 -> 0.76 MB free).
 dcfastcheck identical every frame; desktop unchanged.
 
+## Less serial output in the play build
+
+Printing cost 0.3-0.45 ms a frame in the recorded race (`scif_write` about
+1% of samples), and on a console the serial port runs at 115,200 baud with
+KOS waiting on its FIFO. The play build (no `--inputs`) no longer prints
+the TRACE line (only a recorded race has a desktop trace to compare with)
+and prints its PROFILE and GAME lines every 1,800 frames instead of 300
+(about 800 bytes a report). Recorded-race builds print as before.
+
+- **Measured, not kept:** chunk_000 (the busiest i960 chunk) at -O2 with
+  the RAM freed above: 176.0 s against 175.9 (+0.02 MB used).
+
 ## Small renderer and geometrizer notes
 
 - `material_for` looks a material up in a 256-slot direct-mapped cache
