@@ -17,6 +17,7 @@
 #include "runtime/native_sound_sequencer.h"
 
 #include <kos.h>
+#include <dc/g2bus.h>
 #include <dc/sound/aica_comm.h>
 #include <dc/sound/sfxmgr.h>
 #include <dc/sound/sound.h>
@@ -36,6 +37,14 @@ public:
     Audio(const std::string &program_path, const std::string &pack_path)
         : program_(load(program_path)), sequencer_(program_, kRate) {
         snd_init();
+        // A note off is the AICA's key off, then a fade at the channel's
+        // release rate; KallistiOS's driver sets the fastest (an abrupt cut)
+        // and never changes it. Rate 26 is about 18 ms for the whole fade
+        // (MAME's AICA timing), near the desktop mixer's 20 ms; key-rate
+        // scaling off (0xf). Register 0x14 of each channel: RR in bits 0-4.
+        // (After the ARM driver's own start-up, which writes the fastest rate.)
+        thd_sleep(100);
+        for (unsigned ch = 0; ch < kChannels; ch++) g2_write_32(0xa0700000u + ch * 0x80u + 0x14u, (0xfu << 10) | kRelease);
         pack_ = std::fopen(pack_path.c_str(), "rb");
         if (!pack_) throw std::runtime_error("cannot open " + pack_path);
         char magic[4];
@@ -72,6 +81,8 @@ public:
         sequencer_.advance(samples);
     }
     unsigned loaded() const { return loaded_; }
+    // Channel 0's envelope register 0x14 (release rate in bits 0-4), as the AICA has it.
+    static uint32_t release_register() { return g2_read_32(0xa0700000u + 0x14u) & 0xffff; }
     uint64_t disc_loads = 0, missing = 0, failed = 0; // missing: not in the pack; failed: no room in sound RAM
     char failure[128] = {};                             // the first failed load
 
@@ -81,6 +92,7 @@ private:
     static constexpr uint32_t kReserve = 96 * 1024;    // sound RAM kept free at start for later loads
     static constexpr float kMasterGain = 1.95f;        // the desktop mixer's (native_sample_mixer.h)
     static constexpr unsigned kChannels = 64;
+    static constexpr uint32_t kRelease = 26;           // the AICA's release rate after a note off
 
     struct Entry {
         uint32_t frames = 0, loop_start = 0, offset = 0, bytes = 0;

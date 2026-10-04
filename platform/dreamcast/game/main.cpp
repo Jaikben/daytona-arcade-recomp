@@ -350,9 +350,11 @@ void *run_game(void *) {
                             game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
                             rom->misses, rom->pages_read, free_mb());
             if (audio && frame % kReport == 0)
-                say("GAME sound: %u samples in sound RAM, %llu loaded from the disc, %llu not in the pack, %llu not loaded%s%s\n",
+                say("GAME sound: %u samples in sound RAM, %llu loaded from the disc, %llu not in the pack, %llu not loaded, "
+                    "release register %04lx%s%s\n",
                     audio->loaded(), (unsigned long long)audio->disc_loads, (unsigned long long)audio->missing,
-                    (unsigned long long)audio->failed, audio->failure[0] ? "; first: " : "", audio->failure);
+                    (unsigned long long)audio->failed, (unsigned long)dc::Audio::release_register(),
+                    audio->failure[0] ? "; first: " : "", audio->failure);
             if (g_report_ready) {
                 say("%s", g_report);
                 g_report_ready = false;

@@ -539,9 +539,13 @@ No software mixer: the SH-4's time is unchanged (race 266.7 s).
   game below full speed its sequences ran ahead of the game's commands and
   asked for samples the desktop never did (bank 2's 117 and 137: 810 notes
   silent). So below full speed the music's tempo follows the game's.
-- **Not yet:** a note off stops a channel almost at once (KallistiOS's AICA
-  driver releases at its fastest rate; the desktop mixer releases over 20
-  ms); ADPCM loops are not checked by ear (a click at the loop point would
+- **Release.** A note off is the AICA's key off and a fade at the channel's
+  release rate; KallistiOS's driver sets the fastest (an abrupt cut).
+  `game/audio.h` sets every channel's register 0x14 to release rate 26 with
+  key-rate scaling off (`3c1a`, read back during the race): about 18 ms for
+  the whole fade by MAME's AICA timing, near the desktop mixer's 20 ms. Not
+  judged by ear yet.
+- **Not yet:** ADPCM loops are not checked by ear (a click at the loop point would
   mean the AICA does not restore the ADPCM state there; 8-bit PCM for the
   looping samples is the fallback); levels against the desktop not compared.
 
