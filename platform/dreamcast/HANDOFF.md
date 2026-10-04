@@ -772,6 +772,11 @@ vertices are in an anonymous union under an empty constructor (only
 keep their initialisers), and the frames are copied by `copy_frame`,
 16 straight-line loads and stores. dcmemcheck identical; desktop unchanged.
 race_basic 193.4 -> 187.5 s (core 21.2 -> 20.7, geometry 10.2 -> 9.5 ms).
+`build_layer`'s 32-byte compare of each block of 16 tile values
+(`same_block`, eight word loads a side instead of a memcmp call): 187.5 ->
+186.5 s (tile layers 1.5 -> 1.3 ms). The other library helpers left in the
+hot objects (`___movmem` in vector growth, `___umoddi3` once a frame,
+`___unorddf2` in `geo_parse_nn_ns`) are not on hot paths.
 
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 

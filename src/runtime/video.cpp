@@ -89,6 +89,28 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
 #endif
 }
 
+#if defined(M2_DC_SPEED) && !defined(M2_VITA_RENDER_OPT)
+// 32 bytes (16 tile values, both 4-aligned) equal: memcmp's answer, in
+// eight word loads a side instead of a library call per block of tiles.
+static inline bool same_block(const uint8_t *a, const uint16_t *b16)
+{
+    const uint8_t *b = reinterpret_cast<const uint8_t *>(b16);
+#ifdef __GNUC__
+    // (Known 4-aligned: each 4-byte memcpy below is one load, not a call.)
+    a = static_cast<const uint8_t *>(__builtin_assume_aligned(a, 4));
+    b = static_cast<const uint8_t *>(__builtin_assume_aligned(b, 4));
+#endif
+    uint32_t diff = 0;
+    for (int k = 0; k < 32; k += 4) {
+        uint32_t x, y;
+        std::memcpy(&x, a + k, 4);
+        std::memcpy(&y, b + k, 4);
+        diff |= x ^ y;
+    }
+    return diff == 0;
+}
+#endif
+
 // segaic24 tile_info + MAME tilemap pixmap: 64x64 tiles (TILEMAP_SCAN_ROWS)
 // of 8x8, 4bpp chars (char_layout, bit order swapped within 16-bit words),
 // pen = color * 16 + pixel, pen 0 transparent, category = tile bit 15.
@@ -102,7 +124,7 @@ void Video::build_layer(int layer) {
         // as last decoded needs nothing (tile RAM and the copy are both
         // little-endian words).
         if (dec_valid_ && !dec_dirty_any_ && (t & 15) == 0 &&
-            std::memcmp(tile_ram_ + size_t(t | base) * 2, &dec_tiles_[base + t], 32) == 0) {
+            same_block(tile_ram_ + size_t(t | base) * 2, &dec_tiles_[base + t])) {
             t += 15;
             continue;
         }
