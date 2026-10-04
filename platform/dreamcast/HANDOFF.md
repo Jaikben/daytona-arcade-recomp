@@ -518,7 +518,15 @@ The runtime, the frontend and the TGP's code at `-O3 -funroll-loops` (the
 Makefile's O3FLAGS; the i960 code stays at -Os for size). race_basic, every
 2nd frame drawn: `video.cpp` alone 263 -> 246 s (tile layers 7.9 -> 5.5 ms a
 frame: their pixel loops unroll), `geo.cpp` 245 s, the rest 240 s; 0.46 MB
-of main RAM free after it. All 100 checkpoints match each time.
+of main RAM free after it. All 100 checkpoints match each time. Every frame
+drawn: 353 s, about 17 frames/s (geometry 25.7, tile layers 11.0, drawing
+7.4, core 23.3 ms a frame).
+
+Where it goes now (every frame drawn, line profile): the tile layers'
+pixel copy, waits (mostly the game thread on CD reads for ROM cache misses,
+which a bigger cache does not fix: they are first reads), the geometrizer's
+per-polygon work and ROM reads. Each remaining exact change found is worth
+about 1%.
 
 ## Sound (first version)
 
