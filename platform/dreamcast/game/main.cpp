@@ -320,7 +320,7 @@ void *run_game(void *) {
             }
             if (frame % kReport == 0) { // every 5 s of game time: the serial console is slow
                 const double frame_us = kReport * 1e3, drawn_us = kReport / kDrawEvery * 1e3; // us -> ms per frame
-                say("PROFILE %d ms/frame: core %.1f geometry %.1f video %.1f draw %.1f (every 4th frame: %.1f each); "
+                say("PROFILE %d ms/frame: core %.1f geometry %.1f video %.1f draw %.1f (%.1f each drawn frame); "
                     "frame wait skipped %.0f%% of i960 instructions\n",
                     frame, prof_core / frame_us, prof_geo / frame_us, prof_video / frame_us, prof_draw / frame_us,
                     prof_draw / drawn_us, 100.0 * double(game.board().spin_skipped()) / double(game.instructions()));

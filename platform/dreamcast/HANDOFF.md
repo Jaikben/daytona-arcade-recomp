@@ -114,6 +114,11 @@ out of memory; this one is 320 KB bigger, 0.65 MB free in the race).
 compiles the rewritten code on the desktop: identical to the reference at
 every frame of race_basic and attract_long.
 
+**Every 2nd frame drawn is now the default** (`build_dreamcast.py game
+--draw-every`, default 2; the user's minimum): race_basic 272 s, about 22
+game frames/s and 11 pictures/s (core 25.5, geometry 13.5, tile layers 7.9,
+drawing 4.1 ms a frame), all 100 checkpoints match.
+
 **Draw distance: back to the game's own (0)** at the user's request
 (`kDrawDistance` in `game/main.cpp`); the lockstep reference is plain
 `tools/tracecheck` again. race_basic, every 4th frame drawn: 207 s, about 29

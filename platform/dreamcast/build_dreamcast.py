@@ -253,8 +253,8 @@ def main(argv=None):
     ap.add_argument("--flycast", default=os.environ.get("FLYCAST"), help="flycast.exe (default: $FLYCAST, "
                     "or Downloads/flycast-win64-2.7)")
     ap.add_argument("--no-run", action="store_true", help="build only")
-    ap.add_argument("--draw-every", type=int, default=4, choices=[1, 2, 3, 4],
-                    help="game: frames per picture (1: every frame; default 4)")
+    ap.add_argument("--draw-every", type=int, default=2, choices=[1, 2, 3, 4],
+                    help="game: frames per picture (1: every frame; default 2, the minimum wanted)")
     ap.add_argument("--sample", action="store_true",
                     help="game: sample the game thread's PC every KOS timer tick (about 10 ms) (scripts/pc_profile.py reads them)")
     ap.add_argument("--inputs", help="game: a recorded input script (scripts/inputs) played instead of the pad")
