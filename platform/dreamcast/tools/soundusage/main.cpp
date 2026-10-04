@@ -16,6 +16,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <set>
 #include <string>
 #include <tuple>
@@ -53,24 +54,35 @@ int main(int argc, char **argv) {
             if (!nvram.empty()) tools::load_nvram(game, nvram);
             tools::Script script;
             script.load(path);
-            snd::NativeSoundSequencer sequencer(program, 48000);
-            sequencer.set_sink(sink, nullptr);
+            // The sequencer at the game's own pace, and others running ahead
+            // of it 1.5x to 4x (the Dreamcast runs the sequencer on real time
+            // while the game is slower: its sequences then meet the game's
+            // commands at other points and can ask for other samples).
+            constexpr double kPaces[] = {1.0, 1.5, 2.0, 2.5, 3.0, 4.0};
+            std::vector<std::unique_ptr<snd::NativeSoundSequencer>> sequencers;
+            for (double pace : kPaces) {
+                (void)pace;
+                sequencers.push_back(std::make_unique<snd::NativeSoundSequencer>(program, 48000));
+                sequencers.back()->set_sink(sink, nullptr);
+            }
+            std::vector<double> owed(std::size(kPaces), 0.0);
             int frames = 6000; // the script's "frames N" line, if it has one
             {
                 std::ifstream f(path);
                 for (std::string line; std::getline(f, line);)
                     if (line.compare(0, 7, "frames ") == 0) frames = std::stoi(line.substr(7));
             }
-            double owed = 0;
             const size_t before = g_used.size();
             for (int frame = 0; frame < frames; frame++) {
                 game.run_frame(script.at(game.board().frame()));
                 const std::vector<uint8_t> bytes = game.board().take_sound_bytes();
-                if (!bytes.empty()) sequencer.send(bytes.data(), bytes.size());
-                owed += 48000.0 / rt::GameLoop::kFrameHz;
-                const size_t step = size_t(owed);
-                owed -= double(step);
-                sequencer.advance(step);
+                for (size_t k = 0; k < sequencers.size(); k++) {
+                    if (!bytes.empty()) sequencers[k]->send(bytes.data(), bytes.size());
+                    owed[k] += kPaces[k] * 48000.0 / rt::GameLoop::kFrameHz;
+                    const size_t step = size_t(owed[k]);
+                    owed[k] -= double(step);
+                    sequencers[k]->advance(step);
+                }
             }
             std::printf("soundusage: %s, %d frames: %zu samples (%zu new)\n", path.c_str(), frames, g_used.size(),
                         g_used.size() - before);

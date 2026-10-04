@@ -7,11 +7,12 @@
 // so a sample not resident is read from the disc when a note needs it (the
 // least recently used samples not playing make room).
 //
-// Time is game time: the sequencer advances one game frame (48000 / 57.52
-// samples) a frame, as on the desktop, so its notes are the desktop's (the
-// pack has exactly those samples: real time sent sequences down banks the
-// pack did not have) and stay in step with the game. Below full speed the
-// music's tempo slows with the game (not its pitch).
+// Time is real time: the sequencer advances by the elapsed microseconds, so
+// the music and effects play at their own speed whatever the frame rate.
+// With the game slower than the arcade, sequences meet the game's commands
+// at other points than on the desktop and can ask for other samples; the
+// pack's list (tools/soundusage) covers sequencers running up to 4x ahead
+// of the game.
 #pragma once
 
 #include "runtime/native_sound_sequencer.h"
@@ -75,10 +76,12 @@ public:
     // Once a game frame, with the bytes the game sent the sound board.
     void frame(const std::vector<uint8_t> &bytes) {
         if (!bytes.empty()) sequencer_.send(bytes.data(), bytes.size());
-        owed_ += double(kRate) / kFrameHz;
-        const size_t samples = size_t(owed_);
-        owed_ -= double(samples);
-        sequencer_.advance(samples);
+        const uint64_t now = timer_us_gettime64();
+        if (!last_us_) last_us_ = now;
+        uint64_t samples = (now - last_us_) * kRate / 1000000;
+        last_us_ += samples * 1000000 / kRate;
+        if (samples > kRate / 4) samples = kRate / 4; // (a long stall, a disc read: a quarter second at most)
+        if (samples) sequencer_.advance(size_t(samples));
     }
     unsigned loaded() const { return loaded_; }
     // Channel 0's envelope register 0x14 (release rate in bits 0-4), as the AICA has it.
@@ -88,7 +91,6 @@ public:
 
 private:
     static constexpr uint32_t kRate = 48000;           // the sequencer's clock (its tick timing)
-    static constexpr double kFrameHz = 16000000.0 / (656.0 * 424.0); // rt::GameLoop::kFrameHz
     static constexpr uint32_t kReserve = 96 * 1024;    // sound RAM kept free at start for later loads
     static constexpr float kMasterGain = 1.95f;        // the desktop mixer's (native_sample_mixer.h)
     static constexpr unsigned kChannels = 64;
@@ -228,8 +230,7 @@ private:
                                       -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
                                       -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     unsigned loaded_ = 0;
-    uint64_t clock_ = 0;
-    double owed_ = 0;
+    uint64_t clock_ = 0, last_us_ = 0;
 };
 
 } // namespace dc

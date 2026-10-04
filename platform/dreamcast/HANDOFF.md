@@ -550,11 +550,14 @@ No software mixer: the SH-4's time is unchanged (race 266.7 s).
   recently used samples no channel is playing. race_basic: 35 loads from the
   disc, none missing or failed. On a console each is a disc read during play
   (a short stall); not measured there.
-- **Game time.** The sequencer advances one game frame (48000 / 57.52
-  samples) a frame, as soundusage does. Real time was tried first: with the
-  game below full speed its sequences ran ahead of the game's commands and
-  asked for samples the desktop never did (bank 2's 117 and 137: 810 notes
-  silent). So below full speed the music's tempo follows the game's.
+- **Real time.** The sequencer advances by the elapsed microseconds, so
+  the music and effects keep their speed whatever the frame rate (the
+  user's call). With the game slower than the arcade, sequences meet the
+  game's commands at other points and can ask for samples the desktop never
+  does at full speed (bank 2's 117 and 137, first time: 810 notes silent);
+  `tools/soundusage` therefore also runs sequencers 1.5x to 4x ahead of the
+  game on the same commands: 252 samples, 2.86 MB of ADPCM. race_basic: 35
+  loads from the disc, none missing.
 - **Release.** A note off is the AICA's key off and a fade at the channel's
   release rate; KallistiOS's driver sets the fastest (an abrupt cut).
   `game/audio.h` sets every channel's register 0x14 to release rate 26 with
