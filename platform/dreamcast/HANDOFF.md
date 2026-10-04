@@ -557,9 +557,9 @@ No software mixer: the SH-4's time is unchanged (race 266.7 s).
   start and restores it at each loop, which makes loops seamless with no
   special encoding; if the chip does as MAME models it (Flycast too), the
   pack's loops are fine. Not checked by ear.
-- **Not yet:** ADPCM loops are not checked by ear (a click at the loop point would
-  mean the AICA does not restore the ADPCM state there; 8-bit PCM for the
-  looping samples is the fallback); levels against the desktop not compared.
+- **Not yet:** listened to (a click at a loop point would mean the AICA does
+  not restore the ADPCM state there; 8-bit PCM for the looping samples is
+  the fallback); levels against the desktop not compared.
 
 ## Where the core's time goes (race, every 2nd frame)
 
