@@ -163,6 +163,11 @@ target_link_libraries(tracecheck PRIVATE dc_game)
 add_executable(ipprof ipprof/main.cpp)
 target_link_libraries(ipprof PRIVATE dc_game)
 
+# Which samples the game plays: the native sound sequencer over input scripts
+# (see soundusage/main.cpp), for the Dreamcast's sound pack.
+add_executable(soundusage soundusage/main.cpp)
+target_link_libraries(soundusage PRIVATE dc_game)
+
 # dcmemcheck: the runtime built with M2_DC_MEMORY (the Dreamcast's memory
 # layout) on the desktop, ROM pages served from the images, against the
 # desktop's game code objects (which do not include the headers

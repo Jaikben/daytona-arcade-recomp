@@ -12,6 +12,7 @@
 #include "runtime/rom_source.h"
 
 #include "../../../tools/common/input_script.h"
+#include "audio.h"
 #include "controls.h"
 #include "inputs.h" // build_dreamcast.py: kInputs, the recorded input script or ""
 #include "renderer.h"
@@ -247,10 +248,9 @@ void *run_game(void *) {
         rt::GameLoop game(std::move(img), false);
         game.board().video().set_external_3d(true); // the PVR draws the 3D
         // The desktop's draw mode: the screen (the tile layers) is updated
-        // every 4th frame, the one drawn; the game runs every frame as ever
-        // (the geometrizer too: the game reads its polygon count).
+        // every kDrawEvery-th frame, the one drawn; the game runs every frame.
         game.set_frame_skip(kDrawEvery - 1);
-        rt::GameLoop::set_draw_distance(kDrawDistance); // fewer course cells: less work for the i960, TGP and geometrizer
+        rt::GameLoop::set_draw_distance(kDrawDistance); // the game's own (0) unless changed above
         // Where the time goes: the runtime's frame profile (core: i960, TGP
         // and scheduling; geometry; video: the tile layers) and the PVR
         // renderer, in microseconds, averaged over 60 frames.
@@ -259,6 +259,17 @@ void *run_game(void *) {
         // The single-cabinet settings (test mode), as tools/common/nvram.h.
         const auto eeprom = load_file(std::string(kRomDir) + "/ioboard_eeprom.bin");
         const auto backup = load_file(std::string(kRomDir) + "/backup_ram.bin");
+        // The sound (game/audio.h): the native sequencer on the AICA's
+        // channels. Without it (no pack on the disc) the game runs silent.
+        std::unique_ptr<dc::Audio> audio;
+        try {
+            audio = std::make_unique<dc::Audio>(std::string(kRomDir) + "/sound_program.bin",
+                                                std::string(kRomDir) + "/sound.pak");
+            say("GAME sound on: %u samples in sound RAM, %.2f MB of it free, heap %.2f MB\n", audio->loaded(),
+                snd_mem_available() / 1048576.0, heap_mb());
+        } catch (const std::exception &e) {
+            say("GAME sound off: %s\n", e.what());
+        }
         // A recorded input script on the disc (build_dreamcast.py game
         // --inputs): the race is played from it, to compare with the desktop
         // (tracecheck --inputs). Otherwise the controller in port A.
@@ -302,7 +313,8 @@ void *run_game(void *) {
                 prof_video += fp.video;
             }
             g_running = 0;
-            (void)game.board().take_sound_bytes();
+            if (audio) audio->frame(game.board().take_sound_bytes());
+            else (void)game.board().take_sound_bytes();
             g_frame = frame;
             if (frame % 60 == 0) { // the lockstep check: the same line as tools/tracecheck on the desktop
                 uint64_t h = 0xcbf29ce484222325ULL;
@@ -337,6 +349,10 @@ void *run_game(void *) {
                             unsigned(renderer.sources()), renderer.flushes,
                             game.instructions(), (timer_ms_gettime64() - t0) / 1000.0,
                             rom->misses, rom->pages_read, free_mb());
+            if (audio && frame % kReport == 0)
+                say("GAME sound: %u samples in sound RAM, %llu loaded from the disc, %llu not in the pack, %llu not loaded%s%s\n",
+                    audio->loaded(), (unsigned long long)audio->disc_loads, (unsigned long long)audio->missing,
+                    (unsigned long long)audio->failed, audio->failure[0] ? "; first: " : "", audio->failure);
             if (g_report_ready) {
                 say("%s", g_report);
                 g_report_ready = false;

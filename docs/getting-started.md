@@ -208,8 +208,8 @@ anyway, with the reason. For one run only:
 ## Dreamcast (in progress)
 
 A Dreamcast build of the game, from the `daytona` (Revision A) set only. It
-runs in the Flycast emulator; it is not yet tested on a console, and has no
-sound yet. Details: [platform/dreamcast/README.md](../platform/dreamcast/README.md).
+runs in the Flycast emulator, with sound; it is not yet tested on a
+console. Details: [platform/dreamcast/README.md](../platform/dreamcast/README.md).
 
 You need, besides the above: [DreamSDK](https://dreamsdk.org/) (R4, at
 `C:/DreamSDK`) on Windows, or a KallistiOS toolchain elsewhere, and

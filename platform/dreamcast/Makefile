@@ -124,12 +124,16 @@ $(OUT)/game.elf: $(OUT)/game/main.o $(GAME_LIBS)
 # Built from the user's own ROM set: build output, never committed.
 ROMS ?= $(error ROMS must be the importer's image directory)
 NVRAM ?= $(error NVRAM must be the directory with ioboard_eeprom.bin and backup_ram.bin)
+# The sound: the sound program ROM (from ROMS) and the sound pack
+# (scripts/sound_pack.py, written by build_dreamcast.py).
+SOUND_PACK ?= $(error SOUND_PACK must be the sound pack (build_dreamcast.py writes it))
 ROM_FILES := program main_data polygons textures copro_data copro_tables
 $(OUT)/game.cdi: $(OUT)/game.elf
 	rm -rf $(OUT)/game.disc && mkdir -p $(OUT)/game.disc/rom
 	$(KOS_OBJCOPY) -R .stack -O binary $< $(OUT)/game.bin
 	$(KOS_BASE)/utils/scramble/scramble $(OUT)/game.bin $(OUT)/game.disc/1ST_READ.BIN
-	cp $(ROM_FILES:%=$(ROMS)/%.bin) $(NVRAM)/ioboard_eeprom.bin $(NVRAM)/backup_ram.bin $(OUT)/game.disc/rom/
+	cp $(ROM_FILES:%=$(ROMS)/%.bin) $(ROMS)/sound_program.bin $(NVRAM)/ioboard_eeprom.bin $(NVRAM)/backup_ram.bin $(OUT)/game.disc/rom/
+	cp $(SOUND_PACK) $(OUT)/game.disc/rom/sound.pak
 	PATH="$$PATH:/mingw64/bin" $(KOS_BASE)/utils/makeip/makeip -f -g "DAYTONA RECOMP" -c "DAYTONA RECOMP" -n T-00000 $(OUT)/game.ip.bin
 	mkisofs -C 0,11702 -V DAYTONA -G $(OUT)/game.ip.bin -r -J -l -o $(OUT)/game.iso $(OUT)/game.disc
 	cdi4dc $(OUT)/game.iso $@

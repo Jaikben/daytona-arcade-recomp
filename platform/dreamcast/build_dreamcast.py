@@ -151,6 +151,32 @@ def gen_dir(args):
     return gen
 
 
+# Input scripts tools/soundusage plays to find the samples the game uses (the
+# Long course's own come from reva_long).
+SOUND_SCRIPTS = ["scripts/inputs/race_basic.txt", "scripts/inputs/attract_long.txt",
+                 "scripts/inputs/race_to_end.txt", "scripts/inputs/time_attack.txt",
+                 "scripts/inputs/test_mode.txt", "platform/dreamcast/scripts/inputs/reva_long.txt",
+                 "scripts/inputs/course_advanced.txt", "scripts/inputs/course_expert.txt"]
+
+
+def sound_pack(args, host, nvram):
+    """The sound pack (scripts/sound_pack.py) from the samples the game plays
+    (tools/soundusage, run once: it plays the scripts on the desktop)."""
+    out = host / "dreamcast"
+    out.mkdir(parents=True, exist_ok=True)
+    usage, pack = out / "sound_usage.txt", out / "sound.pak"
+    images = host / "rom_cache" / "daytona"
+    if not usage.is_file():
+        tools = build_tools(args)
+        exe = next((p for p in (tools / "Release" / "soundusage.exe", tools / "soundusage") if p.is_file()), None)
+        if not exe:
+            sys.exit("build_dreamcast: no soundusage tool")
+        run([exe, images, usage, "--nvram", nvram, *[ROOT / s for s in SOUND_SCRIPTS]])
+    if not pack.is_file() or pack.stat().st_mtime < usage.stat().st_mtime:
+        run([sys.executable, HERE / "scripts" / "sound_pack.py", images, usage, pack])
+    return pack
+
+
 def run_test(args, name, markers, timeout, start):
     game = ""
     if name == "game":
@@ -163,8 +189,10 @@ def run_test(args, name, markers, timeout, start):
         # rewrites only the files whose output changes).
         fast = host / "dreamcast" / "gen_fast" / args.set
         run([sys.executable, HERE / "scripts" / "fast_gen.py", host / "gen" / args.set, fast])
+        pack = sound_pack(args, host, nvram)
         game = (f"-j{args.jobs} GEN={msys_path(host / 'gen')} GEN_I960={msys_path(fast)} "
-                f"ROMS={msys_path(host / 'rom_cache' / 'daytona')} NVRAM={msys_path(nvram)} ")
+                f"ROMS={msys_path(host / 'rom_cache' / 'daytona')} NVRAM={msys_path(nvram)} "
+                f"SOUND_PACK={msys_path(pack)} ")
         # The recorded input script, compiled in (game/inputs.h; empty: the
         # pad). Written only when it changes, so make rebuilds only then.
         text = (ROOT / args.inputs).read_text() if args.inputs else ""

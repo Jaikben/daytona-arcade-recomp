@@ -512,6 +512,39 @@ not changed.
   which redirecting stdout does not capture; `flycast_run.py` reads the
   console buffer.
 
+## Sound (first version)
+
+`game/audio.h`: the desktop's native sound sequencer
+(`src/runtime/native_sound_sequencer`, unchanged) fed the bytes the game
+sends its sound board, its voices played by the AICA's hardware channels
+through KallistiOS's sound effect manager (start with frequency, volume,
+pan and loop; `AICA_CH_CMD_UPDATE` for pitch, volume and pan changes; stop).
+No software mixer: the SH-4's time is unchanged (race 266.7 s).
+
+- **Samples.** Sound RAM has 2 MB, the PCM ROMs 8. `tools/soundusage` plays
+  input scripts on the desktop through the sequencer and lists the samples
+  notes start: 217 over race_basic, attract_long, race_to_end, time_attack,
+  test_mode, reva_long (the Long course: 43 of them) and the course
+  scripts. `scripts/sound_pack.py` converts them to the AICA's 4-bit ADPCM
+  (KallistiOS's wav2adpcm encoder, ported) into `sound.pak` (2.44 MB) on the
+  disc. `build_dreamcast.py` makes both (the usage list once: about 7
+  minutes).
+- **Sound RAM as a cache.** At start 155 samples fit (0.1 MB left); a note
+  whose sample is not resident loads it from the disc, unloading the least
+  recently used samples no channel is playing. race_basic: 35 loads from the
+  disc, none missing or failed. On a console each is a disc read during play
+  (a short stall); not measured there.
+- **Game time.** The sequencer advances one game frame (48000 / 57.52
+  samples) a frame, as soundusage does. Real time was tried first: with the
+  game below full speed its sequences ran ahead of the game's commands and
+  asked for samples the desktop never did (bank 2's 117 and 137: 810 notes
+  silent). So below full speed the music's tempo follows the game's.
+- **Not yet:** a note off stops a channel almost at once (KallistiOS's AICA
+  driver releases at its fastest rate; the desktop mixer releases over 20
+  ms); ADPCM loops are not checked by ear (a click at the loop point would
+  mean the AICA does not restore the ADPCM state there; 8-bit PCM for the
+  looping samples is the fallback); levels against the desktop not compared.
+
 ## Where the core's time goes (race, every 2nd frame)
 
 Sampled: i960 memory access about 14% of the frame, the TGP side 11%, i960
