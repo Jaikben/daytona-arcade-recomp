@@ -21,7 +21,7 @@ INT32 := -U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__ '-D__UINT32_TYP
 
 # The desktop build's floating-point rules: exact rounding, no contraction.
 # -MMD: header dependencies, so a changed runtime header rebuilds its users.
-CXXFLAGS := -std=c++20 -O2 -fno-fast-math -ffp-contract=off -Wall -Wextra -MMD -MP $(INT32) -I$(ROOT)/src
+CXXFLAGS := -std=c++20 -O2 -g -fno-fast-math -ffp-contract=off -Wall -Wextra -MMD -MP $(INT32) -I$(ROOT)/src
 -include $(wildcard $(OUT)/*/*.d $(OUT)/game/*/*.d)
 # The compiler is a Windows program on DreamSDK: it writes C:/... paths in the
 # .d files, which this make cannot use (the colon), so header changes did not
@@ -144,6 +144,11 @@ game-sizes: game-objects
 	@$(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-size -t $(OUT)/game/libgen.a | tail -1 | sed 's/(TOTALS)/generated code (i960, TGP, 68000)/'
 	@$(KOS_CC_BASE)/bin/$(KOS_CC_PREFIX)-size -t $(OUT)/game/libruntime.a | tail -1 | sed 's/(TOTALS)/runtime, i960 lib, trace, ymfm, SoftFloat/'
 
+# The geometrizer without loops turned into memcpy/memset calls: its vertex
+# copies are a few words, a library call costs more (the profile's callers).
+$(OUT)/game/runtime/geo.o: $(ROOT)/src/runtime/geo.cpp
+	@mkdir -p $(dir $@)
+	kos-c++ $(CXXFLAGS) -fno-tree-loop-distribute-patterns $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
 $(OUT)/game/runtime/%.o: $(ROOT)/src/runtime/%.cpp
 	@mkdir -p $(dir $@)
 	kos-c++ $(CXXFLAGS) $(GAME_DEFS) -c $< -o $@ && $(FIXDEP)
