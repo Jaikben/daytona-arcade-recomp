@@ -247,6 +247,11 @@ void Cpu::do_call(uint32_t adr, int type, uint32_t stack)
 	if (m_rcache_pos >= I960_RCACHE_SIZE) {
 		// flush the current register set to the current frame
 		FP = m_r[I960_FP] & ~0x3f;
+#ifdef M2_DC_SPEED
+		if (work_ram && (FP >> 20) == 0x005) // work RAM (nothing watches its writes): one copy, not 16 bus calls
+			memcpy(M2_AL(work_ram + (FP & 0xfffff), 64), m_r, 0x10 * sizeof(uint32_t));
+		else
+#endif
 		for (i = 0; i < 16; i++) {
 			bus->write_dword(FP + (i*4), m_r[i]);
 		}
@@ -286,6 +291,11 @@ void Cpu::do_ret_0()
 	if ((m_rcache_pos >= I960_RCACHE_SIZE) || (m_rcache_pos < 0))
 	{
 		int i;
+#ifdef M2_DC_SPEED
+		if (work_ram && (m_r[I960_FP] >> 20) == 0x005) // (as do_call's spill: one copy)
+			memcpy(m_r, M2_AL(work_ram + (m_r[I960_FP] & 0xfffff), 64), 0x10 * sizeof(uint32_t));
+		else
+#endif
 		for(i=0; i<0x10; i++)
 			m_r[i] = bus->read_dword(m_r[I960_FP]+4*i);
 

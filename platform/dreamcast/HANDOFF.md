@@ -531,7 +531,9 @@ to 4.9 MB) and the race did not finish (0.86 MB was free).
 buffer RAM first and call the TGP board as `dev_read`/`dev_write` would,
 without the page table and the dispatch chain; the status read no longer
 calls `getenv` (a desktop debugging print). dcmemcheck identical; race 272.5
--> 268.7 s (core 25.5 -> 24.6 ms), every 2nd frame drawn.
+-> 268.7 s (core 25.5 -> 24.6 ms), every 2nd frame drawn. Register frames
+spilled to or reloaded from work RAM in one copy (`Cpu::do_call`/`do_ret_0`,
+M2_DC_SPEED): 266.0 s (core 24.1 ms).
 
 ## What not to re-propose
 
