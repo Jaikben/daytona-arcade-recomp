@@ -120,6 +120,29 @@ public:
     static uint16_t argb1555(uint32_t c) {
         return uint16_t((c ? 0x8000 : 0) | ((c >> 9) & 0x7c00) | ((c >> 6) & 0x03e0) | ((c >> 3) & 0x001f));
     }
+    // The scrolled layer (the race's scenery): when the back layers' opaque
+    // passes draw only pixmap layer 2, on every line with one scroll (split
+    // mode 1 with the split off the screen, no line scroll), the frontend
+    // draws it and background16() holds only layers 1 and 0, ARGB1555 with
+    // 0 see-through. Screen (x, y) shows pixmap layer 2's
+    // ((x + scroll_x) & 511, (y + scroll_y) & 511): scroll_pixel there, the
+    // pen of a category 0 tile, otherwise pen 0's colour.
+    bool back_scrolled() const { return back_scroll_; }
+    void set_scroll_layer(bool allowed) { scroll_allowed_ = allowed; } // (tools/dcmemcheck compares both)
+    int scroll_x() const { return scroll_x_; }
+    int scroll_y() const { return scroll_y_; }
+    uint16_t scroll_pixel(uint32_t x, uint32_t y) const {
+        const uint32_t i = (y & 511) * 512 + (x & 511);
+        return pens565_[tile_class_[2][((y & 511) >> 3) * 64 + ((x & 511) >> 3)] & 1 ? 0 : pixmap_[2][i]];
+    }
+    // Layer 2's tiles (64 x 64, row by row) whose scroll pixels changed
+    // since scroll_taken(); all of them after a pen changed.
+    bool scroll_all_changed() const { return scroll_all_dirty_; }
+    const uint8_t *scroll_tiles_changed() const { return scroll_dirty_; }
+    void scroll_taken() {
+        std::fill(scroll_dirty_, scroll_dirty_ + 4096, uint8_t(0));
+        scroll_all_dirty_ = false;
+    }
 #endif
 #else
     const std::vector<uint32_t> &background_layer() const { return background_gpu_; }
@@ -245,6 +268,10 @@ private:
     std::vector<uint8_t> regs_copy_;              // tile RAM 0x8000-0xdfff (line tables, registers, masks) as composed
     uint64_t back16_generation_ = 0, front16_generation_ = 0;
     uint16_t pens565_[8192], pens1555_[8192]; // pens_ as rgb565 and argb1555 (palette_w keeps them)
+    bool back_scroll_ = false, scroll_all_dirty_ = true, scroll_allowed_ = true; // (back_scrolled, scroll_all_changed)
+    int scroll_x_ = 0, scroll_y_ = 0;
+    uint8_t scroll_dirty_[4096] = {};
+    bool scroll_mode(int &sx, int &sy) const;
 #endif
     std::vector<uint32_t> background_gpu_, foreground_gpu_;
     uint64_t background_generation_ = 0, foreground_generation_ = 0, system24_texture_generation_ = 0;

@@ -52,6 +52,10 @@ public:
         : budget_(vertex_buffer - 4096), regions_(std::move(cache)), background_(pvr_mem_malloc(kTexW * kTexH * 2)),
           foreground_(pvr_mem_malloc(kTexW * kTexH * 2)) {
         if (!background_ || !foreground_) throw std::runtime_error("no video RAM for the tile layer textures");
+#ifdef M2_DC_SPEED
+        scroll_ = pvr_mem_malloc(512 * 512 * 2);
+        if (!scroll_) throw std::runtime_error("no video RAM for the scrolled layer");
+#endif
         for (int i = 0; i < 256; i++) gamma_[i] = uint8_t(std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0));
         pvr_set_pal_format(PVR_PAL_ARGB1555);
         pvr_poly_cxt_t cxt;
@@ -63,13 +67,26 @@ public:
                          foreground_, PVR_FILTER_BILINEAR);
         unordered(cxt);
         pvr_poly_compile(&foreground_header_, &cxt);
+#ifdef M2_DC_SPEED
+        // The scrolled layer (rt::Video::back_scrolled): its whole 512 x 512
+        // pixmap, drawn wrapping (UV repeat) at its scroll; the back layers
+        // then go over it, see-through where they have no pixel.
+        pvr_poly_cxt_txr(&cxt, PVR_LIST_OP_POLY, PVR_TXRFMT_RGB565 | PVR_TXRFMT_NONTWIDDLED, 512, 512, scroll_,
+                         PVR_FILTER_BILINEAR);
+        unordered(cxt);
+        pvr_poly_compile(&scroll_header_, &cxt);
+        pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, PVR_TXRFMT_ARGB1555 | PVR_TXRFMT_NONTWIDDLED, kTexW, kTexH,
+                         background_, PVR_FILTER_BILINEAR);
+        unordered(cxt);
+        pvr_poly_compile(&background_over_header_, &cxt);
+#endif
         pvr_poly_cxt_col(&cxt, PVR_LIST_TR_POLY);
         unordered(cxt);
         pvr_poly_compile(&solid_header_, &cxt);
     }
 
     // video: after GameLoop::run_frame, in external 3D mode.
-    void draw(const rt::Video &video) {
+    void draw(rt::Video &video) {
         stage = 1;
         uint64_t t = timer_us_gettime64();
         auto lap = [&](int step) {
@@ -104,6 +121,8 @@ public:
         pvr_wait_ready(); // the last frame is drawn: its palettes and textures may change
 #ifdef M2_DC_SPEED
         if (back_layer) upload_layer(*back_layer, background_);
+        const bool scrolled = video.back_scrolled();
+        if (scrolled) update_scroll(video);
 #endif
         lap(1);
         if (flush_) { // the texture cache filled up last frame
@@ -120,7 +139,11 @@ public:
         stage = 4;
         pvr_scene_begin();
         pvr_list_begin(PVR_LIST_OP_POLY);
-        quad(background_header_);
+#ifdef M2_DC_SPEED
+        if (scrolled) scroll_quad(video.scroll_x(), video.scroll_y());
+        else
+#endif
+            quad(background_header_);
         pvr_list_finish();
 
         // Materials front to back first: the 64 palette banks and the build
@@ -137,6 +160,9 @@ public:
         if (front_layer) upload_layer(*front_layer, foreground_); // after the back layer's DMA
 #endif
         pvr_list_begin(PVR_LIST_TR_POLY);
+#ifdef M2_DC_SPEED
+        if (scrolled) quad(background_over_header_); // the back layers over the scrolled one, under the polygons
+#endif
         pvr_dr_init(&dr_);
         size_t used = sizeof(pvr_poly_hdr_t) + 4 * sizeof(pvr_vertex_t);
         drawn = textured = skipped = 0;
@@ -255,6 +281,52 @@ private:
     }
 #endif
 
+#ifdef M2_DC_SPEED
+    // The scrolled layer's texture: the tiles whose pixels changed (all
+    // after a pen change), converted by the runtime (scroll_pixel) into
+    // video RAM, 8 pixels a row as four 32-bit writes. After pvr_wait_ready:
+    // the PVR is not reading it.
+    void update_scroll(rt::Video &video) {
+        const bool all = video.scroll_all_changed();
+        const uint8_t *changed = video.scroll_tiles_changed();
+        auto *texels = static_cast<uint32_t *>(scroll_);
+        for (uint32_t t = 0; t < 64 * 64; ++t) {
+            if (!all && !changed[t]) continue;
+            const uint32_t tx = (t & 63) * 8, ty = (t >> 6) * 8;
+            for (uint32_t y = ty; y < ty + 8; ++y) {
+                uint32_t *row = texels + (y * 512 + tx) / 2;
+                for (uint32_t x = 0; x < 8; x += 2)
+                    row[x / 2] = uint32_t(video.scroll_pixel(tx + x, y)) | uint32_t(video.scroll_pixel(tx + x + 1, y)) << 16;
+            }
+            ++scroll_tiles;
+        }
+        video.scroll_taken();
+    }
+    // The screen's kW x kH from (sx, sy) of the 512 x 512 scrolled layer
+    // (texture coordinates past 1 wrap, as the pixmap does).
+    void scroll_quad(int sx, int sy) {
+        pvr_prim(&scroll_header_, sizeof scroll_header_);
+        const float x0 = kOffsetX, x1 = kOffsetX + kW * kScale, h = kH * kScale;
+        const float u0 = float(sx & 511) / 512, v0 = float(sy & 511) / 512;
+        const float u1 = u0 + float(kW) / 512, v1 = v0 + float(kH) / 512;
+        const float corners[4][4] = {{x0, 0, u0, v0}, {x1, 0, u1, v0}, {x0, h, u0, v1}, {x1, h, u1, v1}};
+        for (int i = 0; i < 4; i++) {
+            pvr_vertex_t v{};
+            v.flags = i == 3 ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+            v.x = corners[i][0];
+            v.y = corners[i][1];
+            v.z = 1.0f;
+            v.u = corners[i][2];
+            v.v = corners[i][3];
+            v.argb = 0xffffffffu;
+            pvr_prim(&v, sizeof v);
+        }
+    }
+
+public:
+    unsigned scroll_tiles = 0; // scrolled-layer tiles converted, since the start
+private:
+#endif
     void quad(const pvr_poly_hdr_t &header) {
         pvr_prim(&header, sizeof header);
         const float x0 = kOffsetX, x1 = kOffsetX + kW * kScale, h = kH * kScale;
@@ -466,6 +538,10 @@ private:
     bool flush_ = false;
     pvr_ptr_t background_, foreground_;
     pvr_poly_hdr_t background_header_, foreground_header_, solid_header_;
+#ifdef M2_DC_SPEED
+    pvr_ptr_t scroll_ = nullptr;
+    pvr_poly_hdr_t scroll_header_, background_over_header_;
+#endif
     pvr_dr_state_t dr_ = 0;
     uint64_t back_uploaded_ = ~0ull, front_uploaded_ = ~0ull; // the layers' generations in video RAM
     bool clear_row_[kH] = {}; // front layer rows all see-through in video RAM

@@ -358,6 +358,8 @@ void *run_game(void *) {
                         v.composes(0) ? double(v.composed_lines(0)) / double(v.composes(0)) : 0.0,
                         (unsigned long long)v.composes(1), (unsigned long long)v.full_composes(1),
                         v.composes(1) ? double(v.composed_lines(1)) / double(v.composes(1)) : 0.0);
+                    say("PROFILE scrolled layer %s, %u of its tiles converted since the start\n",
+                        v.back_scrolled() ? "on" : "off", renderer.scroll_tiles);
                 }
                 rom->read_us = 0;
                 prof_audio = 0;

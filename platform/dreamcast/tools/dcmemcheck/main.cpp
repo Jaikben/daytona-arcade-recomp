@@ -6,7 +6,7 @@
 // tracecheck's per-frame line plus the ROM pages read that frame, by region.
 //
 //   dcmemcheck IMAGES_DIR FIRST LAST [--inputs FILE] [--nvram DIR] [--external-3d]
-//              [--fill-upper] [--no-frame-buffer]
+//              [--fill-upper] [--no-frame-buffer] [--no-scroll-layer] [--mask-green]
 
 #include "runtime/game_loop.h"
 #include "runtime/rom_source.h"
@@ -79,12 +79,14 @@ int main(int argc, char **argv) {
     const std::string dir = argv[1];
     const int first = std::atoi(argv[2]), last = std::atoi(argv[3]);
     std::string inputs, nvram;
-    bool external = false, fill_upper = false, no_frame_buffer = false;
+    bool external = false, fill_upper = false, no_frame_buffer = false, no_scroll_layer = false, mask_green = false;
     int frame_skip = 0;
     for (int i = 4; i < argc; i++) {
         if (!std::strcmp(argv[i], "--external-3d")) external = true;
         else if (!std::strcmp(argv[i], "--fill-upper")) fill_upper = true;
         else if (!std::strcmp(argv[i], "--no-frame-buffer")) no_frame_buffer = true;
+        else if (!std::strcmp(argv[i], "--no-scroll-layer")) no_scroll_layer = true;
+        else if (!std::strcmp(argv[i], "--mask-green")) mask_green = true;
         else if (i + 1 < argc && !std::strcmp(argv[i], "--frame-skip")) frame_skip = std::atoi(argv[++i]);
         else if (i + 1 < argc && !std::strcmp(argv[i], "--inputs")) inputs = argv[++i];
         else if (i + 1 < argc && !std::strcmp(argv[i], "--nvram")) nvram = argv[++i];
@@ -106,6 +108,11 @@ int main(int argc, char **argv) {
                           uint8_t(0xa5));
         rt::GameLoop game(std::move(img), false);
         if (external) game.board().video().set_external_3d(true);
+#ifdef M2_DC_SPEED
+        if (no_scroll_layer) game.board().video().set_scroll_layer(false);
+#else
+        (void)no_scroll_layer, (void)mask_green;
+#endif
         game.set_frame_skip(frame_skip); // as the Dreamcast frontend (3: every 4th frame drawn)
         if (!nvram.empty()) tools::load_nvram(game, nvram);
         tools::Script script;
@@ -130,11 +137,26 @@ int main(int argc, char **argv) {
             uint64_t layers = 0xcbf29ce484222325ULL;
             const rt::Video &video = game.board().video();
 #ifdef M2_DC_SPEED
-            // (Rows of kLayerStride; the shown W columns of each.)
-            for (const auto *layer : {&video.background16(), &video.foreground16()})
-                for (size_t row = 0; row < layer->size() / rt::Video::kLayerStride; row++)
-                    for (int x = 0; x < rt::Video::W; x++)
-                        layers = (layers ^ (*layer)[row * rt::Video::kLayerStride + size_t(x)]) * 0x100000001b3ULL;
+            // (Rows of kLayerStride; the shown W columns of each.) With the
+            // scrolled layer, the back layer as the PVR shows it: the
+            // see-through buffer over the scrolled layer, ARGB1555 pixels as
+            // RGB565 (green's low bit 0). --mask-green hashes the back layer
+            // with that bit 0 in every pixel, so a run with
+            // --no-scroll-layer can be compared with one without.
+            const auto &back = video.background16();
+            for (size_t row = 0; row < back.size() / rt::Video::kLayerStride; row++)
+                for (int x = 0; x < rt::Video::W; x++) {
+                    uint16_t c = back[row * rt::Video::kLayerStride + size_t(x)];
+                    if (video.back_scrolled())
+                        c = c & 0x8000 ? uint16_t(((c & 0x7fe0) << 1) | (c & 0x1f))
+                                       : video.scroll_pixel(uint32_t(x + video.scroll_x()), uint32_t(int(row) + video.scroll_y()));
+                    if (mask_green) c &= 0xffdf;
+                    layers = (layers ^ c) * 0x100000001b3ULL;
+                }
+            const auto &front = video.foreground16();
+            for (size_t row = 0; row < front.size() / rt::Video::kLayerStride; row++)
+                for (int x = 0; x < rt::Video::W; x++)
+                    layers = (layers ^ front[row * rt::Video::kLayerStride + size_t(x)]) * 0x100000001b3ULL;
 #else
             for (uint32_t c : video.background_layer())
                 layers = (layers ^ (((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f))) * 0x100000001b3ULL;

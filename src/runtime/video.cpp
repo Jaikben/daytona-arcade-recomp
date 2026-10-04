@@ -79,6 +79,7 @@ void Video::palette_w(uint32_t offset, const uint8_t *palram, const uint8_t *col
 #ifdef M2_DC_SPEED
         back_dirty_ = front_dirty_ = true;
         back_full_ = front_full_ = true;
+        scroll_all_dirty_ = true;
 #endif
     }
     pens_[offset & 0x1fff] = pen;
@@ -155,6 +156,7 @@ void Video::build_layer(int layer) {
         }
         (category ? front_dirty_ : back_dirty_) = true;
         dirty_rows_[category][layer][row] = 1;
+        if (layer == 2) scroll_dirty_[t] = 1;
         if (cls & 0x80) {
             --row_tiles_[layer][row][cls & 1];
             if (cls & 2) --row_opaque_[layer][row][cls & 1];
@@ -560,6 +562,28 @@ const std::vector<GeoPoly> &Video::gpu_polys() const {
 }
 
 #ifdef M2_DC_SPEED
+// Whether the back layers' opaque passes (layers 3 and 2, draw() with
+// DRAW_OPAQUE) draw pixmap layer 2 alone, on every line with one scroll:
+// layer 2 enabled, its mode word (0x5006, also layer 2's vertical scroll)
+// split mode 1 with every line on layer 2 (the split line off the screen),
+// no line scroll. Then layer 3's draw() returns at once (split mode, odd
+// layer) and layer 2's is tilemap_draw(2, sx, sy) for every line, which is
+// what back_scrolled() describes.
+bool Video::scroll_mode(int &sx, int &sy) const {
+    const uint16_t hscr = tile(0x5002), vscr = tile(0x5006);
+    if (!scroll_allowed_) return false;
+    if (vscr & 0x8000) return false;                  // layer 2 disabled
+    if (((vscr & 0x6000) >> 13) != 1) return false;   // not split mode 1
+    if (hscr & 0x8000) return false;                  // line scroll
+    const int v = (-vscr) & 0x1ff;
+    const int first = (-vscr) & 0x200 ? 2 : 3;        // the layer above the split line
+    const bool all_layer2 = (v >= H && first == 2) || (v == 0 && first == 3);
+    if (!all_layer2) return false;
+    sx = -(hscr & 0x1ff);
+    sy = vscr & 0x1ff;
+    return true;
+}
+
 // One of the Dreamcast's 16-bit layer buffers (cat 0: the back layers over
 // pen 0; 1: the front layers over see-through), kLayerStride wide. Every
 // line when its full flag is set; otherwise only the lines that show a row
@@ -571,7 +595,11 @@ void Video::compose16(int cat, const bool uses[4], const uint8_t *extra_lines) {
     bool &dirty = cat ? front_dirty_ : back_dirty_;
     bool &full = cat ? front_full_ : back_full_;
     std::vector<uint16_t> &buffer = cat ? sys24_16_ : screen16_;
-    const uint16_t clear = cat ? uint16_t(0) : pens565_[0];
+    // (The back layers with the scrolled layer drawn by the frontend: only
+    // layers 1 and 0, over see-through.)
+    const bool scrolled = !cat && back_scroll_;
+    const uint16_t clear = cat || scrolled ? uint16_t(0) : pens565_[0];
+    const int layers = scrolled ? 2 : 4; // pixmap layers drawn: 0 to layers - 1
     if (dirty || full || extra_lines) {
         uint8_t lines[H];
         int count = H;
@@ -581,7 +609,7 @@ void Video::compose16(int cat, const bool uses[4], const uint8_t *extra_lines) {
             count = 0;
             for (int y = 0; y < H; ++y) {
                 uint8_t d = extra_lines ? extra_lines[y] : 0;
-                for (int l = 0; l < 4 && !d; ++l) {
+                for (int l = 0; l < layers && !d; ++l) {
                     const uint32_t r = ((uint32_t(y) + vscroll[l]) & 511) >> 3;
                     d = dirty_rows_[cat][l][r] | dirty_rows_[cat][l ^ 1][r];
                 }
@@ -602,6 +630,9 @@ void Video::compose16(int cat, const bool uses[4], const uint8_t *extra_lines) {
             if (cat) {
                 for (int layer = 3; layer >= 0; --layer) draw(buffer, (layer << 1) | 1, 0, pens1555_);
                 ++front16_generation_;
+            } else if (scrolled) {
+                for (int layer = 1; layer >= 0; --layer) draw(buffer, layer << 1, 0, pens1555_);
+                ++back16_generation_;
             } else {
                 for (int layer = 3; layer >= 2; --layer) draw(buffer, layer << 1, DRAW_OPAQUE, pens565_);
                 for (int layer = 1; layer >= 0; --layer) draw(buffer, layer << 1, 0, pens565_);
@@ -720,12 +751,22 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
             }
             regs_copy_.assign(tile_ram_ + kRegs, tile_ram_ + kRegs + kRegsSize);
         }
+        // The scrolled layer on or off (back_scrolled): every back line again
+        // when that changes (the buffer's contents and format change).
+        int sx = 0, sy = 0;
+        const bool scroll = scroll_mode(sx, sy);
+        if (scroll != back_scroll_) back_full_ = true;
+        back_scroll_ = scroll;
+        scroll_x_ = sx;
+        scroll_y_ = sy;
         for (int cat = 0; cat < 2; ++cat) {
             // A layer draws its own tiles and, in the split modes (mode word
-            // bits 13-14), its pair's.
+            // bits 13-14), its pair's. (Layers 2 and 3 are not in the back
+            // buffer while the frontend draws the scrolled layer.)
             bool uses[4];
             for (int l = 0; l < 4; ++l)
-                uses[l] = layer_has(l, cat) || ((tile(0x5004 + uint32_t(l & 2)) & 0x6000) && layer_has(l ^ 1, cat));
+                uses[l] = !(scroll && !cat && l >= 2) &&
+                          (layer_has(l, cat) || ((tile(0x5004 + uint32_t(l & 2)) & 0x6000) && layer_has(l ^ 1, cat)));
             uint8_t extra[H] = {};
             bool any_extra = false;
             for (int l = 0; l < 4; ++l) {

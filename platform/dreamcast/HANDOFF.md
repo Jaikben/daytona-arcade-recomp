@@ -660,6 +660,34 @@ composes). Marking only the rows of a sideways-scrolled layer that have
 tiles made no difference (they have tiles on nearly every line) and was
 taken out.
 
+## The scenery layer on the PVR
+
+In the race the back layers are almost all pixmap layer 2: split mode 1
+(mode word 0x5006) with the split line off the screen, one scroll, no line
+scroll, layer 3 drawing nothing. Its opaque pass cost 2.4 ms a frame, a
+palette lookup per pixel on every drawn frame. Now (M2_DC_SPEED;
+`Video::scroll_mode` decides each drawn frame from `draw()`'s own
+conditions) the runtime leaves layers 2 and 3 out of the back buffer, which
+then holds layers 1 and 0 as ARGB1555, see-through where they draw nothing.
+The renderer keeps layer 2's whole 512 x 512 pixmap converted in a video
+RAM texture (512 KB, of the 0.72 MB that was free). It converts only the
+tiles `build_layer` rebuilt (all of them after a pen change), after
+`pvr_wait_ready`. It draws that texture as one opaque quad at the scroll
+(texture coordinates past 1 wrap like the pixmap), then the back buffer
+over it, first in the translucent list.
+
+- **Exact, except green's low bit** on the back buffer's own pixels (layers
+  1 and 0, now ARGB1555 instead of RGB565). dcmemcheck rebuilds the back
+  layer as the PVR shows it. With `--mask-green` it matches the
+  `--no-scroll-layer` run on every frame: race_basic and attract_long, at
+  frame skip 2 and 1. With `--no-scroll-layer` it still matches the
+  M2_DC_SPEED-off references. Screenshots in Flycast: the sky scrolls and
+  sits where it did.
+- race_basic, every 2nd frame drawn: 228.5 -> 218.2 s (tile layers 4.1 ->
+  1.5 ms a frame). The scrolled layer is on for most of the race; about
+  24,000 tile conversions over it (about six whole layers' worth, mostly
+  palette changes).
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the
