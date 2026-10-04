@@ -80,6 +80,63 @@ def jumps(body):
     return "goto" in text or "return" in text
 
 
+CASE = re.compile(r"^    case 0x([0-9a-f]{8})u: goto (L_[0-9a-f]{8});$")
+BLOCK_BITS = 7  # 32 instructions a block
+
+
+def two_level_switch(out):
+    """The chunk's entry switch on c.m_IP (a case for each instruction, 4
+    apart: GCC at -Os makes it a compare tree about 11 deep, run at every
+    dispatch and recheck) as a switch on the 128-byte block (dense: a jump
+    table) of switches on the IP (compare trees 5 deep). The same targets;
+    an IP not in the chunk still returns. Chunks whose blocks would make a
+    large table (chunk_017 spans 2 MB) keep the one switch."""
+    start = out.index("    switch (c.m_IP) {")
+    end = start + 1
+    cases = []
+    while CASE.match(out[end]):
+        m = CASE.match(out[end])
+        cases.append((int(m.group(1), 16), m.group(2)))
+        end += 1
+    if out[end:end + 2] != ["    default: return;", "    }"] or not cases:
+        raise SystemExit("fast_gen: unexpected chunk entry switch")
+    lo = min(a for a, _ in cases)
+    blocks = ((max(a for a, _ in cases) - lo) >> BLOCK_BITS) + 1
+    if blocks > 512:
+        return out
+    by_block = {}
+    for a, label in sorted(cases):
+        by_block.setdefault((a - lo) >> BLOCK_BITS, []).append((a, label))
+    new = [f"    switch ((c.m_IP - 0x{lo:08x}u) >> {BLOCK_BITS}) {{ // (fast_gen.py: by block, then by IP)"]
+    for block, entries in sorted(by_block.items()):
+        new.append(f"    case {block}u:")
+        new.append("        switch (c.m_IP) {")
+        new += [f"        case 0x{a:08x}u: goto {label};" for a, label in entries]
+        new.append("        default: return;")
+        new.append("        }")
+    new += ["    default: return;", "    }"]
+    return out[:start] + new + out[end + 2:]
+
+
+TABLE_LOOP = """    for (const Range &r : kChunks)
+        if (a >= r.first && a <= r.last) { r.fn(e); return; }"""
+TABLE_SEARCH = """    // (fast_gen.py) The ranges are sorted and disjoint: a binary search
+    // instead of a scan at every dispatch that leaves a chunk.
+    const Range *r = std::upper_bound(std::begin(kChunks), std::end(kChunks), a,
+                                      [](uint32_t v, const Range &x) { return v < x.first; });
+    if (r != std::begin(kChunks) && a <= (r - 1)->last) (r - 1)->fn(e);"""
+
+
+def rewrite_table(source):
+    """gen_table.cpp: gen::run finds the chunk by binary search."""
+    if source.count(TABLE_LOOP) != 1:
+        raise SystemExit("fast_gen: unexpected gen_table.cpp")
+    firsts = [int(m, 16) for m in re.findall(r"^    \{0x([0-9a-f]{8})u, 0x[0-9a-f]{8}u, chunk_\d+\},$", source, re.M)]
+    if not firsts or firsts != sorted(firsts):
+        raise SystemExit("fast_gen: gen_table.cpp's chunk ranges are not sorted")
+    return source.replace(TABLE_LOOP, TABLE_SEARCH)
+
+
 def rewrite(source):
     lines = source.split("\n")
     out = []
@@ -108,6 +165,7 @@ def rewrite(source):
         i += 1
     if not any("uint32_t left = 1;" in l for l in out) or "resume:" not in out:
         raise SystemExit("fast_gen: unexpected chunk prologue")
+    out = two_level_switch(out)
     while i < len(lines):
         line = lines[i]
         m = LABEL.match(line)
@@ -192,6 +250,8 @@ def main():
                 total[k] += stats[k]
         elif f.name == "tgp_gen.cpp":
             text = rewrite_tgp(text)
+        elif f.name == "gen_table.cpp":
+            text = rewrite_table(text)
         out = dst / f.name
         if not out.is_file() or out.read_text() != text:
             out.write_text(text, newline="\n")

@@ -793,6 +793,24 @@ the face bit, bit 23, which luminance up to 255 never sets), or link type
 0. Neither word is read for a culled polygon. 181.7 -> 180.1 s (geometry
 8.3 ms). dcmemcheck identical; desktop unchanged.
 
+## Dispatch: two-level entry switch, binary chunk search
+
+About 4,300 dispatches a frame (counted: calls and returns that leave a
+chunk, interrupts, rechecks). Each went through the chunk's entry switch on
+c.m_IP, a case per instruction 4 apart, which GCC at -Os compiles to a
+compare tree about 11 deep (a dense table over the chunks' ranges would be
+573,000 entries). `fast_gen.py` now writes it as a switch on the 128-byte
+block (a jump table) of switches on the IP (5 deep), except chunk_017
+(2 MB of range), and `gen::run` finds the chunk by binary search instead
+of scanning 26 ranges. The calls to a constant target already jump
+straight to it when it is in the same chunk (m2recomp does that); all
+2,269 remaining leave their chunk. race_basic 180.1 -> 176.9 s (core 20.6
+-> 19.9 ms), no RAM cost; dcfastcheck identical every frame.
+
+- **Measured, not kept (again):** the CPU's memory helpers checking the
+  board's last page and calling it without the virtual call: 180.0 s
+  against 180.1.
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the
