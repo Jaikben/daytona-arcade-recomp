@@ -1,6 +1,6 @@
 """Name the game thread's PC samples (build_dreamcast.py game --sample).
 
-The frontend prints "SAMPLE address count" lines, 64-byte buckets of the
+The frontend prints "SAMPLE address count" lines, 128-byte buckets of the
 program; this sums them by function from game.elf's symbols (sh-elf-nm) and
 prints the busiest, with their share of the samples.
 
@@ -51,7 +51,7 @@ def main():
             continue
         m = re.match(r"CALLER ([0-9a-f]{8}) (\d+)", line)
         if m and frame >= args.first:
-            i = bisect.bisect_right(addrs, int(m.group(1), 16) + 128) - 1  # (the middle of a 256-byte bucket)
+            i = bisect.bisect_right(addrs, int(m.group(1), 16) + 256) - 1  # (the middle of a 512-byte bucket)
             callers[names[i] if i >= 0 else "?"] += int(m.group(2))
             continue
         m = re.match(r"COARSE frame (\d+): (\d+) samples", line)
@@ -70,7 +70,7 @@ def main():
             # A bucket that straddles two functions is named for both
             # ("first | second"): the samples could be in either.
             i = bisect.bisect_right(addrs, addr) - 1
-            j = bisect.bisect_right(addrs, addr + 63) - 1
+            j = bisect.bisect_right(addrs, addr + 127) - 1
             name = names[i] if i >= 0 else "?"
             if j != i and j >= 0:
                 name = f"{name[:70]} | {names[j][:70]}"

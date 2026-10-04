@@ -31,6 +31,7 @@ measure: runs romuse over input scripts (default: every scripts/inputs/*.txt
 """
 import argparse
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -129,8 +130,22 @@ def kos_make(args, target):
     setup_kos(args)
     out = (ROOT / args.host_build_dir).resolve() / "dreamcast"
     out.mkdir(parents=True, exist_ok=True)
+    fix_dependency_files(out)
     shell(args, f"make -C {msys_path(HERE)} OUT={msys_path(out)} {target}")
     return out
+
+
+def fix_dependency_files(out):
+    """The Makefile's FIXDEP turns the compiler's C:/ paths in a .d file into
+    /c/ ones (make reads a drive colon as a rule's). A compile that fails
+    still writes its .d, without FIXDEP: make then never matches that
+    object's dependencies, and a changed header (game/inputs.h, so a
+    --sample build) did not rebuild it. Fixed here before every make."""
+    for dep in out.rglob("*.d"):
+        text = dep.read_text(errors="replace")
+        fixed = re.sub(r"\b([A-Za-z]):/", lambda m: f"/{m.group(1).lower()}/", text)
+        if fixed != text:
+            dep.write_text(fixed, newline="\n")
 
 
 # Test programs: the markers that end a run (the first is a pass), the

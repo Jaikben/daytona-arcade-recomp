@@ -488,14 +488,17 @@ private:
         const float cx = float(video.crtc_x() + poly.center[0]), cy = float((384 - poly.center[1]) + video.crtc_y());
         for (int i = 0; i < n; i++) {
             const float pz = poly.v[i].p[0];
-            if (!(pz > 0.0f) || !finite(pz)) return false;
+            // (a - a is 0 for a finite a, NaN for an infinite or NaN one:
+            // a finiteness test in the FPU, without std::isfinite's soft-float
+            // compare helpers at -fno-fast-math.)
+            if (!(pz > 0.0f) || pz - pz != 0.0f) return false;
             const float inv = 1.0f / pz;
             v[i].x = kOffsetX + (cx + poly.v[i].x * inv) * kScale;
             v[i].y = (cy - poly.v[i].y * inv) * kScale;
             v[i].z = inv;
             v[i].u = material ? poly.v[i].p[1] * material->u_scale : 0.0f;
             v[i].v = material ? poly.v[i].p[2] * material->v_scale : 0.0f;
-            if (!finite(v[i].x) || !finite(v[i].y) || !finite(v[i].z)) return false;
+            if ((v[i].x - v[i].x) + (v[i].y - v[i].y) + (v[i].z - v[i].z) != 0.0f) return false;
         }
         // Straight into the store queues (KOS's direct rendering): the list
         // is open, the queues point at the TA.
@@ -525,13 +528,6 @@ private:
         return true;
     }
 
-    // std::isfinite without the soft-float compare helpers it costs at
-    // -fno-fast-math on the SH-4: exponent not all ones.
-    static bool finite(float f) {
-        uint32_t u;
-        std::memcpy(&u, &f, 4);
-        return (u & 0x7f800000u) != 0x7f800000u;
-    }
 
     size_t budget_;
     std::vector<Region> regions_;

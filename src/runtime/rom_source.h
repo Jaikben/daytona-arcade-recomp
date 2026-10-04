@@ -7,6 +7,7 @@
 
 #ifdef M2_DC_MEMORY
 #include <cstdint>
+#include <utility>
 
 namespace rt {
 
@@ -29,6 +30,22 @@ public:
     // on in the same 4 KB, and page() is a virtual call and a cache lookup.
     // The source calls forget() whenever it loads a page (which may evict
     // one), so a remembered pointer is never stale.
+#ifdef M2_DC_SPEED
+    // (The last two pages of each region: a polygon's texture coordinates
+    // and its texture header are in different pages, read in turn.)
+    const uint8_t *page_fast(RomRegion region, uint32_t index) {
+        Last *last = last_[int(region)];
+        if (last[0].page && last[0].index == index) return last[0].page;
+        if (last[1].page && last[1].index == index) {
+            std::swap(last[0], last[1]);
+            return last[0].page;
+        }
+        const uint8_t *p = page(region, index);
+        last[1] = last[0];
+        last[0] = {index, p};
+        return p;
+    }
+#else
     const uint8_t *page_fast(RomRegion region, uint32_t index) {
         Last &last = last_[int(region)];
         if (last.page && last.index == index) return last.page;
@@ -36,6 +53,7 @@ public:
         last = {index, p};
         return p;
     }
+#endif
 
     // A little-endian word at a byte offset (aligned), through page_fast().
     uint32_t dword(RomRegion region, uint32_t offset) {
@@ -61,6 +79,16 @@ public:
     }
 
 protected:
+#ifdef M2_DC_SPEED
+    void forget() {
+        for (auto &region : last_)
+            for (Last &last : region) last.page = nullptr;
+    }
+
+private:
+    struct Last { uint32_t index = 0; const uint8_t *page = nullptr; };
+    Last last_[5][2];
+#else
     void forget() {
         for (Last &last : last_) last.page = nullptr;
     }
@@ -68,6 +96,7 @@ protected:
 private:
     struct Last { uint32_t index = 0; const uint8_t *page = nullptr; };
     Last last_[5];
+#endif
 };
 
 } // namespace rt

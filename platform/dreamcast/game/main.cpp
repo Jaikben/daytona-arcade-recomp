@@ -397,17 +397,17 @@ void *run_game(void *) {
 }
 
 // --sample: the game thread's PC at each KOS timer tick (about every 10 ms; it is pre-empted, its
-// registers saved), counted in 64-byte buckets of the program, the 200 busiest
+// registers saved), counted in 128-byte buckets of the program, the 200 busiest
 // reported every 10,000 samples as "SAMPLE address count" for
 // scripts/pc_profile.py to name from game.elf. Runs until the game ends.
 extern "C" char end[]; // the linker's: the end of the program and its data
 void sample(kthread_t *game) {
-    constexpr uint32_t kStart = 0x8c010000, kBucketBits = 6; // 64-byte buckets: RAM is short
+    constexpr uint32_t kStart = 0x8c010000, kBucketBits = 7; // 128-byte buckets: RAM is short
     const uint32_t buckets = (uint32_t(uintptr_t(end)) - kStart) >> kBucketBits;
     std::vector<uint16_t> counts(buckets);
     // Callers of memcpy and memset (leaf functions: PR is where they were
-    // called from), 256-byte buckets, reported as "CALLER address count".
-    std::vector<uint16_t> callers(buckets / 4); // 256-byte buckets (RAM is short)
+    // called from), 512-byte buckets, reported as "CALLER address count".
+    std::vector<uint16_t> callers(buckets / 4); // 512-byte buckets (RAM is short)
     // Every sample also in 16 KB buckets, all reported ("COARSE address
     // count"): the long tail the 200 busiest small buckets leave out (the
     // generated code is megabytes, a few samples in each small bucket).
@@ -421,8 +421,8 @@ void sample(kthread_t *game) {
         const uint32_t pc = game->context.pc;
         if (pc - copy < 0x200 || pc - fill < 0x200) {
             const uint32_t pr = game->context.pr;
-            if (pr >= kStart && ((pr - kStart) >> 8) < callers.size() && callers[(pr - kStart) >> 8] < 0xffff)
-                ++callers[(pr - kStart) >> 8];
+            if (pr >= kStart && ((pr - kStart) >> 9) < callers.size() && callers[(pr - kStart) >> 9] < 0xffff)
+                ++callers[(pr - kStart) >> 9];
         }
         if (pc >= kStart && ((pc - kStart) >> kBucketBits) < buckets) {
             uint16_t &c = counts[(pc - kStart) >> kBucketBits];
@@ -461,7 +461,7 @@ void sample(kthread_t *game) {
             const auto top = std::max_element(callers.begin(), callers.end());
             if (!*top) break;
             n += std::snprintf(g_report + n, sizeof g_report - size_t(n), "CALLER %08lx %u\n",
-                               (unsigned long)(kStart + (uint32_t(top - callers.begin()) << 8)), unsigned(*top));
+                               (unsigned long)(kStart + (uint32_t(top - callers.begin()) << 9)), unsigned(*top));
             *top = 0;
         }
         g_report_ready = true;

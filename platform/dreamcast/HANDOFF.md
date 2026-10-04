@@ -706,6 +706,26 @@ materials pass instead of a second hash lookup (kept: simpler, 213.0 s).
 The polygon step (about 4.5 ms a drawn frame for about 1,400 polygons) is
 not the DMA waits (`PROFILE draw` now prints them: under 1 ms).
 
+## Two remembered ROM pages; finiteness in the FPU
+
+A line profile (now over every sampled line, `--sample` with 128-byte
+buckets: the 64-byte ones ran the sampling build out of RAM) showed
+`GeoPtr16::read` and `DiscRom::page` at about 6%. A polygon's texture
+coordinates and its texture header are in different pages of the texture
+ROM, read in turn, and `RomSource::page_fast` remembered one page per
+region: every read went to the virtual `page()`. It now remembers two
+(M2_DC_SPEED; `forget()` clears both). The renderer's `polygon()` tested
+each vertex with three `finite()` calls (float to integer through memory,
+1.6%); it now tests `(x - x) + (y - y) + (z - z) != 0` (NaN exactly when one
+is infinite or NaN), and `pz - pz` for the depth. dcmemcheck identical to
+the references; the same polygons drawn. race_basic 212.8 -> 205.3 s
+(geometry 11.2 -> 10.2, drawing 3.9 -> 3.5 ms a frame).
+
+- **`build_dreamcast.py` fixes `.d` files before make.** A compile that
+  fails still writes its `.d`, without the Makefile's FIXDEP (C:/ paths to
+  /c/), and make then never matched that object's dependencies: a changed
+  `game/inputs.h` (a `--sample` build) did not rebuild `main.o`.
+
 ## Where the time is now (race, every 2nd frame drawn, Flycast)
 
 - **PROFILE waits line** (frontend timers): disc reads for ROM pages, the
