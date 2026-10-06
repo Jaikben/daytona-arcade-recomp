@@ -36,6 +36,8 @@ int next_uid = 1;
 bool scene = false;
 void reset_graphics_state();
 std::vector<float> ordered_x;
+struct LayerDraw { float x, y, w, h, xs, ys; };
+std::vector<LayerDraw> layers;
 std::vector<const void *> ordered_palettes;
 #include "vita_gpu_capture.inc"
 
@@ -59,7 +61,7 @@ void start_scene() {
     require(!scene && readers.empty(), "temporary pool reused before GPU completion");
     pool_used = 0;
     reset_graphics_state();
-    ordered_x.clear(); ordered_palettes.clear();
+    ordered_x.clear(); ordered_palettes.clear(); layers.clear();
     captured_draws.clear(); clip_rectangle = {0, 0, 960, 544};
     scene = true;
 }
@@ -191,6 +193,13 @@ void mock_draw_array(int, const vita2d_color_vertex *vertices, unsigned count) {
     mock::queue(vertices, count * sizeof(*vertices));
     ++mock::draws;
 }
+void vita2d_draw_texture_part_scale(const vita2d_texture* t, float x, float y, float tx, float ty,
+                                   float w, float h, float xs, float ys) {
+    mock::require(tx >= 0 && ty >= 0 && tx + w <= t->gxm_tex.width && ty + h <= t->gxm_tex.height,
+                  "layer source rectangle exceeds texture");
+    mock::layers.push_back({x, y, w, h, xs, ys});
+    vita2d_draw_texture_scale(t, x, y, xs, ys);
+}
 void vita2d_draw_texture_scale(const vita2d_texture *t, float, float, float, float) {
     mock::queue(t->gxm_tex.data, size_t(t->gxm_tex.stride) * t->gxm_tex.height);
 }
@@ -235,8 +244,8 @@ vita::GpuFastRenderer::Material *build(vita::GpuFastRenderer &renderer, const rt
 void test_cache(vita::GpuFastRenderer &renderer, const Images &images) {
     constexpr size_t mib = 1024u * 1024u;
     mock::require(renderer.ok(), "renderer initialization failed");
-    mock::require(renderer.reserved_bytes() == 30u * mib && mock::reserved() == 30u * mib,
-                  "renderer reservation must be the real 30 MiB arena capacity");
+    mock::require(renderer.reserved_bytes() == 32u * mib && mock::reserved() == 32u * mib,
+                  "renderer reservation must be the real 32 MiB arena capacity");
     mock::require(mock::allocations == 3 && mock::maps == 3, "renderer should use exactly three kernel blocks");
     for (unsigned i = 0; i < 800; ++i) {
         auto p = polygon();
@@ -246,7 +255,7 @@ void test_cache(vita::GpuFastRenderer &renderer, const Images &images) {
     }
     mock::require(renderer.cached_materials() == 800 && renderer.cached_sources() == 40, "shared source cache mismatch");
     mock::require(renderer.cached_bytes() == (800u + 40u) * 1024u, "logical source/palette bytes mismatch");
-    mock::require(mock::allocations == 3 && mock::reserved() == 30u * mib, "per-material physical allocation growth");
+    mock::require(mock::allocations == 3 && mock::reserved() == 32u * mib, "per-material physical allocation growth");
     auto *m = build(renderer, polygon(), images.mem);
     const unsigned before_wait = mock::waits;
     mock::start_scene();
@@ -334,6 +343,112 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
         }
         mock::require(run() == 0, "invalid polygon reached a GPU draw");
     }
+    polys[0] = polygon();
+    for (int margin : {0, 59, 93, 200, 0}) {
+        video.set_wide_margin(margin);
+        video.set_hud_edges(true);
+        video.frame_start();
+        video.screen_update(polys, 0, images.mem);
+        mock::require(video.width() == 496 + 2 * margin, "external wide width");
+        if (margin) {
+            mock::require(video.background_layer().size() == 496u * 384u, "wide backdrop must stay native-sized");
+            const auto generation = video.foreground_generation();
+            video.screen_update(polys, 0, images.mem);
+            mock::require(video.foreground_generation() == generation, "unchanged wide HUD uploaded again");
+        }
+        renderer.prepare_frame();
+        mock::start_scene();
+        renderer.draw(video);
+        mock::require(std::abs(renderer.sx(-float(margin)) -
+            (960.0f - video.width() * renderer.scale_) / 2) < 0.01f, "wide left edge layout");
+        mock::require(renderer.sy(0) >= 0 && renderer.sy(384) <= 544.01f, "wide vertical letterbox");
+        mock::end_scene();
+        renderer.prepare_frame();
+        if (margin) {
+            video.set_stretch_backdrop(true);
+            mock::start_scene(); renderer.draw(video);
+            mock::require(mock::layers.size() == 2, "wide background and foreground draw count");
+            const auto back = mock::layers[0];
+            mock::require(back.w == 496 && back.h == 384, "stretch must sample native backdrop");
+            mock::require(std::abs(back.w * back.xs - video.width() * renderer.scale_) < 0.01f,
+                          "stretch must fill wide viewport");
+            mock::require(std::abs(back.x - renderer.sx(-float(margin))) < 0.01f,
+                          "stretch left edge");
+            mock::end_scene(); renderer.prepare_frame();
+            video.set_stretch_backdrop(false);
+            const auto old_front = video.foreground_layer();
+            const auto background_generation = video.background_generation();
+            video.set_gpu_background(true);
+            tile_ram[0xa000] ^= 1; // scrolling dirties both CPU tile passes
+            video.tile_memory_w(); // same write notification as the board bus
+            video.frame_start(); video.screen_update(polys, 0, images.mem);
+            mock::require(!video.last_profile().layers_rebuilt, "GPU tiles rebuilt a CPU bitmap on scroll");
+            mock::require(video.foreground_layer() == old_front, "GPU backdrop changed HUD pixels");
+            mock::require(video.background_generation() == background_generation, "GPU backdrop rebuilt CPU background");
+            renderer.prepare_frame(); mock::start_scene(); renderer.draw(video);
+            mock::require(mock::layers.empty(), "GPU tile path still draws a CPU layer without relocated HUD");
+            mock::end_scene(); renderer.prepare_frame();
+            mock::capture_draws = true;
+            mock::start_scene(); renderer.draw_system24(video, false);
+            const auto centred = mock::captured_draws;
+            mock::require(!centred.empty(), "no GPU backdrop tiles");
+            mock::end_scene(); renderer.prepare_frame();
+            video.set_stretch_backdrop(true);
+            mock::start_scene(); renderer.draw_system24(video, false);
+            mock::require(centred.size() == mock::captured_draws.size(), "stretch changed tile draws");
+            for (size_t d = 0; d < centred.size(); ++d) {
+                const auto &a = centred[d].vertices;
+                const auto &b = mock::captured_draws[d].vertices;
+                mock::require(a.size() == b.size(), "stretch changed tile topology");
+                for (size_t i = 0; i < a.size(); ++i) {
+                    const float source_x = (a[i].x - renderer.sx(0)) / renderer.scale_;
+                    const float expected = renderer.sx(source_x * video.width() / 496.f - margin);
+                    mock::require(std::abs(b[i].x - expected) < .001f, "GPU backdrop stretch coordinate");
+                    mock::require(a[i].y == b[i].y && a[i].u == b[i].u && a[i].v == b[i].v,
+                                  "GPU backdrop changed UV or vertical coordinate");
+                }
+            }
+            mock::end_scene(); renderer.prepare_frame(); mock::capture_draws = false;
+            video.set_stretch_backdrop(false); video.set_gpu_background(false);
+            video.frame_start(); video.screen_update(polys, 0, images.mem);
+            mock::require(video.last_profile().layers_rebuilt, "CPU fallback lost deferred dirty layers");
+        }
+    }
+    video.set_wide_margin(93);
+    video.set_hud_edges(true);
+    video.set_gpu_background(true);
+    auto panel = polygon();
+    panel.num_vertices = 4; panel.z = 0x600; panel.texheader[0] = 0x8000;
+    panel.center[0] = 0; panel.center[1] = 384;
+    panel.v[0] = {380, -60, {1, 0, 0}}; panel.v[1] = {470, -60, {1, 0, 0}};
+    panel.v[2] = {470, -150, {1, 0, 0}}; panel.v[3] = {380, -150, {1, 0, 0}};
+    polys = {panel};
+    video.frame_start(); video.screen_update(polys, 0, images.mem);
+    mock::require(video.hud_at_edges_active(), "race panel enables HUD relocation");
+    mock::require(!video.gpu_foreground(), "edge HUD must retain the shared per-item CPU fallback");
+    const auto unchanged_generation = video.foreground_generation();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == unchanged_generation, "static edge HUD cache missed");
+    tile_ram[1] = 0x80; // Foreground-category character zero.
+    std::fill_n(char_ram.begin(), 32, uint8_t(0x11));
+    video.tile_memory_w(); video.character_memory_w();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() > unchanged_generation, "changed HUD was not invalidated");
+    mock::require(std::any_of(video.foreground_layer().begin(), video.foreground_layer().end(),
+                  [](uint32_t pixel) { return pixel != 0; }), "changed HUD pixels lost");
+    const auto changed_generation = video.foreground_generation();
+    video.screen_update(polys, 0, images.mem);
+    mock::require(video.foreground_generation() == changed_generation, "unchanged populated HUD uploaded again");
+    auto projected = panel;
+    for (int i = 0; i < 4; ++i) {
+        projected.v[i].x += 93; projected.v[i].y = -projected.v[i].y;
+    }
+    mock::require(video.raster().hud_polygon_offset(projected) == 93, "right HUD polygon moves to edge");
+    projected.z = 0x601;
+    mock::require(video.raster().hud_polygon_offset(projected) == 0, "only panel exact z moves");
+    projected.z = 0x8000;
+    mock::require(video.raster().hud_polygon_offset(projected) == 0, "scenery is not moved with HUD");
+    video.set_wide_margin(0);
     polys[0] = polygon(); polys[0].texheader[0] = 0;
     mock::require(run() == 1, "valid solid triangle did not submit");
     polys[0].v[0].x = std::numeric_limits<float>::quiet_NaN();
@@ -360,7 +475,7 @@ int main() {
         renderer.shutdown();
         mock::require(mock::blocks.empty() && mock::maps == mock::unmaps && mock::allocations == mock::frees,
                       "shutdown leaked or double-freed GPU memory");
-        std::puts("Vita renderer host contracts: 800 shared materials, 30 MiB/3 blocks, source/palette overflow, fences, invalid vertices and shutdown passed");
+        std::puts("Vita renderer host contracts: 800 shared materials, 32 MiB/3 blocks, source/palette overflow, fences, invalid vertices and shutdown passed");
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Vita renderer host contract failed: %s\n", error.what());
         return 1;

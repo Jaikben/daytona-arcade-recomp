@@ -86,6 +86,17 @@ class BuildVitaTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.call()
 
+    def test_gpu_package_rejects_missing_draw_distance_hook(self):
+        for name in BUILD.REQUIRED:
+            path = self.root / "build/gen" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        with patch.object(BUILD.subprocess, "run") as run:
+            with self.assertRaises(SystemExit):
+                self.call("--gpu-fast")
+            run.assert_not_called()
+        self.assertIn("draw-distance hook", self.output.getvalue())
+
     def test_custom_host_directory(self):
         with patch.object(BUILD.subprocess, "run") as run:
             self.call("--compile-check", "--host-build-dir", "host build", "--build-dir", "cross build")

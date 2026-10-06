@@ -1,5 +1,22 @@
 # Vita port handoff — 29 September 2026
 
+## ImGui launcher — 6 October 2026
+
+The GXM frontend now uses Dear ImGui instead of its bitmap menu. It shares
+the vita2d context and keeps all existing Vita settings and button actions.
+Front touch can select or adjust options and drag the scrollbar. Start+Select
+still opens the pause menu. Both ROM executables include the same launcher.
+VPK version is 01.24 and includes the ImGui MIT license.
+
+Rebased onto origin/main 50d6638, preserving the Vita GPU backdrop and tile
+fallback behavior. All 13 host Vita tests pass; the desktop app also compiles.
+The new UI backend test exercises atlas creation, clipped triangles, pool
+exhaustion and shutdown, not actual GXM output. Hardware validation remains
+required before calling the UI or gameplay device-tested.
+Both ROM executables cross-build successfully. The combined 01.24 package
+is build/vita-enhancements/daytona_vita.vpk; ZIP integrity passes and its
+daytona.self hash matches the freshly built Revision A executable.
+
 Baseline inspected: the root build, README, `rules.md`, the design document's
 Architecture and Floating point sections, the app's frame/audio/input code,
 and the runtime's GameLoop, board, ROM importer and generated-code interface.

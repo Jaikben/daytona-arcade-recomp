@@ -1,5 +1,19 @@
 # Native PS Vita target (experimental)
 
+## ImGui launcher (01.24)
+
+The GXM build now uses Dear ImGui for its launcher, options and loading screen.
+D-pad navigates, Cross activates, Left/Right changes the highlighted setting,
+and Circle goes back/resumes. Front touch selects rows, arrow buttons and the
+scrollbar. Start+Select still opens the menu during play. The existing clocks,
+ROM selector, link configuration, steering curves and display/audio options
+retain their saved vita.cfg values. Both ROM executables use the new UI.
+
+ImGui draws through the existing vita2d/GXM context only while the menu is
+visible. No SDL3 renderer, extra display-buffer mode or game-renderer switch
+was introduced. Wide GPU tiles remain disabled following the earlier hardware
+slowdown. Host contract tests do not establish appearance or speed on a Vita.
+
 This is a VitaSDK/SDL2 frontend for the existing native runtime. It is a
 native Vita application, **not a PSP/Adrenaline build**. The i960, TGP and
 68000 programs still come from the host recompilation pipeline. No
@@ -13,6 +27,19 @@ issues reported. Performance, memory headroom and full-race parity figures
 are not recorded yet.
 
 ## Build
+
+### Optional GXM CPU enhancements
+
+The GXM frontend options offer CPU 500 MHz and fourth-core scheduling.
+Both require compatible firmware/plugin support; no plugins are installed
+by the game. Defaults remain CPU 333 MHz and fourth core off.
+The CPU option shows actual frequency, and unsuccessful 500 MHz requests
+fall back to requesting 444 MHz. Check your overclock plugin's per-game
+profile if the actual frequency differs from the selection.
+Fourth-core access is verified through thread affinity readback. Rejected
+requests retain ordinary three-core scheduling and show unavailable.
+Game and audio threads may use the extra core; this does not split sequential
+game logic into additional workers or guarantee higher FPS.
 
 Use a homebrew-enabled Vita, a host C++20 toolchain and VitaSDK with its
 SDL2 development package. Reference SDK release: 2026.08. Set `VITASDK`
@@ -70,6 +97,47 @@ generated source group is missing. Keep VPKs, ROM caches and generated C++
 local, under the ignored `build/` directory.
 
 ## Install and play
+
+### Dual-ROM GXM package and LAN link play
+
+The dual package launches daytona93 by default. In Options, change ROM to
+DAYTONA (1994 REVISION A), then choose Start/Reset; switch back the same way.
+Switching replaces the native executable, not just the ROM data.
+Supply both complete ZIPs yourself:
+
+- `ux0:data/daytona93/daytona93.zip`
+- `ux0:data/daytona/daytona.zip`
+
+Settings, EEPROM and backup RAM stay in each set's own directory. Revision A
+has its own defaults; CPU/core and other options may need setting again.
+An older single-game package reports when the other executable is missing.
+
+Link play requires Revision A on all cabinets and a connected Wi-Fi LAN.
+Enable Link Play in its Vita options, set the four next-cabinet IPv4 octets,
+listen port and next-cabinet port (default 15112). Reset to apply.
+With two cabinets, each one's next address is the other. With more, form a
+ring. Desktop uses main's Link Play settings and the same TCP port/protocol.
+The pause menu shows the Vita IP, receive/transmit connection and cabinet ID.
+No discovery, hostname resolution or internet port forwarding is provided.
+
+Enter test mode with Select+Triangle; Select+Square is service, Cross advances
+the menu and Start confirms. Under GAME SYSTEM set one MASTER, the others
+SLAVE, and unique CAR NUMBERs. Cabinet type/region and game settings must
+match (for example TWIN/JPN); otherwise the game can cancel the link.
+Frame sync is optional, off by default. For solo Revision A play, disable
+link and configure a single cabinet in test mode.
+
+Build each set's generated sources separately using `scripts/recompile.py
+--set daytona --build-dir build/revision-a-host` and the existing daytona93
+host build. Then:
+
+```sh
+python3 scripts/build_vita.py --set daytona --gpu-fast --host-build-dir build/revision-a-host --build-dir build/vita-revision-a
+python3 scripts/build_vita.py --set daytona93 --gpu-fast --host-build-dir build --build-dir build/vita-dual --revision-a-self build/vita-revision-a/eboot.bin
+```
+
+The second VPK contains both executables. Actual Vita-to-Vita/Vita-to-desktop
+Wi-Fi operation and executable switching require hardware validation.
 
 Install your locally built VPK with VitaShell, then put your **complete
 ZIP ROM set** at:
@@ -179,3 +247,75 @@ introducing explicitly separate SoftFloat state.
 
 See [HANDOFF.md](HANDOFF.md) for the port's status and
 [THIRD_PARTY.md](THIRD_PARTY.md) for SDK dependency references.
+
+## Widescreen, draw distance and cabinet controls
+
+The GXM Options menu now saves Aspect (Original, 16:10, 16:9, 21:9),
+HUD (Centred or Screen Edges), and scenery Draw Distance (Shortest through
+Furthest). Changes apply on resume; original aspect, centred HUD and default
+distance remain the defaults. Widescreen shows additional scenery with the
+same focal length, not stretched pixels. On the 960x544 display, 21:9 is
+letterboxed vertically. The road window is unchanged by scenery distance.
+
+HUD relocation shares the desktop per-item rules and only activates when
+the race HUD is visible. Scenery stays put and crossing banners stay whole.
+Recovery 1 restores the earlier rendering paths after the perspective build
+lost textured geometry on hardware. Original mode uses GXM tile composition;
+wide mode uses CPU tile/HUD composition. Road wobble and widescreen performance
+are not fixed by this recovery. Steering curves remain available. The layer arena is12MiB instead of10MiB,
+making the three GPU arenas32MiB total.
+
+Hold Select and press Triangle for cabinet Test (enter/confirm).
+Hold Select and press Square for cabinet Service (advance/select).
+Release between presses. Cross supplies VR1 (menu next) and Start supplies
+cabinet Start (menu select), as used by the game's test screens.
+Start+Select still opens the frontend pause menu.
+Plain Select inserts a coin on release; Test/Service chords do not insert
+coins or operate view buttons. The bindings are listed in Options.
+
+Draw distance requires generated code with seeds/daytona93_hooks.txt:
+regenerate with scripts/recompile.py before building. Merely linking the
+enhancement runtime cannot add a missing hook to old generated code.
+
+## Steering curves
+
+Options → Steering Curve selects Linear (default), Soft (signed square) or
+Extra Soft (cubic). Curves apply after the stick deadzone and before inversion;
+full lock and D-pad steering remain unchanged. Soft settings give finer control
+around centre. The choice is saved as steer_curve=0/1/2 in vita.cfg.
+
+
+## Wide 2 update
+
+Includes GitHub main through c081a2d, including the stricter condition-panel
+overlay detection. Options adds Stretch Tile Background and Skip Launcher,
+both off by default and saved in vita.cfg. Background stretching in the Vita
+GPU frontend scales only the backdrop to the wide viewport, not the 3D scene
+or HUD. Original aspect is unaffected. Unlike desktop's coverage-gated setting,
+the Vita option stretches the backdrop whenever widescreen is selected.
+Skip Launcher auto-loads the installed ROM on next launch; a load failure
+returns to the menu with its error. Start+Select always opens the menu in-game.
+
+The restored polygon/tessellation path is unchanged. Widescreen keeps a native
+496x384 CPU tile backdrop and scales it with the existing 2D draw API; no custom
+matrix or GPU tile compositor change. This reduces backdrop upload bytes by27%
+at16:9. Unchanged foreground pixels reuse HUD grouping and uploads. CPU tile
+drawing and wider scene geometry still cost time; real Vita FPS is unverified.
+
+## GPU tiles after main 3044f3b
+
+Current recovery build disables wide GPU tile composition after a hardware
+slowdown report, using the CPU wide layers instead. Original-aspect GPU tiles
+and GPU 3D stay enabled. The implementation below is retained for profiling.
+
+The Vita branch includes the latest desktop GPU renderer but still uses GXM,
+not SDL_GPU's desktop shaders. Background and centred foreground tile layers
+are composed on GXM, including widescreen. Like desktop main, moving individual
+HUD items to the edges retains a CPU foreground-composition fallback. Tile
+decoding/cache updates remain on the CPU. Physical GPU buffering is separate:
+double by default, with single and triple available in Options.
+
+Road subdivision additionally checks perspective texture error against the
+same reciprocal-depth interpolation used by main. The existing eight-way cap
+and pool limits remain; this is not per-pixel perspective-shader parity and
+can increase geometry work. Hardware appearance/performance needs testing.

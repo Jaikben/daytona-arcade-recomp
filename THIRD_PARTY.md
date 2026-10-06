@@ -62,3 +62,7 @@ is part of the game or linked into it.
 | [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler) | v1.9.2609 (`linux_dxc_2026_09_28`) | University of Illinois/NCSA | HLSL to SPIR-V and DXIL |
 | [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | Ubuntu 24.04's package | Apache-2.0 | SPIR-V to MSL |
 
+Vita GPU display buffering builds MIT libvita2d at
+`a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed` from
+https://github.com/xerpi/libvita2d. The source hash, small display-ring adapter
+and shipped license are documented in [the Vita dependency record](platform/vita/THIRD_PARTY.md).

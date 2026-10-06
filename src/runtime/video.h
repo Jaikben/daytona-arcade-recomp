@@ -49,10 +49,13 @@ public:
     // each side. The 3D layer fills it; the tilemap layers (HUD, text) stay
     // 496 wide in the centre. Not available with external 3D (the Vita path).
     void set_wide_margin(int margin);
+    bool hud_at_edges_active() const { return hud_on_; }
+    int wide_margin() const { return margin_; }
     int width() const { return W + 2 * margin_; }
     // With widescreen, behind 3D: stretch the tile backdrop across the whole
     // width (on) or fill the margins with the sky's plain colour (off, default).
     void set_stretch_backdrop(bool on) { stretch_backdrop_ = on; }
+    bool stretch_backdrop() const { return stretch_backdrop_; }
     // With widescreen: the race HUD's side groups (lap times; position,
     // condition panel, course map) at the screen edges instead of 4:3 centred.
     void set_hud_edges(bool on) {
@@ -62,16 +65,18 @@ public:
     }
     // Vita GPU-fast path: keep the exact CPU tile layers, but let the host
     // draw the 3D polygons. The normal desktop/CPU path remains the default.
-    // desktop: the desktop hardware renderer, which draws the tilemap layers
+    // desktop: the SDL_GPU renderer, which draws the tilemap layers
     // itself from the decoded pixmaps (system24_pixels, system24_flags, the
     // tile generations) and this frame's snapshot (gpu_tile_words,
-    // gpu_pens), keeping widescreen; without it (Vita) the host draws the
-    // tiles at 496.
+    // gpu_pens). Vita uses its separate GXM tile path, also with widescreen.
     void set_external_3d(bool enabled, bool desktop = false) {
         if (enabled == external_3d_ && desktop == desktop_) return;
-        if (enabled && !desktop && margin_) set_wide_margin(0);
         external_3d_ = enabled;
         desktop_ = desktop;
+#ifndef M2_VITA_RENDER_OPT
+        if (enabled && !desktop && margin_) set_wide_margin(0);
+#endif
+        gpu_front_margin_ = -1;
         render_done_ = false;
     }
     // External 3D with widescreen and the HUD at the edges: how far the
@@ -91,6 +96,10 @@ public:
     bool cpu_front() const { return hud_on_; }
     uint64_t instance() const { return instance_; } // tells a new Video from an old one at the same address
     bool external_3d() const { return external_3d_; }
+    void set_gpu_background(bool enabled) { gpu_background_ = enabled; }
+    bool gpu_background() const { return external_3d_ && gpu_background_ && margin_; }
+    // Like desktop main: only relocated per-item HUDs need the CPU front layer.
+    bool gpu_foreground() const { return gpu_background() && !hud_on_; }
 #ifdef M2_DC_MEMORY
     // The Dreamcast, external 3D: the layers as composed, not copies (1.5 MB):
     // the background is the screen, the front tile layers sys24 (W x (H + 4)).
@@ -285,6 +294,10 @@ private:
     std::vector<uint16_t> gpu_tile_words_;
     std::vector<uint32_t> gpu_pens_;
     uint64_t instance_;
+    bool gpu_background_ = false;
+    std::vector<uint32_t> gpu_front_source_;
+    int gpu_front_margin_ = -1;
+    bool gpu_front_hud_ = false;
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching

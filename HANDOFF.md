@@ -1,5 +1,549 @@
 # Handoff
 
+## Vita and mobile integration into main (2026-10-06)
+
+Rebased psvita-native-frontend and mobile onto fetched origin/main 91560cf.
+Mobile's touch controls and iOS file picker were already ancestors of main;
+its rebase therefore fast-forwarded without replaying commits. Vita replayed
+13 commits, retaining the ImGui launcher, both ROM revisions and platform
+settings. The only conflict was this handoff: both upstream licence notes
+and platform history were retained. No implementation conflicts occurred.
+Recovery refs: backup/vita-before-main-merge-20261006 and
+backup/mobile-before-main-merge-20261006. PSP is untouched.
+
+This merge integrates the rebased Vita work into main; mobile is already
+included. Publishing uses an explicit lease on the old GitHub Vita tip,
+with main and mobile updated by fast-forward in the same atomic push.
+Device builds and hardware runtime testing are not repeated by this merge.
+
+Validation: desktop app objects and the selected test targets build; all
+13 Vita tests plus app_pacing pass. Standalone mobile touch controls and
+Android/desktop ROM-file tests pass. The broad all-target build stopped at
+test_fp with unresolved SoftFloat helper symbols in this empty-build-type
+configuration; no floating-point implementation changes were made. Mobile
+tests are standalone programs/scripts, not named CMake build targets.
+
+## Vita main rebase and ImGui launcher (2026-10-06)
+
+Rebased psvita-native-frontend onto fetched origin/main 50d6638. Recovery
+branch backup/vita-before-imgui-20261006 retains the pre-rebase history.
+Main and PSP branches are not modified by this work; no Vita push performed.
+
+Replaced the GXM frontend's bitmap menu with pinned upstream Dear ImGui,
+rendered through the existing vita2d context. All 28 Vita options, dual-ROM
+launching, link settings, physical controls and saved settings remain.
+Front touch operates rows, adjustment buttons and the scrolling settings
+panel; D-pad selection scrolls into view. UI work runs only in the launcher,
+pause menu and loading screen. No additional gameplay display buffering.
+The adapter supports the uniform-tint primitives used here, not arbitrary
+per-vertex colour gradients. Geometry fringe AA is disabled; font AA remains.
+
+Rebase integration preserves the Vita native-sized backdrop stretch path,
+widescreen CPU tile fallback and foreground caches, while adapting the HUD
+polygon helper to upstream panel detection. Non-Vita external-renderer
+margin handling is retained. Host desktop app compiles; all 13 Vita host
+tests pass, including real ImGui draw generation against a mocked backend,
+pool exhaustion and GPU shutdown synchronization. These checks do not prove
+physical Vita rendering, touch behaviour or gameplay performance.
+The Vita ImGui target disables its unused desktop shell-opening handler,
+which otherwise links unavailable execvp/waitpid functions from VitaSDK.
+
+Both VitaSDK GPU builds pass. Final dual-ROM package:
+build/vita-enhancements/daytona_vita.vpk (01.24, Daytona Recomp ImGui).
+ZIP integrity and ARM ELF checks pass; the bundled daytona.self SHA256
+matches build/vita-revision-a/eboot.bin. Archive contains executables and
+licenses only, no ROM archives. Physical Vita installation remains untested.
+
+
+## Mobile touch controls and latest main (2026-10-06)
+
+## Vita Revision A link and dual-ROM launcher (2026-10-03)
+
+Rebased psvita-native-frontend with --rebase-merges onto fetched origin/main
+9ad266b (three-computer link validation). Recovery branch:
+backup/vita-before-link-20261003. Merge conflicts combined enhance and
+comm_board in Vita runtime; preserved Vita wide margins and foreground
+cache invalidation while accepting upstream scene detection. Main and PSP
+branches are unchanged; nothing pushed.
+
+User supplied roms/daytona.zip alongside daytona93.zip. Revision A import
+passes CRC validation; its i960/TGP/sound code is separately generated under
+build/revision-a-host, never committed. GXM build selects DAYTONA_VITA_ROMSET;
+the daytona93 VPK can bundle Revision A's SELF as app0:daytona.self.
+Options ROM selector + Start/Reset replaces the process using LoadExec.
+Each executable uses its own ux0:data/<set>/<set>.zip, vita.cfg, EEPROM and
+backup RAM; existing 1993 saves are not repurposed as Revision A saves.
+
+Vita SceNet IPv4 transport implements the shared TCP ring protocol with
+nonblocking connect/accept/read/write, partial-send retention, a 64 KiB
+bounded queue, reconnect delay and two-second no-progress timeout. Network
+modules/heap are owned only where initialized here. Options expose enable,
+four next-IP octets, local/next ports and optional frame sync (off by default).
+Reset applies changes; pause status shows local IP, RX/TX and cabinet ID.
+1993 link requests are rejected explicitly; Revision A is required on peers.
+Master/slave, unique car numbers and matching cabinet/region settings remain
+the game's test-menu choices. Native audio now tolerates unsupported effects
+as upstream does (linked vibrato omitted), while invalid data still faults.
+
+The host integration uses the real Vita transport through a narrow POSIX
+SceNet shim against desktop TcpLink: numbering and data both directions,
+37-byte partial sends, stalled-peer loss, reconnect and queue overflow pass.
+This is not evidence of Vita Wi-Fi, executable switching or a hardware race.
+Those remain the next device checks. CPU500/core options, road renderer,
+wide CPU tiles and removal of the buffer selector remain preserved.
+Address/undefined sanitizer execution of the socket integration also passes.
+Host suite after rebase: 24 tests pass, two optional Lua tests skip.
+Both ARM release executables and SELF/VPK builds pass. Final dual package:
+build/daytona-vita-dual-rom-link.vpk. Archive checks pass; bundled eboot.bin
+and daytona.self match their respective build outputs. The archive contains
+only executables, SFO and license documents, no ZIPs or extracted ROM assets.
+Build directories: build/vita-enhancements (1993, existing generated input),
+build/vita-revision-a (fresh Revision A generation). Both were incrementally
+rebuilt after final frontend edits, then bundled in that order.
+
+## Remove configurable Vita display buffering (2026-10-02)
+
+User reports 30 FPS and requests removal of single/double/triple settings.
+Removed the menu/config field, physical ring adapter and its obsolete tests.
+Old gpu_buffers keys are ignored and disappear on the next settings save.
+The same pinned libvita2d now builds without source injection, retaining
+upstream's normal three-surface queue and display synchronization. This
+removes custom buffering, not the framebuffer storage needed for scanout.
+
+Inspection found no explicit 30 FPS cap: FrameClock retains fractional time
+at native 57.524 Hz; the display callback waits one vblank, not two.
+Do not claim the reported slowdown is proven caused by buffer count, or
+force game logic to 60 Hz. Audio pacing, CPU/core options, renderer and
+wide tile fallback are unchanged. Hardware speed remains unverified.
+Package: build/daytona-vita-standard-presentation.vpk.
+Validation: release cross-build and archive check pass; ELF has upstream
+vita2d_swap_buffers and no custom daytona_vita2d symbols. Host CTest:
+21 passes and two optional Lua skips. New one-step GXM clock regression
+produces 5752 game steps over 6000 simulated 60 Hz display ticks (100 s).
+Deleted adapter/test sources remain recoverable in Git history.
+
+## Optional Vita CPU clock and fourth core (2026-10-02)
+
+GXM options now include CPU 500 MHz and a persisted fourth_core switch.
+Defaults remain 333 MHz and fourth core off. CPU requests are read back;
+rejected/ineffective 500 MHz requests fall back to a 444 MHz request, with
+actual frequency shown in options. An overclock plugin/profile may override
+application requests; selecting 500 alone is not proof it is active.
+
+Main probes USER_ALL | SYSTEM affinity and falls back to USER_ALL on failure.
+Reference sound jobs and both audio callback implementations adopt the shared
+mask once per change, with callback caches reset when reopening devices.
+No kernel patch/dependency is installed. A working core-unlock plugin is
+required. Existing threads can use the additional core; no game-loop
+parallelization or audio clock/pacing change is introduced.
+
+Host fallback tests and audio worker/lifecycle tests pass; complete CTest
+suite: 22 passes, two optional Lua skips. Vita release cross-build and VPK
+archive validation pass. Package: build/daytona-vita-500mhz-fourth-core.vpk.
+Actual plugin acceptance, stability and performance require hardware testing.
+Wide CPU tile fallback, GPU roads and double-buffer default are unchanged.
+Main and PSP remain untouched; no push.
+
+## Wide tile recovery after hardware slowdown (2026-10-02)
+
+User reports moving tile composition onto GXM made the game slower. Disable
+the explicit wide GPU tile capability in the Vita frontend: widescreen now
+uses the existing CPU backdrop/foreground fallback. Original-aspect GPU tiles,
+GPU 3D, the road subdivision change, audio, clocks, physical double-buffer
+default and main3044f3b remain unchanged. No additional performance hypothesis
+is presented as established; the earlier CPU-only timing excluded GPU cost.
+
+This isolates wide tile composition from the road change, which also can add
+vertex work. If this build remains slow, measure/subtract that separately;
+do not advertise moving work to GXM as automatically faster. Hardware result
+for this comparison build remains pending. Main and PSP untouched; no push.
+Package:build/daytona-vita-wide-tile-recovery.vpk.
+Validation: VitaSDK build and21 CTest passes (2 optional Lua skips). The
+fallback composition and mode transitions are covered by renderer tests.
+
+## Rebase onto GitHub main and GPU tile/road follow-up (2026-10-02)
+
+Fetched origin/main3044f3b and rebased psvita-native-frontend with merge history
+retained. Backup:backup/vita-before-main-20261002 at20becae. A preliminary flat
+rebase was aborted before continuing with rebase-merges to preserve Vita merge
+content. Resolved Video API conflicts by keeping desktop snapshots/instance
+tracking and preserving Vita widescreen, plus the renamed HUD copy destination
+parameter. Main and PSP branches are untouched; no remote push. The obsolete
+Vita frame-skip helper/docs from an old merge were not reinstated; replacement
+docs describe the physical GPU buffers (double default).
+
+New main renders tiles on GPU except for per-item HUD relocation, which still
+uses CPU foreground composition. Vita now matches that split: GXM composes
+centred foreground as well as backdrop, skips CPU pixel composition/uploads,
+and retains dirty state for transitions back to the relocated HUD fallback.
+CPU tile decode/cache work remains. Main's SDL_GPU shaders are not Vita GXM
+binaries; they are retained for desktop, not falsely advertised as a direct
+Vita shader port. Audio timing, game cadence and double buffering unchanged.
+
+Main's per-fragment reciprocal-depth UV correction confirms the difference
+from Vita's affine tessellation. Add an edge-midpoint texture-error criterion
+alongside the existing depth/span minimum subdivision. A synthetic shallow
+road triangle goes from46.545 to0.925texels midpoint error, at subdivision8
+instead of1. Initial test wrongly expected0.5 at that cap; corrected to check
+the measured sub-texel result. The0.5target is not a guaranteed bound, especially
+at the eight-way cap or when pool pressure lowers subdivision. This can add
+vertex work. No homogeneous matrix or untested shader replacement is used.
+
+Tests exercise scroll-dirty GPU foreground skipping, fallback transitions,
+HUD placement, source UV/stretch separation and25440 tessellation cases.
+Hardware road appearance, GPU timing and overall speed remain unverified.
+
+Validation: full host build,21 CTest passes with2 optional Lua skips, and
+ASan/UBSan renderer contracts pass. The first dirty-transition test omitted
+tile_memory_w under write tracking; it now uses the real board notification.
+Desktop SDL_GPU Vulkan smoke tests complete120 and1200frames at16:9; the latter
+with HUD-edge option enabled. This is not Vita rendering or full-race parity.
+VitaSDK build and archive checks pass. Package:
+build/daytona-vita-main-gpu-tiles.vpk
+SHA256:50dde138308c20680cf6b5a4f9a8ba92abc5c84cb4aa9fb8a4104c90e5a3728b.
+Frontend options, controls, audio and physical buffer adapter compare unchanged
+against the pre-rebase backup. Source tree is ready for device testing; no push.
+
+## Widescreen GPU backdrop optimization (2026-10-01)
+
+Hardware feedback: all physical buffer choices still slower in widescreen.
+Buffer count was not a cure for the extra rendering work. The wide path still
+CPU-composed scrolling backgrounds, unlike original aspect's GXM tiles.
+
+Add an explicit GPU-background capability enabled only by Vita's GPU frontend.
+Wide screen_update skips CPU background composition/copies; GXM uses the
+existing System24 tile upload and composition around unchanged 3D polygons.
+Only background destination x changes for stretch, never UVs or 3D projection.
+CPU foreground and per-item HUD relocation remain intact. Non-stretched side
+margins clear to palette pen0 as in the original GPU path. The old CPU backdrop
+path remains when capability is off; normal desktop/PSP behavior is unchanged.
+Double GPU buffers remain default; no frame skipping, audio or clock changes.
+
+A synthetic host test (1000 scrolling updates,margin93,empty geometry,constant
+character pixels,changing hscroll) measured526.78ms before and238.81ms after
+for CPU screen_update, about55percent less. Commands/source are under ignored
+build/vita-wide-bench-new.cpp and /tmp/vita-wide-bench.cpp. This excludes GPU
+cost and does not establish hardware FPS, visual fidelity or a full-speed game.
+Prior homogeneous-WVP failure is not reintroduced: no draw_polygons changes,
+shader changes, custom matrix, or HUD algorithm changes.
+
+Host renderer contracts cover margins59/93/200, centred/stretch coordinates,
+unchanged UVs and HUD pixels, no CPU backdrop generation, and one CPU layer
+draw instead of two. Full host build and21 CTest passes (2 optional Lua skips),
+ASan/UBSan renderer contracts, VitaSDK build and VPK archive checks pass.
+Package:build/daytona-vita-wide-gpu-background.vpk
+SHA256:400df3856a523876c0686cd47a8aac79c7c555b3b0e3d247760fb8e5ed36cb1e.
+Hardware rendering and audio checks remain necessary. Main/PSP untouched;
+no remote push.
+
+
+## Vita physical GPU display buffers (2026-10-01)
+
+User requested actual Vita GPU buffering separate from main's software draw
+mode, with double as default. Options now persists gpu_buffers1..3; default
+and Reset Defaults select2. Old draw_mode remains ignored. No frame skipping,
+clock catch-up, audio backend, or polygon-renderer changes are reintroduced.
+
+The pinned public MIT libvita2d source is built privately in the build tree.
+display_buffers.inc changes the active GXM surface ring, not board cadence.
+Double/triple retain normal display-queue sync; single finishes GPU work and
+directly presents the sole surface without queuing identical old/new sync
+objects. It may tear during rendering and is not promised faster. Switching
+drains GPU and display work, copies the latest frame to surface0 when needed,
+waits for scanout, then resets front/back indices. All three allocations stay
+alive to allow switching; this does not reclaim framebuffer RAM.
+
+Source archive hash verified. Initial build caught upstream JPEG ceil missing
+math.h with the current compiler; target-only forced include resolves it.
+All seven pinned shaders' extracted binaries match the installed package
+exactly (object metadata hashes differ). No shader compiler used.
+The design and dependency records now describe physical buffers rather than
+the withdrawn frame-skip options; upstream MIT license is packaged.
+
+Validation: adapter tests cover all mode transitions, VSync on/off, invalid
+counts, uninitialized/in-scene/system-app rejection and GPU-before-display
+ordering. ASan/UBSan pass;21 CTest passes,2 optional Lua skips. VitaSDK cross-build,
+linked buffer-control symbols and VPK archive checks pass. Package:
+build/daytona-vita-gpu-buffers.vpk. Hardware switching,
+tearing, frame pacing and audio remain unverified. Main/PSP branches untouched.
+
+
+## Vita pre-draw-mode pacing recovery (2026-10-01)
+
+Hardware feedback after9790e57: game and audio still lag since draw modes.
+The synthetic debt test did not establish the cause of native audio stutter.
+Back out the Vita draw-mode UI, config loading and presentation gate, and the
+follow-up retained-debt clock. main_gpu.cpp is identical to6a6fdc8 apart from
+the PACING RECOVERY menu title; controls and input tests match that baseline.
+This restores the previous VSync-paced presentation on every frontend loop,
+not just when a board frame is due. Saved draw_mode values are ignored and
+removed on the next settings save; other preferences are preserved.
+Shared main frame-skip support remains merged but defaults to zero and is
+not enabled by Vita. Native audio remains device-clocked per the design
+document Audio section; neither audio backend nor GPU geometry was changed.
+Do not re-propose frame skipping as physical single/double buffering.
+
+Validation: source comparison to6a6fdc8,20 CTest passes,2 optional Lua skips,
+VitaSDK cross-build and VPK archive validation. Installable recovery package:
+build/daytona-vita-pacing-recovery.vpk. Hardware playback remains unverified;
+this is a controlled rollback, not a claim of a measured hardware speedup.
+Main and PSP branches untouched. No remote push.
+
+
+## Vita audio pacing follow-up (2026-10-01)
+
+Hardware report: audio stutters with draw-mode selection. A deterministic
+37-second alternating 35 ms / 2 ms host-timing test exposes the one-step
+clock discarding whole-frame debt:1114 board/audio steps instead of2128.
+Vita GPU frontend now retains at most four frames of debt, still executing
+only one board frame per loop. Cheap skipped frames can recover that debt;
+no multi-step live-geometry submission or renderer changes are introduced.
+Pause/reset clears debt; sustained overload remains bounded. Other frontends
+keep the existing FrameClock policy. Audio dispatch stays outside draw gating.
+
+The design document Audio section requires device-clocked native playback.
+That backend already has it and is unchanged. This finding explains reference
+sample starvation and late main-board commands, not proven native callback
+underruns. Do not claim this reproduces or resolves every hardware crackle;
+if native music still stutters, capture callback timing and active engine on
+the device next rather than increasing latency or changing audio fidelity.
+
+Validation: regression recovers2128 steps, bounded overload/reset tests pass;
+20 CTest passes,2 optional Lua skips; public VitaSDK cross-build passes.
+Package:build/daytona-vita-audio-pacing.vpk. Hardware listening remains pending.
+Main and PSP branches unchanged; no remote push.
+
+
+## Vita draw modes from updated main (2026-10-01)
+
+Merged origin/main931504e05f4cd471a207c78b275f48e6ce77cc4c into the Vita branch.
+Upstream calls frame-skip presets Double Buffered / Single Buffered / Every
+Third Frame. They mean draw every1/2/3board frames, NOT physical buffer counts.
+The earlier uncommitted buffer-library drafts were moved to ignored
+build/paused-buffer-drafts; they are not compiled or shipped. The installed
+libvita2d, framebuffer ring and VSync remain unchanged.
+
+Vita Options exposes those three modes, persists draw_mode0..2 (default0),
+clamps loaded values and applies on resume. GPU submission/clear/swap is gated
+by the same pre-step board frame counter used by M2Board::vblank_end.
+No stale live geometry is redrawn on skipped frames: retain the last displayed
+frame instead. The clock is capped to one board step per frontend iteration.
+Board execution, input and reference/native audio dispatch stay outside the
+presentation gate. Menu drawing remains available; zero-step iterations avoid
+duplicate scene submission and retain the existing idle delay. SIM FPS label
+makes clear the counter measures simulation, not presentation cadence.
+The polygon renderer and perspective vertices are unchanged from Wide2.
+
+Validation:20CTest passes,2optional Lua skips. Draw cadence tests sweep invalid
+and valid modes over600board frames (600/300/200draws). Public VitaSDK build
+and VPK archive checks pass. Three6000frame race_basic headless replays show
+identical196665345i960,223429779TGP,12050interrupts,3636sound-command bytes,
+and7843660868000instructions. Host times35.18/19.45/14.24seconds are not Vita
+FPS. Last-picture hashes differ as expected because skipped modes retain an
+earlier frame:ad67233983ea8808 /04b9cd7b8fe2cdda /0504a052c927e9ff.
+
+Artifact: build/daytona-vita-draw-modes.vpk
+SHA256c02ffa1702a682062c991cbf569dabafcbe8bd22d055540254fd6281fc8833b1.
+Menu title DRAW MODES. LoggingOFF. No hardware result yet.
+Main and PSP branches untouched; only the local Vita branch is updated.
+Next: compare simulation pace, audio and displayed motion across presets on
+real Vita. Lower draw frequency can reduce render cost but also makes motion
+less smooth; do not advertise these presets as actual buffer-count changes.
+
+
+## Wide2: merge GitHub main and Vita options (2026-10-01)
+
+Rebased mobile again onto origin/main 10c85cb before completing touch input.
+Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
+Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
+the touch-work stash remains as an additional recovery copy. No branch pushed.
+
+Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
+sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
+capture controls independently (device and finger IDs), not ImGui's single
+mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
+menu and safe-area changes release input. Existing physical controls merge
+with touch through Controls; desktop receives zero touch input by default.
+This follows the design's Platform layer & build boundary; runtime/shaders
+and upstream pacing remain unchanged. See mobile handoff for validation.
+
+## Mobile rebase onto remote main (2026-10-06)
+
+Rebased mobile onto origin/main 6817bff, preserving Android document imports,
+iOS Files import, screen sizing and unsigned packaging. CMake conflict
+resolution keeps upstream link/force-feedback sources and Windows socket
+libraries alongside mobile SDL targets. Generated-source paths combine
+M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
+uses the upstream Devices owner. Initialize the link address before Android's
+stale-URI early return. The previous mobile tip is retained at
+backup/mobile-before-main-20261006. Main and the other platform branches are
+unchanged. Existing IPA files predate this rebase and must not be presented as
+rebuilt from it.
+Validation: desktop daytona_app compilation passes; 13 Android-path import
+tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
+ancestor of the rebased tip. iOS/Android device builds are not rerun here.
+
+## iOS launcher and Files picker (2026-10-06)
+
+Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
+keeping a separate private copy for each selection before the existing ROM
+validation. Enabled modern full-screen launch sizing, safe-area placement,
+logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
+drag scrolling. Picker errors are shown beside the ROM field. Changes follow
+the design's thin platform layer; runtime and shaders are unchanged.
+
+Device Release IPA and simulator build succeed. The simulator cannot provide
+visual verification: SDL_CreateGPUDevice reports that its device does not meet
+SDL_GPU Metal hardware requirements; the resulting black screen is not UI
+validation. Native Files selection and layout need another physical-device
+test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
+screen fit based on compilation alone.
+
+## Mobile iOS packaging (2026-10-06)
+
+The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
+signing, stage the device app under `Payload/daytona.app`, and produce
+`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
+CFBundleExecutable and the APPL package type. Custom build and generated-source
+paths are normalized before packaging; argument handling remains compatible
+with macOS Bash 3.2. No ROM archives or generated sources are committed.
+This follows the design document's Platform layer & build and ROM handling
+sections: the shared runtime/renderer is unchanged. See the mobile handoff
+for build validation and device-test status.
+
+## Recovery 1 after hardware regression (2026-10-01)
+
+IMG_2856 shows the c3ec891 package losing most textured scene geometry: road
+and car surfaces missing, while tiles and some solid/checker geometry remain.
+This overrides the host-test success recorded below. The exact GXM failure
+mechanism has not been isolated; the host uniform/projection model did not
+execute the installed shader and was insufficient to validate the change.
+
+Restored gpu_fast.cpp, perspective_vertices.h, video.cpp/h and corresponding
+renderer tests byte-for-byte to1ca8cb3 (git diff --exit-code verified).
+Both homogeneous-WVP and wide GPU-tile changes are withdrawn, rather than
+shipping another unverified matrix guess. Steering curves, their controls
+tests, saved settings and existing Test/Service bindings remain.
+Menu identifies DAYTONA RECOMP - RECOVERY 1. Main and PSP untouched.
+
+Public VitaSDK cross-build and VPK archive checks pass. Input tests pass;
+restored renderer ASan/UBSan contracts pass, including painter order, checker
+parity, wrap/mirror addressing, allocation ownership and shutdown.
+Artifact: build/daytona-vita-recovery-1.vpk
+SHA256825368c373f9c52dd00329ff16fc9d9e08aed68c0dfa614efe3eed584693e0a5.
+Logging remains off. No hardware recovery result has been observed yet.
+
+Road wobble and wide-mode cost remain as in the earlier working renderer.
+Next: verify Recovery 1 on hardware before attempting isolated optimisations.
+Do not redistribute daytona-vita-perspective-curves.vpk as a working fix;
+its host math checks and replay hash did not demonstrate real GXM correctness.
+
+
+## Vita perspective, widescreen cost and steering curves (2026-10-01)
+
+Work remains on psvita-native-frontend; main and PSP branches untouched.
+The Rendering/Enhancements design governs: presentation changes only, native
+board timing unchanged, original aspect and linear steering remain defaults.
+
+Road texture warp: previous affine subdivision used1/4/16/64 times as many
+triangles depending on depth/span, then reduced precision under pool pressure.
+Replaced it with homogeneous positions and the existing libvita2d WVP shader:
+clip.w=depth, clip.z=0.5*depth, ordinary UVs. This gives perspective interpolation
+with three vertices per source triangle. Painter order, stencil clips, tint,
+solid/checker paths and fence ownership are preserved. Matrix changes are scoped
+to textured batches and restored on all exits. No custom shader/compiler.
+The exported libvita2d matrix is an internal ABI dependency documented with
+upstream source revision and installed archive hash in platform/vita/THIRD_PARTY.md.
+Recheck it when updating that library. Physical GPU output is not yet verified.
+
+Widescreen had forced every tile layer through CPU composition and full uploads.
+GXM now composes background tiles at the selected aspect, and foreground tiles
+when centred. Sky margin colour is sampled through the same tile rectangles,
+preserving split/window/scroll semantics. Active edge HUD alone uses shared CPU
+grouping; unchanged source pixels reuse the grouped layer/upload even when
+background scroll dirties drawing state. Pixel comparison, not a hash; extra
+HUD source snapshot is about0.74MiB. Further distance still adds geometry.
+
+Options adds persistent Linear/Soft/Extra Soft steering (linear, signed square,
+cubic) after deadzone and before inversion. D-pad and full lock are unchanged.
+Existing Test/Service mappings remain. Diagnostic logging staysOFF.
+
+Validation:
+- Host build and20CTest passes;2optional Lua tests skipped.
+-5151 perspective sample comparisons and matrix projection/depth checks.
+- Actual renderer submits3vertices for a depth100:1, wide triangle; no subdivision.
+- All256stick positions across curves, monotonicity, endpoints/invert/D-pad tests.
+- Final standalone renderer contracts pass, including eight sky comparisons
+  (four split modes x normal/line scroll) against CPU top-left composition,
+  unchanged-HUD upload reuse and matrix restoration.
+- ASan/UBSan renderer contracts pass including sky comparison; final later test
+  fixture enlarges the long-depth triangle, with the ordinary contracts rerun.
+-6000frame16:9/edge-HUD/default-distance host replay:196665345i960,
+  223429779TGP,3636sound-command bytes, hash9047513777edfaae, unchanged.
+  42.27seconds on this host is not a Vita performance measurement.
+- Public VitaSDK cross-build and VPK archive validation pass. Package:
+  build/daytona-vita-perspective-curves.vpk
+  SHA25666f209118967cb3c0beb55453d54a0f4dfb5b88c1bfda1b09bd683e2656aee87.
+  Previous package retained at
+  build/vita-enhancements/daytona_vita-before-perspective.vpk.
+
+What not to re-propose: more affine subdivision to hide road warp costs both CPU
+and vertex pool and remains approximate. Do not restore blanket CPU wide mode.
+The former extreme-UV test rejected a finite polygon only because CPU u*q
+overflowed; homogeneous submission keeps it finite, and its expectation was
+updated. Host Ninja reported a truncated log and rebuilt fully on a subsequent
+invocation; builds were sequential in each directory and completed successfully.
+Next: confirm road lines, HUD/sky/clip transitions and frame pacing on real Vita.
+No device FPS, crash-free-runtime or visually-fixed claim from these host tests.
+
+
+## Vita GXM presentation options and cabinet binds (2026-10-01)
+
+Switched to psvita-native-frontend and fast-forwarded to origin/bc02bb0 first.
+No PSP files or commits were brought across; main and PSP branches untouched.
+Upstream already contained desktop widescreen, per-item race-HUD gating and
+draw-distance hooks, but the GXM frontend had none of their options connected.
+
+Added persistent Aspect0..3, HUD edges and Draw Distance-2..2 settings, live
+application on resume, scrolling16-row options and unchanged defaults.
+Original GXM System24 fast path remains. Wide modes use shared CPU tile/HUD
+composition, widened geometry clip planes and matching GXM projection/clip/HUD
+offsets. Layer textures reserve896x384 for up to21:9;12MiB layer arena raises
+totalGPU reservation30->32MiB. Wider/further options may cost FPS; no physical
+performance claim.21:9 fits with vertical letterboxing.
+
+Select+Triangle maps Test and Select+Square Service, consuming coin/view inputs.
+Plain Select coin now triggers on release so staggered chords do not insert
+coins. Menu latch suppresses a coin on resume; Start+Select remains frontend menu.
+Controls regression covers both chords, staggered press and release.
+
+Found existing generated C++ lacked hook_draw_list. Regenerated privately into
+build/vita-enhancements-input/gen with seeds/daytona93_hooks.txt; onlychunk012
+differs. Vita build links enhance.cpp and uses that generated tree. No generated
+game code/assets are committed.
+
+Validation complete: full host build,20CTest passes (2optional Lua skipped),
+11build-helper tests and final GPU lifetime/layout/HUD ASan/UBSan pass.
+Default and Furthest6000frame host16:9/HUD-edge replays complete:
+default196665345i960 instructions, hash9047513777edfaae; furthest202533889,
+hashc45f82273dcf08c6. Both223429779TGP instructions and3636sound-command bytes.
+These are host replay results, not Vita speed or physical visual validation.
+
+The first cross-build used old hookless generated code and was discarded.
+An interrupted retry initially overlapped; both owned build trees' processes
+were stopped, then a single build was resumed and completed. A host replay
+link first missed the ymfm include path; corrected before the recorded runs.
+The build helper now rejects GPU packages with a missing generated hook.
+
+VPK: build/vita-enhancements/daytona_vita.vpk, archive integrity verified.
+SHA256:95523616c6226f77293c8f71122f483aa1bbb9bc9973cc2e017483d9ba14da42.
+ELF contains hook_draw_list and shared hud_polygon_offset; frontend objects
+are newer than the final settings/control/source edits. Logging remains off.
+Evidence: build/vita-enhancements-{package,final-tests,asan-final,
+race-default,race-furthest}.log. Physical Vita testing remains required,
+especially FPS at higher scenery levels and HUD appearance.
+Changes are local on psvita-native-frontend; no push to main or PSP.
+
 ## Current state
 
 **Licence: BSD-3-Clause (LICENSE).** "Copyright (c) 2026, Ben Templeman and
