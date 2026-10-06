@@ -363,6 +363,10 @@ add_executable(test_app_pacing tests/test_app_pacing.cpp src/app/pacing.cpp)
 target_include_directories(test_app_pacing PRIVATE src)
 add_test(NAME app_pacing COMMAND test_app_pacing)
 
+add_executable(test_test_hold tests/test_test_hold.cpp)
+target_include_directories(test_test_hold PRIVATE src)
+add_test(NAME test_hold COMMAND test_test_hold)
+
 add_executable(test_native_sound_sequencer tests/test_native_sound_sequencer.cpp src/runtime/native_sound_sequencer.cpp)
 target_include_directories(test_native_sound_sequencer PRIVATE src)
 add_test(NAME native_sound_sequencer COMMAND test_native_sound_sequencer)

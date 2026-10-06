@@ -22,6 +22,10 @@ struct Config {
     bool pace_sync_display = false; // the game at a rate dividing the refresh (60 on 60/120/240 Hz: 4% fast)
     bool pace_vrr = false;          // each frame held to 1/57.52 s, for a variable-refresh display
     bool skip_launcher = false; // start the game straight away (as --autostart); Esc still opens the launcher
+    // Hold the cabinet's Test button for 3 s once the game runs (rt::TestHold),
+    // for the test menu without an F2 key: mobile, consoles. Not saved; it
+    // clears itself when done.
+    bool hold_test = false;
     float volume = 0.8f;      // 0..1
     bool mute = false;
     float music_volume = 1.0f;   // 0..1: the music against the effects (both 1: as the arcade mixes them)

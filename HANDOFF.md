@@ -1,5 +1,26 @@
 # Handoff
 
+## Original upstream and platform test-menu integration (2026-10-06)
+
+Merged alphanu1/daytona-arcade-recomp main 1877da9 into the fork, not merely
+the fork's origin/main. Recovery branch: backup/main-before-alphanu1-20261006.
+Upstream adds the shared TestHold helper and launcher action. Mobile keeps
+that shared action with wrapped help text on small displays; Vita exposes
+the same one-shot action in its ImGui options, retains physical Test/Service
+bindings and does not persist the request. Both ROM versions wait until
+frame 240, hold Test for 173 game frames and release, per upstream tests.
+Resetting an armed Vita game restarts the full hold; Reset Defaults cancels it.
+Inputs and Platform layer sections govern this frontend-only integration.
+
+All 15 targeted tests (13 Vita, pacing and TestHold) pass, as do standalone
+touch controls and 13 Android-path plus two desktop ROM-file cases. Desktop
+app objects build and mobile launcher/main syntax checks pass with M2_MOBILE.
+Vita main_gpu.cpp cross-compiles for both the 1993 and Revision A targets.
+Full ROM cross-rebuilding was stopped deliberately in favor of targeted
+frontend compilation; no new VPK/APK/IPA or physical device validation is
+claimed for this update. Vita and mobile branches are advanced to the
+integrated main; PSP untouched.
+
 ## Vita and mobile integration into main (2026-10-06)
 
 Rebased psvita-native-frontend and mobile onto fetched origin/main 91560cf.
@@ -545,6 +566,22 @@ especially FPS at higher scenery levels and HUD appearance.
 Changes are local on psvita-native-frontend; no push to main or PSP.
 
 ## Current state
+
+**Hold Test button (the test menu without F2).** rt::TestHold
+(src/runtime/test_hold.h): holds the cabinet's Test switch (in0 0x04, active
+low) for 173 frames (3 s), from game frame 240 at the earliest, then reports
+it is done. Launcher, Game tab, next to Start: "Hold Test button"
+(Config::hold_test, not saved; it clears itself when the hold ends); F2 and
+any Test binding still work. For mobile, which has no F2 key. Measured first
+(m2run, screen hash at frame 2,400): the game wants a fresh press from about
+frame 200 after power-on; a press already down then is ignored even if held
+to frame 287; a 3 s hold from frame 200, 240, 600 or 1,200 gives the same
+screen as a 10-frame press at 1,200 (the test menu; the menu's
+Test-selects-an-item does not fire). Revision A the same. test_test_hold. Tried in the desktop app
+(2026-10-06): the test menu opens and the box clears.
+Left for the Vita frontends' developer: GPU25 has no Test item; the plain
+frontend's TEST SWITCH presses for one frame only, which can be missed; both
+can use rt::TestHold. Dreamcast has no way into the test menu yet.
 
 **Licence: BSD-3-Clause (LICENSE).** "Copyright (c) 2026, Ben Templeman and
 contributors". The same licence as the MAME code transplanted into the

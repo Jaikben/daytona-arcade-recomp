@@ -11,6 +11,7 @@
 #include "gpu_text.h"
 #include "imgui_vita.h"
 #include "runtime/game_loop.h"
+#include "runtime/test_hold.h"
 #include "runtime/rom_import.h"
 
 #include <SDL.h>
@@ -206,6 +207,7 @@ int cycle_value(int value, const int *choices, int count, int direction) {
 }
 
 uint32_t ui_buttons = 0;
+rt::TestHold test_hold;
 void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings &settings,
                const std::string &status, double fps) {
     ImGui::SetNextWindowPos({12, 12});
@@ -229,7 +231,7 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
                 if (selection == i && scroll_to_selection) ImGui::SetScrollHereY();
             }
         } else {
-    const char *values[28];
+    const char *values[29];
     char link_fields[6][64];
     for (int i = 0; i < 4; ++i) {
         std::snprintf(link_fields[i], sizeof link_fields[i], "NEXT CABINET IP OCTET %d: %d", i + 1, settings.next_ip[i]);
@@ -256,7 +258,9 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
     static const char* aspects[] = {"ASPECT: ORIGINAL", "ASPECT: 16:10", "ASPECT: 16:9", "ASPECT: 21:9"};
     static const char* distances[] = {"DISTANCE: SHORTEST", "DISTANCE: SHORTER", "DISTANCE: DEFAULT", "DISTANCE: FURTHER", "DISTANCE: FURTHEST"};
     values[11]=aspects[settings.aspect]; values[12]=settings.hud_edges ? "HUD: SCREEN EDGES" : "HUD: CENTRED";
-    values[13]=distances[settings.draw_distance + 2]; values[26]="RESET DEFAULTS"; values[27]="BACK";
+    values[13]=distances[settings.draw_distance + 2];
+    values[26]=test_hold.armed() ? "HOLD TEST BUTTON: ARMED (START / RESUME)" : "HOLD TEST BUTTON: OFF";
+    values[27]="RESET DEFAULTS"; values[28]="BACK";
     values[17]=!settings.fourth_core ? "4TH CORE: OFF" :
         vita::fourth_core_active() ? "4TH CORE: ENABLED" : "4TH CORE: UNAVAILABLE (PLUGIN REQUIRED)";
     values[15]=settings.stretch_backdrop ? "STRETCH TILE BACKGROUND: ON" : "STRETCH TILE BACKGROUND: OFF";
@@ -264,7 +268,7 @@ void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings
     static const char* curves[] = {"STEERING CURVE: LINEAR", "STEERING CURVE: SOFT", "STEERING CURVE: EXTRA SOFT"};
     values[14]=curves[settings.steer_curve];
 
-            for (int i = 0; i < 28; ++i) {
+            for (int i = 0; i < 29; ++i) {
                 ImGui::PushID(i);
                 if (ImGui::Selectable(values[i], selection == i, 0, {760, 32})) { selection = i; ui_buttons = vita::Cross; }
                 if (selection == i && scroll_to_selection) ImGui::SetScrollHereY();
@@ -522,6 +526,7 @@ int main(int, char **) {
                 if (!audio.open()) perf_log.sync([&] { log.fault("GPU25 reference audio unavailable: %s\n", SDL_GetError()); });
             }
             game = std::make_unique<rt::GameLoop>(std::move(images), !active_native_audio);
+            if (test_hold.armed()) test_hold.arm();
             perf_log.sync([&] {
                 log.log("GPU25 audio engine: backend=%s clock=%s reference_sound_board=%d\n",
                         active_native_audio ? "NATIVE_TEST" : "REFERENCE",
@@ -570,7 +575,7 @@ int main(int, char **) {
             pressed |= ui_buttons;
             ui_buttons = 0;
             if (options) {
-                constexpr int kOptionCount = 28;
+                constexpr int kOptionCount = 29;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
                 if (pressed & vita::Down) selection = (selection + 1) % kOptionCount;
                 if (pressed & vita::Circle) { options = false; selection = 2; wait_release = true; }
@@ -632,9 +637,12 @@ int main(int, char **) {
                         port = std::clamp(port + (direction < 0 ? -1 : 1), 1, 65535); changed = true;
                     } else if (selection == 25 && (direction || activate)) {
                         settings.link_sync = !settings.link_sync; changed = true;
-                    } else if (selection == 26 && activate) {
-                        settings.defaults(); changed = clocks_changed = true;
+                    } else if (selection == 26 && (direction || activate)) {
+                        if (test_hold.armed()) test_hold.cancel(); else test_hold.arm();
                     } else if (selection == 27 && activate) {
+                        test_hold.cancel();
+                        settings.defaults(); changed = clocks_changed = true;
+                    } else if (selection == 28 && activate) {
                         options = false; selection = 2; wait_release = true;
                     }
                     if (changed) {
@@ -680,8 +688,9 @@ int main(int, char **) {
             for (int n = 0; n < frames; ++n) {
                 const uint64_t begin = diagnostic_ticks_us();
                 try {
-                    auto next_sound = game->run_frame_sound_packet(
-                        map_input(controls.sample(wait_release ? vita::Pad{} : pad)));
+                    auto inputs = map_input(controls.sample(wait_release ? vita::Pad{} : pad));
+                    test_hold.apply(game->frames(), inputs.in0);
+                    auto next_sound = game->run_frame_sound_packet(inputs);
                     perf_run_us += diagnostic_ticks_us() - begin;
                     const auto &fp = game->last_profile();
                     perf_core_us += fp.core(); perf_geo_us += fp.geometry;

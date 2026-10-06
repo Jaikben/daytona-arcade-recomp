@@ -453,6 +453,16 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 ImGui::TextWrapped("%s", error_.c_str());
                 ImGui::PopStyleColor();
             }
+            ImGui::Checkbox("Hold Test button", &cfg_.hold_test); // not saved: one press, then it clears
+#ifdef M2_MOBILE
+            ImGui::TextWrapped("Opens the test menu: coin settings, game type; no F2 key needed.");
+#else
+            ImGui::SameLine();
+            ImGui::TextDisabled("(opens the test menu: coin settings, game type; for no F2 key)");
+#endif
+            ImGui::SetItemTooltip("Tick, then Start or Resume: once the game is running the Test button is\n"
+                                  "held for 3 seconds, which opens the test menu, and this clears itself.\n"
+                                  "F2, or any button bound to Test, still works too.");
             ImGui::BeginDisabled(!rom_ok_);
             if (game_running) {
                 if (ImGui::Button("Resume", ImVec2(140, 40))) result = Resume;

@@ -2,6 +2,11 @@
 
 ## ImGui launcher (01.24)
 
+Options also includes **Hold Test button**: enable it, then Start/Resume.
+It waits for the game to accept inputs, holds Test for three game seconds,
+then clears itself. This request is not saved. Existing Test/Service chords
+remain available; Reset Defaults cancels a pending hold.
+
 The GXM build now uses Dear ImGui for its launcher, options and loading screen.
 D-pad navigates, Cross activates, Left/Right changes the highlighted setting,
 and Circle goes back/resumes. Front touch selects rows, arrow buttons and the

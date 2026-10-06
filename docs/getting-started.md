@@ -194,6 +194,11 @@ affected yet.
 for the balance between the music and everything else (the engine, skids,
 crashes). Both at 100% is the game as the arcade's sound board mixes it.
 
+**Test menu without an F2 key** (phones, tablets): tick **Hold Test button**
+next to Start, then Start or Resume. Once the game is running, the Test
+button is held for 3 seconds and the test menu opens (coin settings, game
+type, cabinet); the box clears itself.
+
 Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).

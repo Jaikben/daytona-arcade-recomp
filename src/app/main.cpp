@@ -17,6 +17,7 @@
 #include "app/config.h"
 #include "app/ffb.h"
 #include "app/pacing.h"
+#include "runtime/test_hold.h"
 #include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
@@ -379,6 +380,7 @@ int main(int argc, char **argv) {
     };
     app::Pacer pacer;
     pacer.set(app::Pacing{}, SDL_GetTicksNS());
+    rt::TestHold test_hold; // the launcher's "Hold Test button"
 #ifdef M2_MOBILE
     // Preserve startup detection for a controller paired before launching.
     int pad_count = 0;
@@ -486,7 +488,10 @@ int main(int argc, char **argv) {
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
             for (int frames = pacer.frames(now); frames > 0; --frames) {
-                game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices));
+                rt::Inputs inputs = cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices);
+                if (cfg.hold_test != test_hold.armed()) cfg.hold_test ? test_hold.arm() : test_hold.cancel();
+                if (test_hold.apply(game->frames(), inputs.in0)) cfg.hold_test = false; // held: the box clears
+                game->run_frame(inputs);
 #ifdef M2_MOBILE
                 touch.consumed();
                 cfg.controls.touch = touch.values;
