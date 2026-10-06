@@ -2,6 +2,15 @@
 
 ## Current state
 
+**Open issues reviewed (docs/issues.md).** Each open GitHub issue checked
+against the code: #4 (Driving Force on Linux: SDL 3.4.16's lg4ff driver drops
+input reports that are not 27 bytes; ask for a run with
+SDL_JOYSTICK_HIDAPI_LG4FF=0), #7 (frame pacing; four display settings
+planned, all off, so the default stays native speed, 57.52 frames/s), #9
+(force feedback; the drive board's commands checked against its program),
+#10 (reference audio's mix matches MAME; native audio's master gain 1.95 and
+missing sample envelopes) and #6.
+
 **Dreamcast port (branch dreamcast, in progress).** platform/dreamcast: a
 KallistiOS build run by platform/dreamcast/build_dreamcast.py after the
 desktop build, from the `daytona` (Revision A) set only, like platform/vita.
