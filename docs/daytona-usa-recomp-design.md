@@ -391,4 +391,5 @@ The critical path is i960 parity, then TGP parity; rendering and polish can proc
 - [ ] Does Daytona upload geometrizer code (`geo_prg_w`, 0x00804000), or run its fixed transform loops only?
 - [ ] Ship a prebuilt runtime with runtime codegen, or require a local C++ compiler at import?
 - [ ] PCB access: which board revision is available, and can the TGP FIFO be probed?
-- [ ] Refresh is 57.524 Hz per MAME (provisional; PCB unmeasured). Should frame pacing lock to host 60 Hz or run at native rate with VRR?
+- [ ] Refresh is 57.524 Hz per MAME (provisional; PCB unmeasured).
+- [x] Should frame pacing lock to host 60 Hz or run at native rate with VRR? Native rate by default, on the wall clock, on any display; locking to the display (60 frames/s on 60, 120, 240 Hz), smooth pacing on a 57.52 Hz display and VRR pacing are launcher settings, all off (`src/app/pacing.h`, issue #7).

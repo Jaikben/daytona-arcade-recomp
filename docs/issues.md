@@ -7,7 +7,7 @@ yet. Line numbers drift; the files and functions named are the reference.
 | Issue | Summary | Status |
 | --- | --- | --- |
 | [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Confirmed: works with SDL's Logitech driver off. "Legacy Logitech wheel support" setting added |
-| [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Plan agreed: four settings, all off by default |
+| [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Four settings added, all off by default (native speed) |
 | [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed; not yet tried on a real wheel |
 | [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
 | [#6](#6-android-version) | Android version | Feature request |
@@ -85,15 +85,15 @@ of them off the game behaves as it does now. A faster display may show frames
 more often; it never makes the game faster unless the player turns on Sync to
 display.
 
-None of these settings exist yet; today the only display setting is
-fullscreen on or off.
+**Done** (launcher, Game tab, under Fullscreen; `src/app/pacing.h`): all four,
+off by default. The table is as built.
 
 | Setting | Default | When turned on |
 | --- | --- | --- |
 | Sync to display | Off | The game runs at a rate that divides evenly into the display's refresh and is close to the arcade's: 60 frames/s on 60, 120, 180 and 240 Hz, 57.5 on 115 Hz. No effect where no such rate exists (144 Hz, 165 Hz). |
-| Smooth pacing at 57.524 Hz | Off | One game frame per refresh when the display is within about 1% of the arcade's rate; no doubled or skipped frames. Speed unchanged. |
-| VRR pacing | Off | Frames presented without vsync (immediate or mailbox present mode), each timed to 57.52 Hz, so a G-Sync or FreeSync display refreshes at the game's rate. Speed unchanged. |
-| Exclusive fullscreen and refresh picker | Off | Fullscreen in a chosen display mode (resolution and refresh) instead of the desktop's; saved in the config. |
+| Smooth pacing on a 57.52 Hz display | Off | One game frame per refresh (or two, at 115.05 Hz) when the display is within 1% of a multiple of the arcade's rate; no doubled or skipped frames. Speed within 1%. |
+| VRR pacing | Off | Each frame held to 1/57.52 s by a precise sleep, one game frame per present, so a G-Sync or FreeSync display refreshes at the game's rate. Vsync stays on (the usual way to drive VRR: no tearing), not the immediate present mode first planned. Speed unchanged. |
+| Fullscreen mode | Desktop | A list of the display's modes: exclusive fullscreen at the chosen resolution and refresh (a custom 57.52 Hz mode made in the driver among them) instead of borderless at the desktop's. |
 
 Description for Sync to display in the options:
 
@@ -101,13 +101,24 @@ Description for Sync to display in the options:
 > Runs the game at a rate that divides evenly into your screen's refresh rate,
 > so every frame is shown for the same time and motion is perfectly smooth. On
 > 60, 120, 180 and 240 Hz screens the game runs at 60 frames/s, about 4% faster
-> than the arcade (57.52), and the music plays slightly faster. It has no
+> than the arcade (57.52), and with reference audio the sound plays slightly
+> faster (native audio keeps the music's own tempo). It has no
 > effect on screens like 144 Hz or 165 Hz, which can't evenly fit a rate close
 > to the arcade's; on those, use VRR pacing if your monitor supports G-Sync or
 > FreeSync. Off: the game always runs at the arcade's own speed.
 
 Why only even divisions: locking to 60 on a 144 Hz display still shows frames
 for 2 or 3 refreshes (2.4 refreshes each), no smoother than 57.52, and 4% fast.
+
+**Checked:** `test_app_pacing` (the mode for 0, 50, 57.52, 59.94, 60, 115, 120,
+144, 165, 180 and 240 Hz; the default's frame count against the old loop's
+arithmetic over 20,000 random passes; one frame per refresh at 60 Hz with 2 ms
+of jitter; every 2nd at 120 Hz; held to its rate with vsync forced off; VRR
+frames exactly 1/57.52 s apart, no burst after a stall). In the game, frames
+counted over 15 s: default 57.9, Sync to display on a 60 Hz display 59.8, VRR
+57.53 frames/s. With two displays (60 and 144 Hz) the pacing follows the
+window: Sync to display went back to the arcade's speed when the window moved
+to the 144 Hz one. Not yet tried on a VRR display, nor listened to.
 
 **Notes for the implementation:**
 
