@@ -1,4 +1,8 @@
 #include "app/launcher.h"
+#include "app/rom_file.h"
+#ifdef SDL_PLATFORM_IOS
+#include "rom_picker.h"
+#endif
 
 #include "imgui.h"
 
@@ -39,8 +43,21 @@ void apply_fullscreen_mode(SDL_Window *window, const std::string &key) {
 }
 
 Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window) {
-    std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
     std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
+#ifdef SDL_PLATFORM_ANDROID
+    // Older mobile builds saved the picker result (content://...) directly.
+    // Do not reopen such a URI during startup: Android's temporary document
+    // grant may be stale, and the picker/JNI path is not part of launcher
+    // construction. Ask the user to browse again and import it then.
+    if (RomFile::is_content_uri(cfg_.rom_path)) {
+        cfg_.rom_path.clear();
+        path_buf_[0] = '\0';
+        cfg_.save();
+        rom_message_ = "Select the ROM set again with Browse.";
+        return;
+    }
+#endif
+    std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
     check_rom();
 }
 
@@ -51,19 +68,29 @@ void Launcher::check_rom() {
         rom_message_ = "Choose your " M2_ROMSET " ROM set (.zip or .7z).";
         return;
     }
-    // Keep the path absolute, so the saved setting works from any directory.
-    std::error_code ec;
-    const auto abs = std::filesystem::absolute(cfg_.rom_path, ec);
-    if (!ec && abs.string() != cfg_.rom_path && std::filesystem::exists(abs, ec)) {
-        cfg_.rom_path = abs.lexically_normal().string();
-        std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
-        cfg_.save();
-    }
     try {
-        checks_ = rt::check_rom_set(cfg_.rom_path);
+        // Android's picker grants access to a content URI, not a raw /sdcard
+        // path. Stage it through SDL's Android reader before the plain-file
+        // archive code verifies it. Invalid imports never replace a good copy.
+        RomFile selected(cfg_.rom_path);
+        checks_ = rt::check_rom_set(selected.path());
         int good = 0;
         for (const auto &c : checks_) good += c.ok;
-        rom_ok_ = good == int(checks_.size());
+        const bool verified = !checks_.empty() && good == int(checks_.size());
+        if (verified) {
+            std::string path = selected.commit();
+            // Keep ordinary paths absolute, including the saved Android copy.
+            std::error_code ec;
+            const auto abs = std::filesystem::absolute(path, ec);
+            if (!ec && std::filesystem::exists(abs, ec)) path = abs.lexically_normal().string();
+            if (cfg_.rom_path != path) {
+                cfg_.rom_path = path;
+                std::snprintf(path_buf_, sizeof path_buf_, "%s", path.c_str());
+                cfg_.save();
+            }
+        }
+        // Do not enable Start if committing the imported archive failed.
+        rom_ok_ = verified;
         rom_message_ = rom_ok_ ? "All " + std::to_string(good) + " files verified."
                                : std::to_string(int(checks_.size()) - good) + " of " + std::to_string(checks_.size()) +
                                      " files missing or wrong: this is not the " M2_ROMSET " set.";
@@ -76,14 +103,20 @@ void SDLCALL Launcher::dialog_done(void *self, const char *const *files, int) {
     auto *l = static_cast<Launcher *>(self);
     std::lock_guard<std::mutex> g(l->dialog_mutex_);
     l->dialog_pending_ = false;
-    if (files && files[0]) l->dialog_result_ = files[0];
-    else if (!files) l->error_ = std::string("File dialog unavailable (") + SDL_GetError() + "); type the path instead.";
+    if (files && files[0]) {
+        l->dialog_result_ = files[0];
+        l->error_.clear();
+    } else if (!files) l->error_ = std::string("ROM picker: ") + SDL_GetError();
 }
 
 void Launcher::browse() {
     static const SDL_DialogFileFilter filters[] = {{"ROM set (zip, 7z)", "zip;7z"}, {"All files", "*"}};
     dialog_pending_ = true;
+#ifdef SDL_PLATFORM_IOS
+    ios_browse_rom(window_, dialog_done, this);
+#else
     SDL_ShowOpenFileDialog(dialog_done, this, window_, filters, 2, cfg_.rom_path.empty() ? nullptr : cfg_.rom_path.c_str(), false);
+#endif
 }
 
 void Launcher::start_capture(int action, CaptureKind kind, const Devices &devices) {
@@ -198,9 +231,18 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
+#ifdef SDL_PLATFORM_IOS
+    SDL_Rect safe{};
+    if (SDL_GetWindowSafeArea(window_, &safe) && safe.w > 0 && safe.h > 0) {
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + safe.x, vp->Pos.y + safe.y));
+        ImGui::SetNextWindowSize(ImVec2(float(safe.w), float(safe.h)));
+    }
+#endif
     ImGui::SetNextWindowBgAlpha(game_running ? 0.85f : 1.0f);
     ImGui::Begin("Daytona USA", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PushTextWrapPos();
 
     ImGui::TextUnformatted("DAYTONA USA");
     ImGui::SameLine();
@@ -211,6 +253,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
         if (ImGui::BeginTabItem("Game")) {
             ImGui::Spacing();
             ImGui::TextUnformatted("ROM set");
+#ifdef SDL_PLATFORM_ANDROID
+            ImGui::TextWrapped("Browse grants read access to your ZIP/7z. A verified copy is kept in app storage.");
+#endif
             ImGui::SetNextItemWidth(-200);
             if (ImGui::InputText("##rom", path_buf_, sizeof path_buf_, ImGuiInputTextFlags_EnterReturnsTrue)) {
                 cfg_.rom_path = path_buf_;
@@ -226,6 +271,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 check_rom();
             }
             ImGui::TextColored(rom_ok_ ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(1, 0.6f, 0.3f, 1), "%s", rom_message_.c_str());
+            if (!error_.empty()) {
+                ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", error_.c_str());
+            }
             if (!checks_.empty() && ImGui::TreeNode("Files")) {
                 if (ImGui::BeginTable("files", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
                     for (const auto &c : checks_) {
@@ -550,6 +598,11 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
 
         ImGui::EndTabBar();
     }
+    ImGui::PopTextWrapPos();
+#ifdef M2_MOBILE
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(0))
+        ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+#endif
     ImGui::End();
     return result;
 }

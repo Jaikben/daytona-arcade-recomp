@@ -1,5 +1,65 @@
 # Handoff
 
+## Mobile touch controls and latest main (2026-10-06)
+
+Rebased mobile again onto origin/main 10c85cb before completing touch input.
+Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
+Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
+the touch-work stash remains as an additional recovery copy. No branch pushed.
+
+Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
+sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
+capture controls independently (device and finger IDs), not ImGui's single
+mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
+menu and safe-area changes release input. Existing physical controls merge
+with touch through Controls; desktop receives zero touch input by default.
+This follows the design's Platform layer & build boundary; runtime/shaders
+and upstream pacing remain unchanged. See mobile handoff for validation.
+
+## Mobile rebase onto remote main (2026-10-06)
+
+Rebased mobile onto origin/main 6817bff, preserving Android document imports,
+iOS Files import, screen sizing and unsigned packaging. CMake conflict
+resolution keeps upstream link/force-feedback sources and Windows socket
+libraries alongside mobile SDL targets. Generated-source paths combine
+M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
+uses the upstream Devices owner. Initialize the link address before Android's
+stale-URI early return. The previous mobile tip is retained at
+backup/mobile-before-main-20261006. Main and the other platform branches are
+unchanged. Existing IPA files predate this rebase and must not be presented as
+rebuilt from it.
+Validation: desktop daytona_app compilation passes; 13 Android-path import
+tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
+ancestor of the rebased tip. iOS/Android device builds are not rerun here.
+
+## iOS launcher and Files picker (2026-10-06)
+
+Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
+keeping a separate private copy for each selection before the existing ROM
+validation. Enabled modern full-screen launch sizing, safe-area placement,
+logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
+drag scrolling. Picker errors are shown beside the ROM field. Changes follow
+the design's thin platform layer; runtime and shaders are unchanged.
+
+Device Release IPA and simulator build succeed. The simulator cannot provide
+visual verification: SDL_CreateGPUDevice reports that its device does not meet
+SDL_GPU Metal hardware requirements; the resulting black screen is not UI
+validation. Native Files selection and layout need another physical-device
+test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
+screen fit based on compilation alone.
+
+## Mobile iOS packaging (2026-10-06)
+
+The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
+signing, stage the device app under `Payload/daytona.app`, and produce
+`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
+CFBundleExecutable and the APPL package type. Custom build and generated-source
+paths are normalized before packaging; argument handling remains compatible
+with macOS Bash 3.2. No ROM archives or generated sources are committed.
+This follows the design document's Platform layer & build and ROM handling
+sections: the shared runtime/renderer is unchanged. See the mobile handoff
+for build validation and device-test status.
+
 ## Current state
 
 **Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing
@@ -1222,3 +1282,18 @@ M1 native (`tools/m2recomp`, `tools/m2native`, `src/runtime/lockstep`):
   harvest patch now logs IAC targets and the seeds include it.
 - Mutation check: the generator's addo template off by one when src1 == 1
   diverges at epoch 3.
+
+
+## Mobile Android — 2026-10-02
+
+- A previous Android build saved the Storage Access Framework picker result
+  (`content://...`) directly in the config. The first ROM-import implementation
+  then tried to reopen that URI from `Launcher` construction on the next app
+  start. On-device report: the updated APK crashed immediately when opening.
+- Startup now treats a saved Android `content://` value as stale migration
+  state: it clears the value, saves the config, and asks the user to select the
+  archive again. Document-provider URIs are only consumed immediately after a
+  Browse result; a verified archive is then staged into app-private storage and
+  the normal path is saved.
+- Device verification still required. If startup still crashes after this
+  migration fix, capture Android logcat before changing the import path again.
