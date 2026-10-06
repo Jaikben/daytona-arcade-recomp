@@ -1,16 +1,26 @@
 // The force feedback drive board (838-10646 on Daytona USA), as the game
 // sees it: the I/O board passes on each command byte the game writes to its
 // dual-port RAM byte 0x11 (IoBoard), and the drive board's Z80 turns the
-// wheel motor. Not emulated: its program (EPR-16488) is not run. Commands are
-// decoded instead, by type in the high nibble, value in the low; the same
-// command set Sega's later drive boards use, as Supermodel documents it
-// (Src/Model3/DriveBoard/WheelBoard.cpp; GPL-3, read for the meanings only,
-// no code taken; see THIRD_PARTY.md). Daytona sends 0x1-, 0x2-, 0x3-, 0x5-,
-// 0x6- and 0x7- commands in a race.
+// wheel motor. Its program (EPR-16488A) is not run; its command handling is
+// modelled instead, as read from the program and checked in MAME 0.289 by
+// feeding the board commands and wheel positions and recording its motor
+// output (docs/issues.md, #9).
 //
-// The result is the wheel's state for a host force feedback device:
-// centring spring, friction and vibration strengths (0..1) and a constant
-// force (-1 full left .. +1 full right).
+// The board reads the wheel's position itself and runs one effect at a time:
+// the last command sets it until the next. The motor runs only after an
+// "on" command (0x0-). Strength n is the low 3 bits:
+//   0x00-04, 08, 09, 0B, 0C  motor off       0x05-07, 0A, 0D-0F  motor on
+//   0x10-1F                  no force        0x20-27  resistance (a brake)
+//   0x30-37                  centring spring 0x38-3F  centring spring, dead zone
+//   0x40-47                  uncentring: away from the centre
+//   0x50-57 / 0x60-67        constant force, one way / the other
+//   0x28-2F, 48-4F, 58-5F, 68-6F  no force
+//   0x70-7F  a spring parameter; 0x80-FF  status queries and nothing: the
+//   effect is unchanged.
+// Daytona sends 0x0-, 0x2-, 0x3-, 0x4-, 0x5-, 0x6-, 0x7- and 0xF- in a race.
+//
+// The result is the effect for a host force feedback device, each strength
+// 0..1 relative to the board's strongest command (at the factory DIP setting).
 #pragma once
 
 #include <cstdint>
@@ -18,23 +28,43 @@
 namespace rt {
 
 struct DriveBoard {
-    float centering = 0, friction = 0, vibration = 0, force = 0;
+    enum class Effect : uint8_t { None, Resistance, Centre, CentreDeadZone, Uncentre, Force };
+    bool motor_on = false; // off at power-on, until the game turns it on
+    Effect effect = Effect::None;
+    int strength = 0; // n, 0..7
+    int direction = 1; // Force: +1 0x5- (right), -1 0x6- (left)
 
     void command(uint8_t cmd) {
-        const int value = cmd & 0x0f;
+        const int n = cmd & 7;
         switch (cmd >> 4) {
-        case 0x1: centering = float(value) / 15.0f; break;  // self-centring strength (0: off)
-        case 0x2: friction = float(value) / 15.0f; break;   // friction strength (0: off)
-        case 0x3: vibration = float(value) / 15.0f; break;  // uncentring: vibration (0: off)
-        case 0x5: force = float(value + 1) / 16.0f; break;  // turn the wheel right
-        case 0x6: force = -float(value + 1) / 16.0f; break; // turn the wheel left
-        case 0x8:                                            // test mode: 0 stops everything
-            if ((value & 7) == 0) *this = DriveBoard{};
-            break;
-        case 0xc: *this = DriveBoard{}; break;               // board mode set or reset: motor stops
-        default: break; // 0x0- and 0x4- play built-in sequences, 0x7- set steering parameters: not modelled
+        case 0x0: motor_on = cmd == 0x0a || n >= 5; return;
+        case 0x1: set(Effect::None, 0); return;
+        case 0x2: set(cmd & 8 ? Effect::None : Effect::Resistance, n); return;
+        case 0x3: set(cmd & 8 ? Effect::CentreDeadZone : Effect::Centre, n); return;
+        case 0x4: set(cmd & 8 ? Effect::None : Effect::Uncentre, n); return;
+        case 0x5:
+        case 0x6:
+            set(cmd & 8 ? Effect::None : Effect::Force, n);
+            direction = (cmd >> 4) == 0x5 ? 1 : -1;
+            return;
+        default: return; // 0x7-: the spring's slope (not modelled); 0x8- and up: queries, nothing
         }
     }
+
+    // The effect's strength, 0 when the motor is off or another effect runs.
+    // The board's motor power is 0..63: about 7 + 2n for the springs and
+    // resistance, 17 + 2n for uncentring and the constant force (its minimum
+    // and the spring parameter the game sets included); 31 is the strongest.
+    float level(Effect e) const {
+        if (!motor_on || effect != e || e == Effect::None) return 0.0f;
+        const bool push = e == Effect::Uncentre || e == Effect::Force;
+        return float((push ? 17 : 7) + 2 * strength) / 31.0f;
+    }
+    // The constant force, -1 (left) .. +1 (right).
+    float force() const { return level(Effect::Force) * float(direction); }
+
+private:
+    void set(Effect e, int n) { effect = e, strength = n; }
 };
 
 } // namespace rt

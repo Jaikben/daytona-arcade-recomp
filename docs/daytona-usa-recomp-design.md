@@ -256,7 +256,9 @@ The game's test menu is left intact for calibration, but the runtime also expose
 
 **Force feedback**
 
-The game sends motor commands to the drive board through an output port. The HLE decodes them (centering, jolts, road rumble, off-road shake) and maps them to SDL3 haptic effects on wheels, falling back to gamepad rumble. MAME's drive-board notes and output logs are the reference for the command set.
+The game sends motor commands to the drive board through an output port (I/O board dual-port RAM byte 0x11). The HLE decodes them and maps them to SDL3 haptic effects on wheels, and to rumble on gamepads.
+
+This section first assumed the board plays centring, jolts, road rumble and off-road shake, and the first decoder took its meanings from Supermodel's notes on Sega's later drive boards. Both were wrong for Daytona. The board's own program (EPR-16488A), disassembled in MAME 0.289 and run there with commands and wheel positions fed to it, runs one effect at a time from the wheel's position (its own ADC): motor on/off, resistance, a centring spring with or without a dead zone, uncentring, and a constant force either way, each with strength 0-7. It has no vibration or rumble. The command table is in `src/runtime/drive_board.h` and `docs/issues.md` (#9). A wheel whose haptics fail to open gets no force rather than rumble; gamepads rumble only for the constant force and uncentring.
 
 **Link play**
 

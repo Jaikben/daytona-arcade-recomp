@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
     };
     auto start_game = [&] {
         save_nv();
-        ffb.stop();
+        ffb.reset(); // a new game: the drive board as at power-on
         native_audio.close(); // joins callback before replacing its ROMs/engine
         audio.close();
         game.reset();
@@ -412,7 +412,7 @@ int main(int argc, char **argv) {
             }
             // the drive board's commands this frame, as force feedback
             ffb.update(std::exchange(game->board().io().drive_commands, {}), devices, cfg.controls, cfg.ffb_strength,
-                       cfg.ffb_invert);
+                       cfg.ffb_invert, cfg.ffb_log, game->frames());
             launcher.set_ffb_device(ffb.device_kind());
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {

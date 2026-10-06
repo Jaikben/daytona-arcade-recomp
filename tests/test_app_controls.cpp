@@ -4,7 +4,7 @@
 // events, bindings save and load, calibrated axes reach the I/O board's ADC
 // ranges, and a binding to a device that is not connected reads as nothing.
 // Force feedback: the drive board's commands decode (rt::DriveBoard), and a
-// steering device without haptics gets them as rumble.
+// steering device without haptics gets the pushing forces as rumble.
 
 #include "app/controls.h"
 #include "app/ffb.h"
@@ -122,18 +122,40 @@ int main() {
     check(missing.value(devices, 0.0f) == 0.0f, "unconnected device reads 0");
     check(missing.describe(devices).find("not connected") != std::string::npos, "unconnected device described");
 
-    // The drive board: commands by type in the high nibble.
+    // The drive board, as its program (EPR-16488A) handles the commands: one
+    // effect at a time, strength in the low 3 bits, only once the motor is on.
+    using Effect = rt::DriveBoard::Effect;
     rt::DriveBoard drive;
-    drive.command(0x1f), drive.command(0x27), drive.command(0x3f), drive.command(0x57);
-    check(drive.centering == 1.0f && std::fabs(drive.friction - 7.0f / 15.0f) < 1e-6f && drive.vibration == 1.0f &&
-              drive.force == 0.5f,
-          "drive commands decode");
-    drive.command(0x60);
-    check(drive.force == -1.0f / 16.0f, "turn left");
-    drive.command(0x71); // steering parameters: not modelled, nothing changes
-    check(drive.force == -1.0f / 16.0f && drive.centering == 1.0f, "0x7- leaves the state");
-    drive.command(0xcb);
-    check(drive.centering == 0 && drive.friction == 0 && drive.vibration == 0 && drive.force == 0, "board reset stops");
+    drive.command(0x3b);
+    check(drive.effect == Effect::CentreDeadZone && drive.level(Effect::CentreDeadZone) == 0, "motor off at power-on");
+    drive.command(0x07);
+    check(drive.motor_on && std::fabs(drive.level(Effect::CentreDeadZone) - 13.0f / 31.0f) < 1e-6f,
+          "0x07 turns the motor on; 0x3b: centring spring with a dead zone");
+    drive.command(0x34);
+    check(drive.effect == Effect::Centre && drive.level(Effect::CentreDeadZone) == 0 &&
+              std::fabs(drive.level(Effect::Centre) - 15.0f / 31.0f) < 1e-6f,
+          "0x34: centring spring; one effect at a time");
+    drive.command(0x27);
+    check(drive.effect == Effect::Resistance && drive.level(Effect::Centre) == 0 &&
+              std::fabs(drive.level(Effect::Resistance) - 21.0f / 31.0f) < 1e-6f,
+          "0x27: resistance");
+    drive.command(0x57);
+    check(drive.force() == 1.0f, "0x57: the strongest pull right");
+    drive.command(0x64);
+    check(std::fabs(drive.force() + 25.0f / 31.0f) < 1e-6f, "0x64: pull left");
+    drive.command(0x71), drive.command(0x80), drive.command(0xc0), drive.command(0xff);
+    check(std::fabs(drive.force() + 25.0f / 31.0f) < 1e-6f, "0x7- and queries leave the effect");
+    drive.command(0x43);
+    check(drive.effect == Effect::Uncentre && std::fabs(drive.level(Effect::Uncentre) - 23.0f / 31.0f) < 1e-6f,
+          "0x43: uncentring");
+    drive.command(0x58);
+    check(drive.effect == Effect::None && drive.force() == 0, "0x58: no force");
+    drive.command(0x57), drive.command(0x01);
+    check(!drive.motor_on && drive.force() == 0, "0x01 turns the motor off");
+    drive.command(0x0a);
+    check(drive.motor_on && drive.force() == 1.0f, "0x0a turns it on again; the effect was kept");
+    drive.command(0x1f);
+    check(drive.effect == Effect::None && drive.force() == 0, "0x1-: no force");
 
     // Force feedback on a steering device without haptics: rumble. The wheel
     // here is replaced by a pad-like joystick that can rumble.
@@ -143,16 +165,30 @@ int main() {
     c.bind[app::SteerLeft].joy = axis(rumbler, 0, 0, -32768);
     c.bind[app::SteerRight].joy = axis(rumbler, 0, 0, 32767);
     app::ForceFeedback ffb;
-    ffb.update({0x3f, 0x57}, devices, c, 1.0f, false); // full vibration, pulling right at half
+    ffb.update({0x07, 0x57}, devices, c, 1.0f, false); // motor on, the strongest pull right
     SDL_UpdateJoysticks();
     check(std::string(ffb.device_kind()) == "gamepad (rumble)", "rumble device chosen");
-    check(rumble_high == 0xffff && std::abs(int(rumble_low) - 0x8000) <= 1, "vibration and pull as rumble");
+    check(rumble_low == 0xffff && rumble_high == 0, "the pull on the large motor");
+    ffb.update({0x47}, devices, c, 1.0f, false); // uncentring
+    SDL_UpdateJoysticks();
+    check(rumble_low == 0 && rumble_high == 0xffff, "uncentring on the small motor");
     ffb.update({}, devices, c, 0.5f, false); // the state holds; the strength scales it
     SDL_UpdateJoysticks();
     check(std::abs(int(rumble_high) - 0x8000) <= 1, "strength scales rumble");
+    ffb.update({0x3b}, devices, c, 1.0f, false); // the centring spring: on all race, no rumble
+    SDL_UpdateJoysticks();
+    check(rumble_low == 0 && rumble_high == 0, "no rumble for the spring");
+    ffb.update({0x57}, devices, c, 1.0f, false);
     ffb.stop();
     SDL_UpdateJoysticks();
     check(rumble_low == 0 && rumble_high == 0, "stop: rumble off");
+    ffb.update({}, devices, c, 1.0f, false); // resumed: the board's state was kept
+    SDL_UpdateJoysticks();
+    check(rumble_low == 0xffff, "resume: the pull again");
+    ffb.reset();
+    ffb.update({}, devices, c, 1.0f, false); // a new game: motor off until the game turns it on
+    SDL_UpdateJoysticks();
+    check(rumble_low == 0 && rumble_high == 0, "reset: the motor off");
     ffb.update({}, devices, c, 0.0f, false); // strength 0: off, the device released
     check(std::string(ffb.device_kind()) == "none", "strength 0 releases the device");
     ffb.close();

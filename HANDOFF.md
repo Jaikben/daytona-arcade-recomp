@@ -10,6 +10,37 @@ mismatched cached configuration is cleared, preserving generated sources.
 Checked: three setup regression tests pass. Revision A built with VS 2022
 and Clang 19.1.5; 12 CTest tests passed, two optional Lua tests skipped.
 CI now runs the setup tests and builds on branch pushes. Remote CI pending.
+
+**Force feedback: Daytona's drive board commands (issue #9).** The command
+meanings taken from Supermodel's later drive boards were wrong for Daytona:
+the game's centring spring (0x39-0x3C, on all race) was played as a 60 ms
+sine, so wheels shook constantly with no centre pull, and pads buzzed. Checked
+against the drive board's own program, EPR-16488A: disassembled in MAME
+0.289, then run with Lua taps on its I/O (commands fed on port $27, wheel
+positions on its ADC at $80, motor power and direction read from $46).
+rt::DriveBoard now follows it: motor on/off (0x0-), one effect at a time with
+strength in the low 3 bits (0x2- resistance, 0x30-37 centring spring, 0x38-3F
+the same with a dead zone, 0x4- uncentring, 0x5-/0x6- constant force), no
+force for 0x1- and the x8-xF halves, queries (0x8- up) changing nothing; no
+vibration (the board has none). app::ForceFeedback: spring (negative for
+uncentring), friction and constant force; pads rumble only for the constant
+force and uncentring; a wheel whose haptics fail to open gets nothing instead
+of SDL's DirectInput rumble (a sine through the wheel) and is retried every
+3 s; failed effect updates are retried; pausing keeps the board's state
+(ffb.reset() on a new game). Launcher: "Log force feedback" (ffb_log, off).
+Checked: test_app_controls and all CTest tests pass. Not checked on a real
+wheel; which of 0x5-/0x6- is left on a cabinet is not known (Invert force).
+Details and the command table: docs/issues.md.
+
+**Open issues reviewed (docs/issues.md).** Each open GitHub issue checked
+against the code: #4 (Driving Force on Linux: SDL 3.4.16's lg4ff driver drops
+input reports that are not 27 bytes; ask for a run with
+SDL_JOYSTICK_HIDAPI_LG4FF=0), #7 (frame pacing; four display settings
+planned, all off, so the default stays native speed, 57.52 frames/s), #9
+(force feedback; the drive board's commands checked against its program),
+#10 (reference audio's mix matches MAME; native audio's master gain 1.95 and
+missing sample envelopes) and #6.
+
 **Dreamcast port (branch dreamcast, in progress).** platform/dreamcast: a
 KallistiOS build run by platform/dreamcast/build_dreamcast.py after the
 desktop build, from the `daytona` (Revision A) set only, like platform/vita.
@@ -140,6 +171,8 @@ before being let go (pedals resting at either end or short of full range; a
 `joy_deadzone`. Force feedback: the game writes the drive board's command to
 I/O board dual-port RAM byte 0x11 (found by logging its writes: 44 in a
 race, every type), which IoBoard queues; rt::DriveBoard decodes them (the
+meanings below were wrong for Daytona and are replaced: see "Force feedback:
+Daytona's drive board commands" above. Then: the
 command set of Sega's later drive boards, as Supermodel documents it:
 0x1- centring, 0x2- friction, 0x3- vibration, 0x5-/0x6- pull right/left, 0xc-
 reset; 0x0-/0x4- sequences and 0x7- not modelled) and app::ForceFeedback

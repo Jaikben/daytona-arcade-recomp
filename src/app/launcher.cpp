@@ -400,9 +400,12 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             ImGui::SameLine();
             if (ImGui::Checkbox("Invert force", &cfg_.ffb_invert)) cfg_.save();
-            ImGui::TextDisabled("The arcade wheel's motor (centring, friction, kerb rumble, the wheel pulling),\n"
-                                "on the device steering is bound to. Now: %s. Wheels and force feedback\n"
-                                "are untested on real hardware so far: reports welcome.", ffb_device_);
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Log force feedback", &cfg_.ffb_log)) cfg_.save();
+            ImGui::TextDisabled("The arcade wheel's motor (centring, resistance, the wheel pulling), on the\n"
+                                "device steering is bound to; a gamepad rumbles when the car is pushed. Now: %s.\n"
+                                "Wheels and force feedback are untested on real hardware so far: reports welcome.\n"
+                                "The log goes to daytona.log beside launcher.ini on Windows, else the terminal.", ffb_device_);
 
             if (ImGui::BeginTable("binds", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
                 ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, 130);
