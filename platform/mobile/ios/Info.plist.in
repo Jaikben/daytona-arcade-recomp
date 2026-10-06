@@ -25,6 +25,10 @@
     </array>
     <key>UIRequiresFullScreen</key>
     <true/>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UIApplicationSupportsIndirectInputEvents</key>
+    <true/>
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>

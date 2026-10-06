@@ -1,5 +1,21 @@
 # Handoff
 
+## iOS launcher and Files picker (2026-10-06)
+
+Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
+keeping a separate private copy for each selection before the existing ROM
+validation. Enabled modern full-screen launch sizing, safe-area placement,
+logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
+drag scrolling. Picker errors are shown beside the ROM field. Changes follow
+the design's thin platform layer; runtime and shaders are unchanged.
+
+Device Release IPA and simulator build succeed. The simulator cannot provide
+visual verification: SDL_CreateGPUDevice reports that its device does not meet
+SDL_GPU Metal hardware requirements; the resulting black screen is not UI
+validation. Native Files selection and layout need another physical-device
+test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
+screen fit based on compilation alone.
+
 ## Mobile iOS packaging (2026-10-06)
 
 The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode

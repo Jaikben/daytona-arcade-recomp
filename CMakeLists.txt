@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(daytona_recomp LANGUAGES C CXX)
+if(IOS)
+    enable_language(OBJCXX)
+endif()
 
 # Mobile frontends use the same runtime/app code as desktop. Android needs
 # SDL's shared JNI library; iOS uses the static library in an app bundle.
@@ -220,6 +223,11 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     target_link_libraries(daytona_app PRIVATE runtime imgui gpurender ${M2_SDL_TARGET})
     if(WIN32)
         target_link_libraries(daytona_app PUBLIC ws2_32) # link play's sockets
+    endif()
+    if(IOS)
+        target_sources(daytona_app PRIVATE platform/mobile/ios/rom_picker.mm)
+        set_source_files_properties(platform/mobile/ios/rom_picker.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+        target_include_directories(daytona_app PRIVATE platform/mobile/ios)
     endif()
     if(M2_MOBILE)
         target_compile_definitions(daytona_app PRIVATE M2_MOBILE=1)

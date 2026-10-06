@@ -242,7 +242,15 @@ int main(int argc, char **argv) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::StyleColorsDark();
+#ifdef SDL_PLATFORM_IOS
+    // UIKit reports logical points; the SDL backend handles Retina framebuffer
+    // scaling. Applying the display scale here again makes controls oversized.
+    ImGui::GetStyle().FontSizeBase = 17.0f;
+    ImGui::GetStyle().FramePadding = ImVec2(8, 6);
+    ImGui::GetStyle().ScrollbarSize = 20.0f;
+#else
     ImGui::GetStyle().ScaleAllSizes(SDL_GetWindowDisplayScale(window));
+#endif
     ImGui_ImplSDL3_InitForSDLGPU(window);
     ImGui_ImplSDLGPU3_InitInfo ii;
     ii.Device = dev;

@@ -1,5 +1,8 @@
 #include "app/launcher.h"
 #include "app/rom_file.h"
+#ifdef SDL_PLATFORM_IOS
+#include "rom_picker.h"
+#endif
 
 #include "imgui.h"
 
@@ -100,14 +103,20 @@ void SDLCALL Launcher::dialog_done(void *self, const char *const *files, int) {
     auto *l = static_cast<Launcher *>(self);
     std::lock_guard<std::mutex> g(l->dialog_mutex_);
     l->dialog_pending_ = false;
-    if (files && files[0]) l->dialog_result_ = files[0];
-    else if (!files) l->error_ = std::string("File dialog unavailable (") + SDL_GetError() + "); type the path instead.";
+    if (files && files[0]) {
+        l->dialog_result_ = files[0];
+        l->error_.clear();
+    } else if (!files) l->error_ = std::string("ROM picker: ") + SDL_GetError();
 }
 
 void Launcher::browse() {
     static const SDL_DialogFileFilter filters[] = {{"ROM set (zip, 7z)", "zip;7z"}, {"All files", "*"}};
     dialog_pending_ = true;
+#ifdef SDL_PLATFORM_IOS
+    ios_browse_rom(window_, dialog_done, this);
+#else
     SDL_ShowOpenFileDialog(dialog_done, this, window_, filters, 2, cfg_.rom_path.empty() ? nullptr : cfg_.rom_path.c_str(), false);
+#endif
 }
 
 void Launcher::start_capture(int action, CaptureKind kind, const Devices &devices) {
@@ -222,9 +231,18 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
+#ifdef SDL_PLATFORM_IOS
+    SDL_Rect safe{};
+    if (SDL_GetWindowSafeArea(window_, &safe) && safe.w > 0 && safe.h > 0) {
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + safe.x, vp->Pos.y + safe.y));
+        ImGui::SetNextWindowSize(ImVec2(float(safe.w), float(safe.h)));
+    }
+#endif
     ImGui::SetNextWindowBgAlpha(game_running ? 0.85f : 1.0f);
     ImGui::Begin("Daytona USA", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PushTextWrapPos();
 
     ImGui::TextUnformatted("DAYTONA USA");
     ImGui::SameLine();
@@ -253,6 +271,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 check_rom();
             }
             ImGui::TextColored(rom_ok_ ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(1, 0.6f, 0.3f, 1), "%s", rom_message_.c_str());
+            if (!error_.empty()) {
+                ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", error_.c_str());
+            }
             if (!checks_.empty() && ImGui::TreeNode("Files")) {
                 if (ImGui::BeginTable("files", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
                     for (const auto &c : checks_) {
@@ -577,6 +598,11 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
 
         ImGui::EndTabBar();
     }
+    ImGui::PopTextWrapPos();
+#ifdef M2_MOBILE
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(0))
+        ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+#endif
     ImGui::End();
     return result;
 }

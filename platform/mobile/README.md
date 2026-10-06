@@ -51,6 +51,12 @@ That generates an Xcode iOS project and builds `daytona.app`. Open the generated
 `daytona_recomp.xcodeproj`, select your Team under Signing, then deploy to the device.
 The bundle opts into Files document sharing/open-in-place so the user's ROM archive can
 be made available to the launcher.
+On iOS, Browse opens the native Files document picker and imports a private copy
+before the existing ROM checks. Choose your daytona93 ZIP/7z from On My iPhone,
+iCloud Drive, or another Files provider. Each selection keeps a separate copy,
+so an invalid selection cannot overwrite an earlier import. The launcher uses
+the screen safe area; drag blank space vertically or use its right scrollbar
+to reach the remaining options and Start button.
 
 For an unsigned IPA to sign and install through AltStore:
 

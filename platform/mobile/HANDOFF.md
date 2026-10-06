@@ -1,5 +1,30 @@
 # Mobile port handoff
 
+## 2026-10-06: iPhone launcher repair
+
+The supplied device photo showed clipped help text and inaccessible lower
+options. NoDecoration includes NoScrollbar, and the desktop style also applied
+Retina scale to UIKit logical-point coordinates. Use a visible scrollbar,
+blank-space drag scrolling, wrapping, point-sized iOS controls and the SDL safe
+area. Add UILaunchScreen metadata to opt out of legacy screen sizing.
+
+SDL's pinned iOS build selects its dummy file-dialog backend. Added a small
+ARC Objective-C++ Files picker, using import mode and copying the selected URL
+to a unique app-private path while any security-scoped access is active. The
+existing archive manifest verification still gates Start. Cancellation clears
+pending state; failures appear beside Browse. Each import keeps a separate
+copy, so repeated selections consume additional storage rather than replacing
+an earlier valid archive.
+
+Xcode device Release build, plist lint and unsigned ZIP validation pass.
+Simulator Ninja build initially failed because Objective-C++ was enabled after
+the SDL subdirectory; moving enable_language before subdirectories fixes it.
+Simulator installation/launch succeeds but rendering stops at SDL_CreateGPUDevice
+with "Device does not meet the hardware requirements for SDL_GPU Metal".
+Its black screenshot is not evidence of working UI. Next: install the updated
+device IPA through AltStore; verify fit, scrolling to Start, Files/iCloud import,
+cancel/retry and reopening the saved ROM. These interactions remain unverified.
+
 ## 2026-10-06: unsigned iOS package
 
 Built the mobile branch on macOS with Xcode 26.6 and the iPhoneOS 26.5 SDK,
