@@ -196,6 +196,10 @@ int main(int argc, char **argv) {
     // the name graphics overlays and drivers see (patches/sdl3: Vulkan's application name)
     SDL_SetAppMetadata("Daytona USA", nullptr, "daytona-recomp");
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
+    if (cfg.legacy_logitech_wheels) { // before the joysticks start: SDL reads it when it finds the devices
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "0");
+        std::fprintf(stderr, "daytona: Logitech wheels through the system's driver\n");
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
     if (!SDL_InitSubSystem(SDL_INIT_HAPTIC)) std::fprintf(stderr, "daytona: no force feedback (%s)\n", SDL_GetError());
     Audio audio;

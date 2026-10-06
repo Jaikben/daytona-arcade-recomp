@@ -2,6 +2,20 @@
 
 ## Current state
 
+**Legacy Logitech wheel support (issue #4).** The original Driving Force
+(046d:c294) is listed but sends nothing through SDL 3.4.16's HIDAPI lg4ff
+driver, which reads c294 reports only when they are exactly 27 bytes; the
+reporter confirmed it works with SDL_JOYSTICK_HIDAPI_LG4FF=0. A setting, not
+a change for everyone (SDL's driver serves the wheels it was written for):
+Controls tab, "Legacy Logitech wheel support (Restart Required)",
+legacy_logitech_wheels (off). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
+"0" before SDL_Init (SDL reads it when it finds devices; a change while
+running is not guaranteed to hand the wheel back to evdev) and logs it.
+Hidden on Windows, where SDL leaves lg4ff off already (hid.dll). The wheel's
+GUID differs between the drivers, so it is bound again after switching.
+Checked: a throwaway --profile with the setting on logs it, runs and saves it;
+all CTest tests pass. Not tried with a Logitech wheel here.
+
 **Audio tab: music and effects volumes (issue #10).** Launcher: a new Audio
 tab with Volume, Mute, Music, Effects (music_volume, effects_volume: 1 and 1
 by default) and the Native audio switch, moved from the Game tab. Reference

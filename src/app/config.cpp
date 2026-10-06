@@ -54,6 +54,7 @@ void Config::load() {
         else if (k == "ffb_strength") ffb_strength = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "ffb_invert") ffb_invert = v == "1";
         else if (k == "ffb_log") ffb_log = v == "1";
+        else if (k == "legacy_logitech_wheels") legacy_logitech_wheels = v == "1";
         else
             for (int a = 0; a < kNumActions; a++) {
                 const std::string base = action_key(Action(a));
@@ -93,6 +94,7 @@ void Config::save() const {
     f << "ffb_strength=" << ffb_strength << "\n";
     f << "ffb_invert=" << (ffb_invert ? 1 : 0) << "\n";
     f << "ffb_log=" << (ffb_log ? 1 : 0) << "\n";
+    f << "legacy_logitech_wheels=" << (legacy_logitech_wheels ? 1 : 0) << "\n";
     for (int a = 0; a < kNumActions; a++) {
         const Binding &b = controls.bind[a];
         f << action_key(Action(a)) << ".key=" << (b.key == SDL_SCANCODE_UNKNOWN ? "" : SDL_GetScancodeName(b.key)) << "\n";

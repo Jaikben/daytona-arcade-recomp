@@ -6,10 +6,10 @@ yet. Line numbers drift; the files and functions named are the reference.
 
 | Issue | Summary | Status |
 | --- | --- | --- |
-| [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Cause found (in SDL); waiting on the reporter |
+| [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Confirmed: works with SDL's Logitech driver off. "Legacy Logitech wheel support" setting added |
 | [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Plan agreed: four settings, all off by default |
-| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed on branch `ffb-drive-board`; not yet tried on a real wheel |
-| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added on branch `audio-music-effects`, both audio modes |
+| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed; not yet tried on a real wheel |
+| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
 | [#6](#6-android-version) | Android version | Feature request |
 
 ## #4: Logitech Driving Force cannot be bound on Linux
@@ -35,10 +35,20 @@ axes from their rest values, so pedals resting at either end work. One weakness
 to fix later: while an axis is being tracked, buttons and other axes are
 ignored, so a noisy axis can block a bind until Esc.
 
-**Next:** ask the reporter to run once with `SDL_JOYSTICK_HIDAPI_LG4FF=0`. If the
-wheel binds, the fix is to set `SDL_HINT_JOYSTICK_HIDAPI_LG4FF` to `"0"` on
-Linux before `SDL_Init` in [main.cpp](../src/app/main.cpp), and to report the
-report-length check to SDL.
+**Confirmed:** with `SDL_JOYSTICK_HIDAPI_LG4FF=0` the wheel works.
+
+**Done:** a setting rather than a change for
+everyone, since SDL's driver works for the Logitech wheels it was written for
+and only this older one is affected. Controls tab: **Legacy Logitech wheel
+support (Restart Required)** (`legacy_logitech_wheels`, off by default). On, it
+sets `SDL_HINT_JOYSTICK_HIDAPI_LG4FF` to `"0"` before `SDL_Init`
+([main.cpp](../src/app/main.cpp)), as the Graphics API setting does with its
+hint. Hidden on Windows: SDL's Logitech driver is off there by default
+(`hid.dll` cannot send its reports). SDL gives the wheel another GUID under
+the other driver, so its controls are bound again after switching.
+
+**Next:** tell the reporter about the setting; report the 27-byte report
+check to SDL.
 
 ## #7: Stutter and no refresh-rate options
 
@@ -266,7 +276,7 @@ copied after the run that shows the problem, before the game is started again.
 
 1. Now, with no new code: ask the reporter what the launcher shows under the
    force feedback slider, "wheel (force feedback)" or "gamepad (rumble)".
-2. Done on branch `ffb-drive-board`: all four fixes and the log setting
+2. Done: all four fixes and the log setting
    (tests pass; not tried on a real wheel). Ask the reporter to try a build of
    it, and to send the log from a race ("Log force feedback" on) if anything
    is still wrong.
@@ -300,7 +310,7 @@ the effects alone 0.195, the music alone 0.059, about 10 dB apart.
   them apart by channel
   ([native_sound_sequencer.cpp](../src/runtime/native_sound_sequencer.cpp)).
 
-### Done: Music and Effects volumes (branch `audio-music-effects`)
+### Done: Music and Effects volumes
 
 A new **Audio** tab in the launcher has Volume, Mute, **Music** and
 **Effects** (both 100% by default) and the Native audio switch.

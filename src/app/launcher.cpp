@@ -377,6 +377,11 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             ImGui::TextDisabled("Triggers, sticks, wheels and pedals are analogue. To bind a wheel or pedal axis,\n"
                                 "click its button, then turn the wheel or press the pedal as far as you want full\n"
                                 "lock or full travel to be, and let go: that sets its range.");
+#ifndef _WIN32 // SDL's own Logitech driver is off on Windows already
+            if (ImGui::Checkbox("Legacy Logitech wheel support (Restart Required)", &cfg_.legacy_logitech_wheels)) cfg_.save();
+            ImGui::TextDisabled("For a Logitech wheel that is listed but does nothing when you bind it (the original\n"
+                                "Driving Force). After restarting, bind the wheel's controls again.");
+#endif
 
             ImGui::SetNextItemWidth(200);
             int ffb = int(cfg_.ffb_strength * 100.0f + 0.5f);
