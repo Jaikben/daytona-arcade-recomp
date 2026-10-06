@@ -376,6 +376,13 @@ int main(int argc, char **argv) {
     };
     app::Pacer pacer;
     pacer.set(app::Pacing{}, SDL_GetTicksNS());
+#ifdef M2_MOBILE
+    // Preserve startup detection for a controller paired before launching.
+    int pad_count = 0;
+    SDL_JoystickID *pads = SDL_GetGamepads(&pad_count);
+    if (pads && pad_count > 0) devices.pad = SDL_OpenGamepad(pads[0]);
+    SDL_free(pads);
+#endif
 
     while (running) {
         SDL_Event e;

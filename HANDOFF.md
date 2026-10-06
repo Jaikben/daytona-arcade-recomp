@@ -1,5 +1,21 @@
 # Handoff
 
+## Mobile rebase onto remote main (2026-10-06)
+
+Rebased mobile onto origin/main 6817bff, preserving Android document imports,
+iOS Files import, screen sizing and unsigned packaging. CMake conflict
+resolution keeps upstream link/force-feedback sources and Windows socket
+libraries alongside mobile SDL targets. Generated-source paths combine
+M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
+uses the upstream Devices owner. Initialize the link address before Android's
+stale-URI early return. The previous mobile tip is retained at
+backup/mobile-before-main-20261006. Main and the other platform branches are
+unchanged. Existing IPA files predate this rebase and must not be presented as
+rebuilt from it.
+Validation: desktop daytona_app compilation passes; 13 Android-path import
+tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
+ancestor of the rebased tip. iOS/Android device builds are not rerun here.
+
 ## iOS launcher and Files picker (2026-10-06)
 
 Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,

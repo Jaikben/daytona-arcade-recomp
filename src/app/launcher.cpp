@@ -43,6 +43,7 @@ void apply_fullscreen_mode(SDL_Window *window, const std::string &key) {
 }
 
 Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window) {
+    std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
 #ifdef SDL_PLATFORM_ANDROID
     // Older mobile builds saved the picker result (content://...) directly.
     // Do not reopen such a URI during startup: Android's temporary document
@@ -57,7 +58,6 @@ Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window)
     }
 #endif
     std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
-    std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
     check_rom();
 }
 
