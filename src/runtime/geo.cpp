@@ -52,6 +52,23 @@ Geo::Geo(const std::vector<uint8_t> &polygons, const std::vector<uint8_t> &textu
     geo_.polygon_rom_mask = uint32_t(polygon_rom_.size() - 1);
 }
 
+#ifdef M2_DC_MEMORY
+Geo::Geo(RomSource &rom, uint32_t *buffer) : buffer_(buffer) {
+    const uint32_t polygon_words = rom.size(RomRegion::Polygons) / 4, texels = rom.size(RomRegion::Textures) / 2;
+    if (!polygon_words || (polygon_words & (polygon_words - 1)) || !texels || (texels & (texels - 1)))
+        throw GeoFatal("bad polygon or texture ROM size");
+    raster_.rom = &rom;
+    raster_.texture_rom_mask = texels - 1;
+    geo_.raster = &raster_;
+    geo_.rom = &rom;
+    geo_.polygon_rom_mask = polygon_words - 1;
+    // Room for the busiest frame up front (attract and race: 2,182 kept
+    // polygons, ~200 bytes each): growing past 2,048 doubles the vector to
+    // 800 KB while the old 400 KB still exists, more than 16 MB has spare.
+    polys.reserve(2400);
+}
+#endif
+
 static inline void transform_point(GeoVertex *point, float *matrix)
 {
 	float tx = (point->x * matrix[0]) + (point->y * matrix[3]) + (point->pz * matrix[6]) + (matrix[9]);
@@ -72,6 +89,69 @@ static inline void transform_vector(GeoVertex *vector, float *matrix)
 	vector->x = tx;
 	vector->y = ty;
 	vector->pz = tz;
+}
+
+#if defined(M2_DC_NATIVE_GEO) && defined(__sh__)
+// The Dreamcast (picture only: nothing the geometrizer computes goes back
+// into the game): the SH-4 transforms a vector by its 4x4 matrix registers
+// (XMTRX) in one ftrv. The 3x4 matrix is loaded once per object as
+// columns (m0 m1 m2 0) (m3 m4 m5 0) (m6 m7 m8 0) (m9 m10 m11 1); a point
+// has w 1, a vector w 0 (no translation), as transform_point/_vector.
+// ftrv's rounding is not the separate multiplies' and adds': the polygons
+// differ from the desktop's in their last bits.
+static inline void xmtrx_load(const float *matrix)
+{
+	alignas(8) float m[16] = {matrix[0], matrix[1], matrix[2], 0.0f, matrix[3], matrix[4], matrix[5], 0.0f,
+	                          matrix[6], matrix[7], matrix[8], 0.0f, matrix[9], matrix[10], matrix[11], 1.0f};
+	const float *p = m;
+	__asm__ __volatile__(
+		"fschg\n\t"
+		"fmov.d @%0+, xd0\n\t"
+		"fmov.d @%0+, xd2\n\t"
+		"fmov.d @%0+, xd4\n\t"
+		"fmov.d @%0+, xd6\n\t"
+		"fmov.d @%0+, xd8\n\t"
+		"fmov.d @%0+, xd10\n\t"
+		"fmov.d @%0+, xd12\n\t"
+		"fmov.d @%0+, xd14\n\t"
+		"fschg\n"
+		: "+r"(p) : : "memory");
+}
+static inline void xmtrx_apply(GeoVertex *v, float w)
+{
+	register float x __asm__("fr0") = v->x;
+	register float y __asm__("fr1") = v->y;
+	register float z __asm__("fr2") = v->pz;
+	register float ww __asm__("fr3") = w;
+	__asm__ __volatile__("ftrv xmtrx, fv0\n" : "+f"(x), "+f"(y), "+f"(z), "+f"(ww));
+	v->x = x;
+	v->y = y;
+	v->pz = z;
+}
+#define M2_GEO_LOAD_MATRIX(geo) xmtrx_load((geo)->matrix)
+#define M2_GEO_POINT(p, geo) xmtrx_apply((p), 1.0f)
+#define M2_GEO_VECTOR(v, geo) xmtrx_apply((v), 0.0f)
+#else
+#define M2_GEO_LOAD_MATRIX(geo) ((void)0)
+#define M2_GEO_POINT(p, geo) transform_point((p), (geo)->matrix)
+#define M2_GEO_VECTOR(v, geo) transform_vector((v), (geo)->matrix)
+#endif
+
+// Three words (a point or a normal) from the input: one block read with
+// M2_DC_SPEED (GeoPtr::read: the same words), otherwise word by word.
+static inline void read_point(GeoPtr &input, GeoVertex &v)
+{
+#ifdef M2_DC_SPEED
+	uint32_t w[3];
+	input.read(w, 3);
+	v.x = u2f(w[0]);
+	v.y = u2f(w[1]);
+	v.pz = u2f(w[2]);
+#else
+	v.x = u2f(*input++);
+	v.y = u2f(*input++);
+	v.pz = u2f(*input++);
+#endif
 }
 
 static inline void normalize_vector(GeoVertex *vector)
@@ -225,7 +305,14 @@ inline bool Geo::check_culling(raster_state *raster, uint32_t attr, float min_z,
 template <unsigned NumVerts>
 void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 {
+#ifdef M2_DC_SPEED
+	// Not zero-filled first (GeoVertex's initialisers, for every polygon):
+	// every field used below is written before it is read.
+	union ObjectStorage { ObjectStorage() {} quad_m2 q; } object_storage;
+	quad_m2 &object = object_storage.q;
+#else
 	quad_m2 object;
+#endif
 	GeoPtr16 th, tp;
 	int32_t tho;
 	uint32_t i;
@@ -282,8 +369,15 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (raster->command_buffer[0] & 0x800000)
 		tp = GeoPtr16{raster->texture_ram, 0x10000, raster->command_buffer[0] & 0xffff};
 	else
+#ifdef M2_DC_MEMORY
+		tp = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[0] & raster->texture_rom_mask, raster->rom};
+#else
 		tp = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[0] & raster->texture_rom_mask};
+#endif
 
+#ifdef M2_DC_SPEED
+	// (Read below, for a polygon not culled: tp keeps this address.)
+#else
 	object.v[0].pv = *tp++;
 	object.v[0].pu = *tp++;
 	object.v[1].pv = *tp++;
@@ -295,6 +389,7 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 		object.v[3].pv = *tp++;
 		object.v[3].pu = *tp++;
 	}
+#endif
 
 	/* update the address */
 	raster->command_buffer[0] += NumVerts * 2;
@@ -303,12 +398,20 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (raster->command_buffer[1] & 0x800000)
 		th = GeoPtr16{raster->texture_ram, 0x10000, raster->command_buffer[1] & 0xffff};
 	else
+#ifdef M2_DC_MEMORY
+		th = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[1] & raster->texture_rom_mask, raster->rom};
+#else
 		th = GeoPtr16{raster->texture_rom, raster->texture_rom_mask + 1, raster->command_buffer[1] & raster->texture_rom_mask};
+#endif
 
+#ifdef M2_DC_SPEED
+	// (Read below, for a polygon not culled: th keeps this address.)
+#else
 	object.texheader[0] = *th++;
 	object.texheader[1] = *th++;
 	object.texheader[2] = *th++;
 	object.texheader[3] = *th++;
+#endif
 
 	/* extract the texture header offset */
 	tho = (attr >> 12) & 0x1f;
@@ -323,9 +426,11 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	/* set the luma value of this polygon */
 	object.luma = (raster->command_buffer[9] >> 15) & 0xff;
 
+#ifndef M2_DC_SPEED
 	/* set the texture LOD of this polygon */
 	object.texlod = ((raster->command_buffer[10] >> 8) & 0x7f80) - 0x3f80;
 	object.texlod += raster->log_ram[raster->command_buffer[10] & 0x7fff];
+#endif
 
 	/* determine whether we can cull this polygon */
 	cull = check_culling(raster,attr,min_z,max_z);
@@ -353,8 +458,32 @@ void Geo::model2_3d_process_polygon(raster_state *raster, uint32_t attr)
 	if (cull == false)
 	{
 		int32_t clipped_verts;
+#ifdef M2_DC_SPEED
+		// (As object: the clipper writes each vertex before reading it.)
+		union VertexStorage { VertexStorage() {} GeoVertex v[2][8]; } vertex_storage;
+		GeoVertex (&vertices)[2][8] = vertex_storage.v;
+#else
 		GeoVertex vertices[2][8];
+#endif
 		GeoVertex *verts_in = vertices[0], *verts_out = vertices[1];
+
+#ifdef M2_DC_SPEED
+		// Only a polygon not culled reads its texture coordinates, texture
+		// header and LOD (nothing above uses them; tp and th are where they
+		// were set, before the address updates): the same values.
+		{
+			uint16_t uv[NumVerts * 2]; // (as a block)
+			tp.read(uv, NumVerts * 2);
+			for (uint32_t k = 0; k < NumVerts; k++)
+			{
+				object.v[k].pv = uv[2 * k];
+				object.v[k].pu = uv[2 * k + 1];
+			}
+		}
+		th.read(object.texheader, 4);
+		object.texlod = ((raster->command_buffer[10] >> 8) & 0x7f80) - 0x3f80;
+		object.texlod += raster->log_ram[raster->command_buffer[10] & 0x7fff];
+#endif
 
 		for (int i = 0; i < NumVerts; i++)
 			verts_in[i] = object.v[i];
@@ -722,6 +851,7 @@ inline void Geo::model2_3d_push_point(raster_state *raster, const GeoVertex &poi
 void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal;
 	uint32_t  attr, i;
 
@@ -731,7 +861,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -745,7 +875,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -768,7 +898,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 		normal.pz = u2f(*input++);
 
 		/* transform with the current matrix */
-		transform_vector(&normal, geo->matrix);
+		M2_GEO_VECTOR(&normal, geo);
 
 		if ((attr & 3) != 0) /* quad or triangle */
 		{
@@ -783,7 +913,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* calculate the dot product of the normal and the light vector */
 			dotl = dot_product(normal, geo->light);
@@ -833,7 +963,7 @@ void Geo::geo_parse_np_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* apply focus */
 				apply_focus(geo, &point);
@@ -862,15 +992,14 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
 	GeoVertex point, normal;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	uint32_t  attr, i;
 
 	/* read the 1st point */
-	point.x = u2f(*input++);
-	point.y = u2f(*input++);
-	point.pz = u2f(*input++);
+	read_point(input, point);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -879,12 +1008,10 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 	model2_3d_push_point(raster, point);
 
 	/* read the 2nd point */
-	point.x = u2f(*input++);
-	point.y = u2f(*input++);
-	point.pz = u2f(*input++);
+	read_point(input, point);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* apply focus */
 	apply_focus(geo, &point);
@@ -898,16 +1025,28 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 		/* read in the attributes */
 		attr = *input++;
 
+#ifdef M2_DC_SPEED
+		// The rasterizer waiting for this polygon's attribute (polygon data,
+		// slot 8): this polygon's words go straight into its slots and
+		// model2_3d_process_polygon is called directly, as model2_3d_push
+		// would do word by word (the same slots, the same calls, in order).
+		const bool direct = !record_pushes && raster->cur_command == 1 && raster->command_index == 8;
+		if (direct)
+		{
+			raster->command_buffer[8] = attr & 0x0003ffff;
+			raster->command_index = 9;
+			if ((attr & 3) == 0) raster->cur_command = 0;
+		}
+		else
+#endif
 		/* push to the 3d rasterizer */
 		model2_3d_push(raster, attr & 0x0003ffff);
 
 		/* read in the normal */
-		normal.x = u2f(*input++);
-		normal.y = u2f(*input++);
-		normal.pz = u2f(*input++);
+		read_point(input, normal);
 
 		/* transform with the current matrix */
-		transform_vector(&normal, geo->matrix);
+		M2_GEO_VECTOR(&normal, geo);
 
 		if ((attr & 3) != 0) /* quad or triangle */
 		{
@@ -917,12 +1056,10 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			texture_parameter * texparam;
 
 			/* read in the next point */
-			point.x = u2f(*input++);
-			point.y = u2f(*input++);
-			point.pz = u2f(*input++);
+			read_point(input, point);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* calculate the dot product of the normal and the light vector */
 			dotl = dot_product(normal, geo->light);
@@ -937,6 +1074,19 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			face = 0x100; /* rear */
 			if (dotp >= 0) face = 0; /* front */
 
+#ifdef M2_DC_SPEED
+			// A polygon model2_3d_process_polygon will cull whatever its light
+			// (check_culling's first two tests: single-sided and facing away,
+			// or link type 0) needs no lighting: its luma word only the face
+			// bit, its LOD word nothing (neither is read for a culled one).
+			if (direct && ((((attr >> 17) & 1) == 0 && face != 0) || ((attr >> 8) & 3) == 0))
+			{
+				luma = int32_t(face);
+				distance = 0;
+			}
+			else
+#endif
+			{
 			/* get the texture parameters */
 			texparam = &geo->texture_parameters[(attr>>18) & 0x1f];
 
@@ -966,7 +1116,38 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 
 			/* calculate texture level of detail */
 			distance = coef * fabs(dotp) * geo->lod;
+			}
 
+#ifdef M2_DC_SPEED
+			if (direct)
+			{
+				uint32_t *const cb = raster->command_buffer;
+				cb[9] = uint32_t(luma << 15);
+				cb[10] = f2u(distance) >> 8;
+				cb[11] = f2u(point.x) >> 8;
+				cb[12] = f2u(point.y) >> 8;
+				cb[13] = f2u(point.pz) >> 8;
+				if (attr & 1)
+				{
+					read_point(input, point);
+					M2_GEO_POINT(&point, geo);
+					apply_focus(geo, &point);
+					cb[14] = f2u(point.x) >> 8;
+					cb[15] = f2u(point.y) >> 8;
+					cb[16] = f2u(point.pz) >> 8;
+					raster->command_index = 17;
+					model2_3d_process_polygon<4>(raster, cb[8]);
+				}
+				else
+				{
+					raster->command_index = 14;
+					model2_3d_process_polygon<3>(raster, cb[8]);
+					input += 3; /* skip the next 3 points */
+				}
+				raster->command_index = 8;
+				continue;
+			}
+#endif
 			/* push to the 3d rasterizer */
 			model2_3d_push(raster, luma << 15);
 			model2_3d_push(raster, f2u(distance) >> 8);
@@ -976,12 +1157,10 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 			if (attr & 1)
 			{
 				/* read in the next point */
-				point.x = u2f(*input++);
-				point.y = u2f(*input++);
-				point.pz = u2f(*input++);
+				read_point(input, point);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* apply focus */
 				apply_focus(geo, &point);
@@ -1009,6 +1188,7 @@ void Geo::geo_parse_np_s(geo_state *geo, GeoPtr input, uint32_t count)
 void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal, p0, p1, p2, p3;
 	uint32_t  attr, i;
 
@@ -1018,7 +1198,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p0.x = point.x; p0.y = point.y; p0.pz = point.pz;
@@ -1035,7 +1215,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p1.x = point.x; p1.y = point.y; p1.pz = point.pz;
@@ -1071,7 +1251,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* save for normal calculation */
 			p2.x = point.x; p2.y = point.y; p2.pz = point.pz;
@@ -1130,7 +1310,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* save for normal calculation */
 				p3.x = point.x; p3.y = point.y; p3.pz = point.pz;
@@ -1191,6 +1371,7 @@ void Geo::geo_parse_nn_ns(geo_state *geo, GeoPtr input, uint32_t count)
 void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 {
 	raster_state *raster = geo->raster;
+	M2_GEO_LOAD_MATRIX(geo); // (the matrix is the same for the whole object)
 	GeoVertex point, normal, p0, p1, p2, p3;
 	uint32_t  attr, i;
 
@@ -1200,7 +1381,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p0.x = point.x; p0.y = point.y; p0.pz = point.pz;
@@ -1217,7 +1398,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 	point.pz = u2f(*input++);
 
 	/* transform with the current matrix */
-	transform_point(&point, geo->matrix);
+	M2_GEO_POINT(&point, geo);
 
 	/* save for normal calculation */
 	p1.x = point.x; p1.y = point.y; p1.pz = point.pz;
@@ -1253,7 +1434,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 			point.pz = u2f(*input++);
 
 			/* transform with the current matrix */
-			transform_point(&point, geo->matrix);
+			M2_GEO_POINT(&point, geo);
 
 			/* save for normal calculation */
 			p2.x = point.x; p2.y = point.y; p2.pz = point.pz;
@@ -1321,7 +1502,7 @@ void Geo::geo_parse_nn_s(geo_state *geo, GeoPtr input, uint32_t count)
 				point.pz = u2f(*input++);
 
 				/* transform with the current matrix */
-				transform_point(&point, geo->matrix);
+				M2_GEO_POINT(&point, geo);
 
 				/* save for normal calculation */
 				p3.x = point.x; p3.y = point.y; p3.pz = point.pz;
@@ -1411,6 +1592,19 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	model2_3d_push(raster, tpa);
 	model2_3d_push(raster, tha);
 
+#ifdef M2_DC_SPEED
+	// Not shown: no polygons. The parsers change no state of their own; the
+	// rasterizer ends the command as after a parse (the two initial points,
+	// then attribute 0). What it leaves in its command buffer is written
+	// again before it is next read.
+	if (skip_objects)
+	{
+		for (int i = 0; i < 7; i++)
+			model2_3d_push(raster, 0);
+		return input;
+	}
+#endif
+
 	/* select where we're reading polygon information from */
 	if (oba & 0x01000000)
 	{
@@ -1420,7 +1614,11 @@ GeoPtr Geo::geo_object_data(geo_state *geo, uint32_t opcode, GeoPtr input)
 	else if (oba & 0x00800000)
 	{
 		/* Polygon ROM */
+#ifdef M2_DC_MEMORY
+		obp = GeoPtr{geo->polygon_rom, geo->polygon_rom_mask + 1, oba & geo->polygon_rom_mask, geo->rom};
+#else
 		obp = GeoPtr{geo->polygon_rom, geo->polygon_rom_mask + 1, oba & geo->polygon_rom_mask};
+#endif
 	}
 	else
 	{
@@ -1774,6 +1972,20 @@ GeoPtr Geo::geo_test(geo_state *geo, uint32_t opcode, GeoPtr input)
 	/* get the number of checksums we have to run */
 	blocks = *input++;
 
+#ifdef M2_DC_MEMORY
+	// Each block is three words (address, count, checksum) and its sums have
+	// no effect (the LEDs are not emulated). The desktop's compiler reduces
+	// this whole loop to the cursor moving on 3 * blocks words; here every
+	// read goes through the RomSource check and cannot be dropped, and blocks
+	// can be huge (frame 189 of the attract mode: an endless-looking loop on
+	// the SH-4). The same result, without the loop.
+	(void)address;
+	(void)count;
+	(void)checksum;
+	input += 3 * blocks;
+	return input;
+#endif
+
 	for (i = 0; i < blocks; i++)
 	{
 		uint32_t  sum_even, sum_odd, j;
@@ -1793,7 +2005,11 @@ GeoPtr Geo::geo_test(geo_state *geo, uint32_t opcode, GeoPtr input)
 
 		for (j = 0; j < count; j++)
 		{
+#ifdef M2_DC_MEMORY
+			data = geo->rom->dword(RomRegion::Polygons, address++ * 4);
+#else
 			data = geo->polygon_rom[address++];
+#endif
 
 			address &= geo->polygon_rom_mask;
 

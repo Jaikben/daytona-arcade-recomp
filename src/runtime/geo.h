@@ -12,6 +12,8 @@
 // hard error instead of MAME's undefined behaviour. See THIRD_PARTY.md.
 #pragma once
 
+#include "runtime/rom_source.h"
+
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -39,7 +41,15 @@ struct GeoPoly {
     uint8_t window = 0;
     uint32_t reverse = 0;
     uint8_t num_vertices = 0;
+#ifdef M2_DC_SPEED
+    // Not zero-filled for every polygon kept (160 bytes): only
+    // v[0..num_vertices) is ever read, and model2_3d_process_polygon writes
+    // those.
+    GeoPoly() {}
+    union { GeoVertex v[8]; };
+#else
     GeoVertex v[8];
+#endif
 };
 
 // Cursors standing in for MAME's raw u32/u16 pointers. Reads run on from a
@@ -49,23 +59,91 @@ struct GeoPoly {
 struct GeoPtr {
     uint32_t *base = nullptr;
     uint32_t size = 0, i = 0;
+#ifdef M2_DC_MEMORY
+    RomSource *rom = nullptr; // the polygon ROM, read through pages (base is null)
+    mutable uint32_t rom_word = 0;
+#endif
     bool null() const { return base == nullptr; }
     uint32_t &at() const {
+#ifdef M2_DC_MEMORY
+        if (rom) return rom_word = rom->dword(RomRegion::Polygons, (i & (size - 1)) * 4);
+#endif
         if (!base) throw GeoFatal("geometrizer read from missing memory");
         return base[i & (size - 1)];
     }
     uint32_t &operator*() const { return at(); }
     GeoPtr operator++(int) { GeoPtr t = *this; ++i; return t; }
     GeoPtr &operator+=(uint32_t n) { i += n; return *this; }
+#ifdef M2_DC_SPEED
+    // n words from here into out, moving past them: the values n times
+    // *(*this)++ gives, a page (or up to the wrap) at a time instead of a
+    // page lookup each. (The ROM's pages are little-endian words, as the
+    // hosts M2_DC_SPEED builds for.)
+    void read(uint32_t *out, uint32_t n) {
+        while (n) {
+            const uint32_t w = i & (size - 1);
+            uint32_t run = n < size - w ? n : size - w;
+            const uint32_t *src;
+#ifdef M2_DC_MEMORY
+            if (rom) {
+                constexpr uint32_t kWords = RomSource::kPageSize / 4;
+                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
+                src = reinterpret_cast<const uint32_t *>(rom->page_fast(RomRegion::Polygons, w / kWords)) +
+                      (w & (kWords - 1));
+            } else
+#endif
+            {
+                if (!base) throw GeoFatal("geometrizer read from missing memory");
+                src = base + w;
+            }
+            for (uint32_t k = 0; k < run; ++k) out[k] = src[k];
+            out += run;
+            n -= run;
+            i += run;
+        }
+    }
+#endif
 };
 struct GeoPtr16 {
     const uint16_t *base = nullptr;
     uint32_t size = 0, i = 0;
+#ifdef M2_DC_MEMORY
+    RomSource *rom = nullptr; // the texture ROM, read through pages (base is null)
+#endif
     uint16_t operator*() const {
+#ifdef M2_DC_MEMORY
+        if (rom) return rom->word(RomRegion::Textures, (i & (size - 1)) * 2);
+#endif
         if (!base) throw GeoFatal("rasterizer read from missing texture memory");
         return base[i & (size - 1)];
     }
     GeoPtr16 operator++(int) { GeoPtr16 t = *this; ++i; return t; }
+#ifdef M2_DC_SPEED
+    // As GeoPtr::read, 16-bit words.
+    void read(uint16_t *out, uint32_t n) {
+        while (n) {
+            const uint32_t w = i & (size - 1);
+            uint32_t run = n < size - w ? n : size - w;
+            const uint16_t *src;
+#ifdef M2_DC_MEMORY
+            if (rom) {
+                constexpr uint32_t kWords = RomSource::kPageSize / 2;
+                if (run > kWords - (w & (kWords - 1))) run = kWords - (w & (kWords - 1));
+                src = reinterpret_cast<const uint16_t *>(rom->page_fast(RomRegion::Textures, w / kWords)) +
+                      (w & (kWords - 1));
+            } else
+#endif
+            {
+                if (!base) throw GeoFatal("rasterizer read from missing texture memory");
+                src = base + w;
+            }
+            for (uint32_t k = 0; k < run; ++k) out[k] = src[k];
+            out += run;
+            n -= run;
+            i += run;
+        }
+    }
+#endif
 };
 
 class Geo {
@@ -74,6 +152,10 @@ public:
     // (0x1000000 bytes); buffer: buffer RAM (0x8000 dwords), which the
     // display list is read from.
     Geo(const std::vector<uint8_t> &polygons, const std::vector<uint8_t> &textures, uint32_t *buffer);
+#ifdef M2_DC_MEMORY
+    // Both ROMs read through pages, not copied.
+    Geo(RomSource &rom, uint32_t *buffer);
+#endif
 
     // MAME screen_vblank -> geo_parse: walk this frame's display list from
     // read_start (the geometrizer's read-start register).
@@ -83,6 +165,12 @@ public:
     std::vector<GeoPoly> polys;       // kept polygons, in the order added
     std::vector<uint32_t> pushed;     // every word handed to the rasterizer
     bool record_pushes = false;
+#ifdef M2_DC_SPEED
+    // Draw mode, a frame whose polygons will not be shown: object data is
+    // not parsed (the rasterizer gets its opening and closing words only).
+    // Every other command still runs, so the geometrizer's state is the same.
+    bool skip_objects = false;
+#endif
 
     struct plane {
         GeoVertex normal;
@@ -96,6 +184,9 @@ public:
     struct raster_state {
         const uint16_t *texture_rom = nullptr;
         uint32_t texture_rom_mask = 0;
+#ifdef M2_DC_MEMORY
+        RomSource *rom = nullptr;
+#endif
         int16_t viewport[4] = {0, 0, 0, 0};
         int16_t center[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
         uint16_t center_sel = 0;
@@ -118,6 +209,9 @@ public:
         uint32_t mode = 0;
         uint32_t *polygon_rom = nullptr;
         uint32_t polygon_rom_mask = 0;
+#ifdef M2_DC_MEMORY
+        RomSource *rom = nullptr;
+#endif
         float matrix[12] = {};
         GeoVertex focus, light;
         float lod = 0;

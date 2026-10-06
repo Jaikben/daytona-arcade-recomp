@@ -108,7 +108,13 @@ struct Raster::Extra {
 #endif
 };
 
+#ifdef M2_DC_MEMORY
+// The Dreamcast: the CPU rasterizer's buffers (1.25 MB) only once it renders
+// (the PVR draws the 3D there).
+Raster::Raster() {
+#else
 Raster::Raster() : dest_(512 * 512), fill_(512 * 512) {
+#endif
     // MAME video_start
     for (int i = 0; i < 256; i++) {
         double raw_value = std::max((double(i) - 64.0) * 255.0 / 191.0, 0.0);
@@ -142,6 +148,12 @@ uint64_t Raster::hash(int minx, int maxx, int miny, int maxy) const {
 void Raster::render(const std::vector<GeoPoly> &polys, int windows, const VideoMem &mem, int crtc_x, int crtc_y,
                     int render_x, int render_y, int clip_minx, int clip_maxx, int clip_miny, int clip_maxy) {
     mem_ = &mem;
+#ifdef M2_DC_MEMORY
+    if (dest_.empty()) {
+        dest_.assign(size_t(stride_) * 512, 0u);
+        fill_.assign(size_t(stride_) * 512, u8(0));
+    }
+#endif
 #ifdef M2_VITA_RENDER_OPT
     for (auto &entry : shades_) entry.key = 0xffffffffu;
 #endif

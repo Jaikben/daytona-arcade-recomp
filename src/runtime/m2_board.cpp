@@ -53,6 +53,19 @@ void IoBoard::write(uint32_t index, uint8_t v) {
 // ---------------------------------------------------------------------------
 // Board
 
+#ifdef M2_DC_MEMORY
+// The Dreamcast: no texture RAM vectors (the frontend's, in video RAM), a
+// two-level page table, ROM through img_.rom.
+M2Board::M2Board(Images images)
+    : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
+      chr_(0x80000), palette_(0x4000), xlat_(0xc000), luma_(0x20000), comm_(0x4000),
+      chunks_(size_t(1) << 12), tgp_(img_.copro_tables, *img_.rom) {
+    if (!img_.rom || !img_.texture_ram) throw Fatal("M2_DC_MEMORY: no ROM source or texture RAM");
+    img_.copro_tables = {}; // the TGP board keeps its own copy (as words)
+    map_rom(0x00000000, 0x001fffff, RomRegion::Program, 0);
+    map(0x00200000, 0x0021ffff, Ram, ram_.data());
+    map_rom(0x00220000, 0x0023ffff, RomRegion::Program, 0x20000);
+#else
 M2Board::M2Board(Images images)
     : img_(std::move(images)), ram_(0x20000), work_(0x100000), cpuctl_(0x1000), backup_(0x4000, 0xff), tile_(0x10000),
       chr_(0x80000), palette_(0x4000), xlat_(0xc000), tex0_(0x200000), tex1_(0x200000), luma_(0x20000), fb_a_(0x80000),
@@ -61,6 +74,7 @@ M2Board::M2Board(Images images)
     map(0x00000000, 0x001fffff, Rom, img_.program.data());
     map(0x00200000, 0x0021ffff, Ram, ram_.data());
     map(0x00220000, 0x0023ffff, Rom, img_.program.data() + 0x20000);
+#endif
     map(0x00500000, 0x005fffff, Ram, work_.data());
     map(0x00800000, 0x00807fff, Dev, nullptr, 0, false);
     map(0x00880000, 0x00887fff, Dev, nullptr, 0, false);
@@ -81,24 +95,73 @@ M2Board::M2Board(Images images)
     map(0x01c00000, 0x01c00fff, Dev, nullptr, 0, false);
     map(0x01c80000, 0x01c80fff, Dev, nullptr, 0, false);
     map(0x01d00000, 0x01d03fff, Ram, backup_.data());
+#ifdef M2_DC_MEMORY
+    map_rom(0x02000000, 0x03ffffff, RomRegion::MainData, 0);
+    map_rom(0x06000000, 0x06ffffff, RomRegion::MainData, 0x1000000);
+#else
     map(0x02000000, 0x03ffffff, Rom, img_.main_data.data());
     map(0x06000000, 0x06ffffff, Rom, img_.main_data.data() + 0x1000000);
+#endif
     map(0x10000000, 0x105fffff, Dev, nullptr, 0, false);
+#ifdef M2_DC_MEMORY
+    // Frame buffer RAM is optional: Daytona never writes it (0 of 256 pages
+    // in 9,000 attract frames and a whole race); without it the range is
+    // unmapped, reading 0 as the zeroed RAM would.
+    if (img_.frame_buffer_ram) {
+        map(0x11600000, 0x1167ffff, Ram, img_.frame_buffer_ram);
+        map(0x11680000, 0x116fffff, Ram, img_.frame_buffer_ram + 0x80000);
+    }
+#else
     map(0x11600000, 0x1167ffff, Ram, fb_a_.data());
     map(0x11680000, 0x116fffff, Ram, fb_b_.data());
+#endif
+#ifdef M2_DC_MEMORY
+    map(0x12000000, 0x121fffff, Tex, img_.texture_ram, 0x200000);
+    map(0x12400000, 0x125fffff, Tex, img_.texture_ram + 0x200000, 0x200000);
+#else
     map(0x12000000, 0x121fffff, Tex, tex0_.data(), 0x200000);
     map(0x12400000, 0x125fffff, Tex, tex1_.data(), 0x200000);
+#endif
     map(0x12800000, 0x1281ffff, Ram, luma_.data());
 
+#ifdef M2_DC_MEMORY
+    geo_ = std::make_unique<Geo>(*img_.rom, tgp_.buffer_data());
+#else
     geo_ = std::make_unique<Geo>(img_.polygons, img_.textures, tgp_.buffer_data());
+#endif
     video_ = std::make_unique<Video>(tile_.data(), chr_.data());
     video_->enable_write_tracking();
 }
 
+#ifdef M2_DC_MEMORY
+M2Board::Page M2Board::unmapped_;
+
+M2Board::Page &M2Board::map_page(uint32_t addr) {
+    auto &chunk = chunks_[addr >> 20];
+    if (!chunk) chunk = std::make_unique<Page[]>(256);
+    return chunk[(addr >> kPageBits) & 255];
+}
+
+void M2Board::map_rom(uint32_t start, uint32_t end, RomRegion region, uint32_t offset) {
+    for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
+        Page &p = map_page(uint32_t(a));
+        p.kind = Rom;
+        p.burst = true;
+        p.base = nullptr;
+        p.region = region;
+        p.rom_offset = offset + uint32_t(a - start);
+    }
+}
+#endif
+
 void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t mirror, bool burst) {
     for (uint32_t m = 0;; m = (m - mirror) & mirror) {
         for (uint64_t a = start; a <= end; a += (1u << kPageBits)) {
+#ifdef M2_DC_MEMORY
+            Page &p = map_page(uint32_t(a | m));
+#else
             Page &p = pages_[uint32_t(a | m) >> kPageBits];
+#endif
             p.kind = k;
             p.burst = burst;
             p.base = base ? base + (a - start) : nullptr;
@@ -110,6 +173,9 @@ void M2Board::map(uint32_t start, uint32_t end, Kind k, uint8_t *base, uint32_t 
 void M2Board::attach(Cpu &cpu, Lockstep &ls) {
     cpu_ = &cpu;
     ls_ = &ls;
+#ifdef M2_DC_SPEED
+    cpu.work_ram = work_.data(); // plain RAM: nothing watches its writes (ram_written)
+#endif
 }
 
 // --- interrupts (MAME irq_update) --------------------------------------------
@@ -128,6 +194,14 @@ void M2Board::irq_update() {
 void M2Board::vblank_start() {
     // 60 Hz mode or an even frame: the geometrizer starts a new frame
     if ((videocontrol_ & 1) == 0 || (frame_ & 1) == 0) {
+#ifdef M2_DC_SPEED
+        // Draw mode: this frame's polygons are shown if it is drawn, or, in
+        // 30 Hz mode (no parse next frame), if the next one is.
+        if (frame_skip_) {
+            const uint64_t n = uint64_t(frame_skip_ + 1);
+            geo_->skip_objects = frame_ % n != 0 && ((videocontrol_ & 1) == 0 || (frame_ + 1) % n != 0);
+        }
+#endif
         geo_->zclip_w(zclip_);
         geo_->parse(tgp_.geo_read_start());
         video_->frame_start();
@@ -163,8 +237,13 @@ void M2Board::vblank_end() {
     m.palram = palette_.data();
     m.colorxlat = xlat_.data();
     m.lumaram = luma_.data();
+#ifdef M2_DC_MEMORY
+    m.tex0 = reinterpret_cast<const uint32_t *>(img_.texture_ram);
+    m.tex1 = reinterpret_cast<const uint32_t *>(img_.texture_ram + 0x200000);
+#else
     m.tex0 = reinterpret_cast<const uint32_t *>(tex0_.data());
     m.tex1 = reinterpret_cast<const uint32_t *>(tex1_.data());
+#endif
     m.tex_generation = tex_generation_;
     video_->screen_update(geo_->polys, geo_->windows(), m);
     ++frame_;
@@ -200,7 +279,11 @@ void M2Board::uart_write_data(uint8_t v) {
     uart_txrdy(false);
     if (!uart_shift_busy_) {
         uart_shift_busy_ = true;
+#ifdef M2_DC_SPEED
+        ls_->add_callback(ls_->now() + 1, [this] { uart_shift_done(); }); // (now(): Lockstep::pending)
+#else
         ls_->add_callback(ls_->count + 1, [this] { uart_shift_done(); });
+#endif
     }
 }
 
@@ -227,7 +310,9 @@ uint32_t M2Board::dev_read(uint32_t addr, uint32_t mask) {
     case 0x00980000: return tgp_.coproctl_r();
     case 0x00980004: {
         const uint32_t v = tgp_.fifo_out_empty() ? 1 : 0;
+#ifndef M2_DC_SPEED // (a desktop debugging print: getenv on every status read)
         if (std::getenv("M2RUN_VERBOSE")) std::fprintf(stderr, "fifo status read -> %u (frame %llu)\n", v, (unsigned long long)frame_);
+#endif
         return v;
     }
     case 0x0098000c: { // videoctl_r
@@ -350,15 +435,63 @@ uint32_t M2Board::fetch(uint32_t addr) {
     const Page &p = page(addr);
     if (p.kind != Rom && p.kind != Ram) throw Fatal("instruction fetch from a device");
     uint32_t v;
-    std::memcpy(&v, p.base + (addr & 0xffc), 4);
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
+        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xffc), 4), 4);
+        return v;
+    }
+#endif
+    std::memcpy(&v, M2_AL(p.base + (addr & 0xffc), 4), 4);
     return v;
 }
 
 uint8_t M2Board::read_byte(uint32_t addr) {
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_ && addr != 0x00500000u) return fast_read_base_[addr & 0xfff];
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
+#ifdef M2_DC_SPIN_SKIP
+    // The game's wait for the next frame (0x1394: ldob 0x500000,r3; 0x139c:
+    // cmpibe r3,g0,0x1394), about 3/4 of its instructions in a race: every
+    // frame runs to the instruction cap (in_idle_loop does not list it, and
+    // that timing is the game's). Each pass reads the same RAM byte, compares
+    // equal and branches back, and nothing changes the byte until the next
+    // lockstep event (an interrupt, a callback). So when this read will
+    // compare equal, the passes up to just before that event are skipped:
+    // the count moves on by whole passes, to the same state the passes would
+    // have left. This read is under way (its boundary passed at `count`), so
+    // the last skipped pass ends at a count below the event's.
+    if (addr == 0x00500000u && cpu_->m_IP == 0x1394u && p.kind == Ram) {
+        const uint8_t v = p.base[addr & 0xfff];
+        if (v == cpu_->m_r[16]) {
+#ifdef M2_DC_SPEED
+            const uint64_t limit = std::min(ls_->next_count, ls_->end_count), count = ls_->now();
+#else
+            const uint64_t limit = std::min(ls_->next_count, ls_->end_count), count = ls_->count;
+#endif
+            if (limit > count + 2) {
+                const uint64_t skip = (limit - 1 - count) / 2 * 2;
+                ls_->count += skip;
+                spin_skipped_ += skip;
+#ifdef M2_DC_SPEED
+                ++ls_->epoch; // the count jumped: the fast generated code checks in full next
+#endif
+            }
+        }
+        return v;
+    }
+#endif
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) return rom_page(p)[addr & 0xfff];
+#endif
     switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); return p.base[addr & 0xfff];
+    case Rom: return p.base[addr & 0xfff];
+#else
     case Rom: case Ram: case Tex: return p.base[addr & 0xfff];
+#endif
     case Dev: return uint8_t(dev_read(addr & ~3u, 0xffu << sh) >> sh);
     default: return 0;
     }
@@ -366,12 +499,31 @@ uint8_t M2Board::read_byte(uint32_t addr) {
 
 uint16_t M2Board::read_word(uint32_t addr) {
     addr &= ~1u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_) {
+        uint16_t v;
+        std::memcpy(&v, M2_AL(fast_read_base_ + (addr & 0xfff), 2), 2);
+        return v;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
-    switch (p.kind) {
-    case Rom: case Ram: case Tex: {
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
         uint16_t v;
-        std::memcpy(&v, p.base + (addr & 0xfff), 2);
+        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xfff), 2), 2);
+        return v;
+    }
+#endif
+    switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); [[fallthrough]];
+    case Rom: {
+#else
+    case Rom: case Ram: case Tex: {
+#endif
+        uint16_t v;
+        std::memcpy(&v, M2_AL(p.base + (addr & 0xfff), 2), 2);
         return v;
     }
     case Dev: return uint16_t(dev_read(addr & ~3u, 0xffffu << sh) >> sh);
@@ -381,11 +533,40 @@ uint16_t M2Board::read_word(uint32_t addr) {
 
 uint32_t M2Board::read_dword(uint32_t addr) {
     addr &= ~3u;
-    const Page &p = page(addr);
-    switch (p.kind) {
-    case Rom: case Ram: case Tex: {
+#ifdef M2_DC_SPEED
+    // The TGP's FIFO, status and buffer RAM (dev_read's answers), without the
+    // page table and the dispatch chain: tens of millions of reads a race.
+    if ((addr & 0xffffc000u) == 0x00884000u) return tgp_.fifo_r();
+    if (addr == 0x00980004u) return tgp_.fifo_out_empty() ? 1 : 0;
+    if (addr - 0x00900000u < 0x80000u) {
+        tgp_.sync();
+        return tgp_.buffer_r(addr & 0x1ffff);
+    }
+#endif
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_read_page_) {
         uint32_t v;
-        std::memcpy(&v, p.base + (addr & 0xfff), 4);
+        std::memcpy(&v, M2_AL(fast_read_base_ + (addr & 0xfff), 4), 4);
+        return v;
+    }
+#endif
+    const Page &p = page(addr);
+#ifdef M2_DC_MEMORY
+    if (p.kind == Rom) {
+        uint32_t v;
+        std::memcpy(&v, M2_AL(rom_page(p) + (addr & 0xfff), 4), 4);
+        return v;
+    }
+#endif
+    switch (p.kind) {
+#ifdef M2_DC_SPEED
+    case Ram: case Tex: fast_read(addr, p); [[fallthrough]];
+    case Rom: {
+#else
+    case Rom: case Ram: case Tex: {
+#endif
+        uint32_t v;
+        std::memcpy(&v, M2_AL(p.base + (addr & 0xfff), 4), 4);
         return v;
     }
     case Dev: return dev_read(addr, 0xffffffffu);
@@ -394,10 +575,19 @@ uint32_t M2Board::read_dword(uint32_t addr) {
 }
 
 void M2Board::write_byte(uint32_t addr, uint8_t data) {
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        fast_write_base_[addr & 0xfff] = data;
+        return;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 3) * 8;
     switch (p.kind) {
     case Ram: {
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
         uint8_t &dst = p.base[addr & 0xfff];
         const bool changed = dst != data;
         dst = data;
@@ -412,12 +602,21 @@ void M2Board::write_byte(uint32_t addr, uint8_t data) {
 
 void M2Board::write_word(uint32_t addr, uint16_t data) {
     addr &= ~1u;
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        std::memcpy(M2_AL(fast_write_base_ + (addr & 0xfff), 2), &data, 2);
+        return;
+    }
+#endif
     const Page &p = page(addr);
     const unsigned sh = (addr & 2) * 8;
     switch (p.kind) {
     case Ram: {
-        uint16_t old; std::memcpy(&old, p.base + (addr & 0xfff), 2);
-        std::memcpy(p.base + (addr & 0xfff), &data, 2);
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
+        uint16_t old; std::memcpy(&old, M2_AL(p.base + (addr & 0xfff), 2), 2);
+        std::memcpy(M2_AL(p.base + (addr & 0xfff), 2), &data, 2);
         if (old != data) ram_written(addr & ~3u, uint32_t(data) << sh, 0xffffu << sh);
         return;
     }
@@ -429,11 +628,29 @@ void M2Board::write_word(uint32_t addr, uint16_t data) {
 
 void M2Board::write_dword(uint32_t addr, uint32_t data) {
     addr &= ~3u;
+#ifdef M2_DC_SPEED
+    // The TGP's function port and FIFO (dev_write's, all lanes written),
+    // without the page table and the dispatch chain.
+    if ((addr & 0xffff8000u) == 0x00880000u) {
+        if (addr & 0x4000) tgp_.fifo_w(data);
+        else tgp_.function_port_w((addr - 0x00880000u) >> 2, data);
+        return;
+    }
+#endif
+#ifdef M2_DC_SPEED
+    if ((addr >> kPageBits) == fast_write_page_) {
+        std::memcpy(M2_AL(fast_write_base_ + (addr & 0xfff), 4), &data, 4);
+        return;
+    }
+#endif
     const Page &p = page(addr);
     switch (p.kind) {
     case Ram: {
-        uint32_t old; std::memcpy(&old, p.base + (addr & 0xfff), 4);
-        std::memcpy(p.base + (addr & 0xfff), &data, 4);
+#ifdef M2_DC_SPEED
+        fast_write(addr, p);
+#endif
+        uint32_t old; std::memcpy(&old, M2_AL(p.base + (addr & 0xfff), 4), 4);
+        std::memcpy(M2_AL(p.base + (addr & 0xfff), 4), &data, 4);
         if (old != data) ram_written(addr, data, 0xffffffffu);
         return;
     }

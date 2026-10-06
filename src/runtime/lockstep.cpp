@@ -42,7 +42,21 @@ Lockstep::Lockstep(Cpu &core) : core_(core), free_run_(true) {
 void Lockstep::refresh_next() {
     next_count = next_ < log_.size() ? log_[next_].count : UINT64_MAX;
     if (next_ < log_.size() && log_[next_].kind == Event::Pend) next_count += 1; // checked after it should happen
+#ifdef M2_DC_SPEED
+    next_count = std::min(next_count, end_count); // boundary() compares next_count only
+    ++epoch;
+#endif
 }
+
+#ifdef M2_DC_SPEED
+uint32_t Lockstep::check(uint32_t ip) {
+    core_.m_IP = ip;
+    if (boundary()) return 0;
+    if (next_count <= count) return 1; // check again at the next instruction
+    const uint64_t left = next_count - count;
+    return left > 0x40000000u ? 0x40000000u : uint32_t(left);
+}
+#endif
 
 bool Lockstep::apply() {
     if (count >= end_count) return true;
@@ -52,7 +66,16 @@ bool Lockstep::apply() {
         if (e.kind == Event::Call) {
             const size_t fn = e.fn; // the callback may add events (e moves)
             ++next_;
+#ifdef M2_DC_MEMORY
+            // Each callback runs once: take it out (it may add the next one,
+            // which can reuse its slot) and free the slot.
+            auto call = std::move(calls_[fn]);
+            calls_[fn] = nullptr;
+            free_calls_.push_back(fn);
+            call();
+#else
             calls_[fn]();
+#endif
         } else if (e.kind == Event::Line) {
             ++next_;
             core_.execute_set_input(e.a, e.b);
@@ -87,8 +110,19 @@ void Lockstep::add_callback(uint64_t at, std::function<void()> fn) {
     Event e{};
     e.kind = Event::Call;
     e.count = at;
+#ifdef M2_DC_MEMORY
+    if (!free_calls_.empty()) {
+        e.fn = free_calls_.back();
+        free_calls_.pop_back();
+        calls_[e.fn] = std::move(fn);
+    } else {
+        e.fn = calls_.size();
+        calls_.push_back(std::move(fn));
+    }
+#else
     e.fn = calls_.size();
     calls_.push_back(std::move(fn));
+#endif
     // Before the first event at the same count or later (the log is in count order).
     auto it = log_.begin() + long(next_);
     while (it != log_.end() && it->count < at) ++it;
