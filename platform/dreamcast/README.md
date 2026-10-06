@@ -10,8 +10,8 @@ with link play).
 
 Status: **the game runs and plays in Flycast**, drawn by the PVR with
 textures and both tile layers; a whole recorded race matches the desktop at
-every checkpoint. About 22 game frames/s in Flycast with every 2nd frame
-drawn (the arcade runs 57.52), with sound (the native sequencer on the AICA), not yet on a console. Details and the plan: [HANDOFF.md](HANDOFF.md).
+every checkpoint. About 32 game frames/s in Flycast (the arcade runs
+57.52), with sound (the native sequencer on the AICA), not yet on a console. Details and the plan: [HANDOFF.md](HANDOFF.md).
 
 ## Requirements
 
