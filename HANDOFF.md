@@ -1,5 +1,17 @@
 # Handoff
 
+## Mobile iOS packaging (2026-10-06)
+
+The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
+signing, stage the device app under `Payload/daytona.app`, and produce
+`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
+CFBundleExecutable and the APPL package type. Custom build and generated-source
+paths are normalized before packaging; argument handling remains compatible
+with macOS Bash 3.2. No ROM archives or generated sources are committed.
+This follows the design document's Platform layer & build and ROM handling
+sections: the shared runtime/renderer is unchanged. See the mobile handoff
+for build validation and device-test status.
+
 ## Current state
 
 **Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing

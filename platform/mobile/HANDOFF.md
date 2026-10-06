@@ -1,5 +1,29 @@
 # Mobile port handoff
 
+## 2026-10-06: unsigned iOS package
+
+Built the mobile branch on macOS with Xcode 26.6 and the iPhoneOS 26.5 SDK,
+using the existing generated daytona93, TGP and sound sources. Added
+`UNSIGNED=1` packaging to the iOS script and the required executable/package
+keys to the bundle template. The final script was rerun successfully with
+relative `BUILD_DIR=build/ios` and `M2_GEN_ROOT=generated` paths. macOS resource
+forks and extended attributes are excluded from the IPA.
+
+Validation: Xcode Release build succeeded; plist lint passed; the executable
+is arm64 Mach-O with iOS platform 2 and minimum OS 15.0. Bundle identifier is
+`com.boucydesigns.daytona`, executable is `daytona`, device families are iPhone
+and iPad. Linked dynamic libraries are Apple system libraries only. codesign
+reports the app is not signed. ZIP integrity passed and the IPA contains only
+Payload/daytona.app with its executable, Info.plist and PkgInfo, no ROM archive.
+The retrieved IPA hash matched the Mac copy:
+`417835b73b9f0e188f21a7115958b08c81207a387646d5e78b7d74b18e8b5f42`.
+Local artifact and logs are under ignored `build/ios/`.
+
+Next: sign/install through AltStore, supply the user's ROM archive, and test
+launcher import, Metal rendering, audio and controller input on an actual iOS
+device. Compilation/package validation does not establish on-device gameplay
+or AltStore installation success. On-screen driving controls are not added.
+
 ## 2026-10-02: Android document read/import
 
 Reported failure: Browse returned a Downloads provider `content://` URI,

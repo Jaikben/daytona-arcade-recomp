@@ -52,6 +52,18 @@ That generates an Xcode iOS project and builds `daytona.app`. Open the generated
 The bundle opts into Files document sharing/open-in-place so the user's ROM archive can
 be made available to the launcher.
 
+For an unsigned IPA to sign and install through AltStore:
+
+```sh
+UNSIGNED=1 platform/mobile/ios/build.sh
+```
+
+The output is `build/ios/Daytona-unsigned.ipa`, containing the arm64 iPhoneOS app
+inside `Payload/daytona.app`. This mode disables Xcode code signing; AltStore
+must sign the IPA before installation. It does not bundle a ROM archive. Set
+`M2_GEN_ROOT` if the generated sources are outside `build/gen`, and `BUILD_DIR`
+to select a different output directory. Device gameplay still needs testing.
+
 ## Current input
 
 SDL3 gamepads work on both platforms using the same bindings as desktop. The launcher is
