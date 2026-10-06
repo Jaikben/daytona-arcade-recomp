@@ -2,6 +2,29 @@
 
 ## Current state
 
+**Dreamcast port (branch dreamcast, in progress).** platform/dreamcast: a
+KallistiOS build run by platform/dreamcast/build_dreamcast.py after the
+desktop build, from the `daytona` (Revision A) set only, like platform/vita.
+Runtime changes are behind M2_DC_MEMORY (ROM read through a page cache the
+frontend supplies, texture and frame buffer RAM supplied, a two-level page
+table, no GPU-layer copies, lazy rasterizer buffers, reused Lockstep
+callback slots, geo_test's cursor moved on without its loop), M2_DC_SPIN_SKIP
+(the game's frame-wait loop at 0x1394 skipped by whole passes to the next
+lockstep event: 79% of the i960's instructions in a race) and M2_DC_SPEED
+(the same output, faster: tile rows with nothing to draw skipped, geometrizer
+object data parsed only for frames that are shown, frame skip 3 allowed, tile
+layers composed in the PVR's 16-bit formats);
+the desktop defines none of them. Checked after the changes: build-daytona m2run
+race_basic, screen hash 9427a612c5cb7511, 909,312,001 i960 and 195,261,176
+TGP instructions, as before. In Flycast a whole recorded race (race_basic) runs,
+drawn by the PVR with textures and both tile layers, in lockstep with the
+desktop at all 100 checkpoints; 25 frames/s with every 2nd frame drawn, the default, with sound (175.9 s for the race; 29 frames/s, 207 s, with every 4th; 1,414 s at the start); with the controller it runs until Flycast is closed. The geometrizer's transforms by the SH-4's ftrv (M2_DC_NATIVE_GEO, picture only; --no-native-geo turns it off): race 240.8 -> 237.0 s in Flycast, lockstep exact. Tile layers composed again only on the lines that changed (M2_DC_SPEED, Video::compose16; dcmemcheck's layer hashes identical): 237.0 -> 228.5 s. The race's scenery layer (pixmap layer 2) drawn by the PVR from a video RAM texture at its scroll instead of composed every frame (M2_DC_SPEED; dcmemcheck rebuilds and compares it): 228.5 -> 218.2 s. The geometrizer's ROM reads in blocks (GeoPtr::read, M2_DC_SPEED; dcmemcheck identical): 218.2 -> 212.8 s. Two remembered ROM pages per region and an FPU finiteness test in the renderer: 212.8 -> 205.3 s. The i960's and the TGP's instruction counts kept in registers by fast_gen.py (dcfastcheck identical every frame): 205.3 -> 195.1 s. Renderer radix sort and colour cache: 195.1 -> 193.4 s. No library memcpy/memset for kept polygons and register frames (M2_DC_SPEED): 193.4 -> 187.5 s. Tile block compare without memcmp: 187.5 -> 186.5 s. Culled polygons skip their texture reads and lighting (M2_DC_SPEED): 186.5 -> 180.1 s. Two-level entry switch and binary chunk search in the i960 code's dispatch (fast_gen.py): 180.1 -> 176.9 s. The runtime reads count + Lockstep::pending during a call, so the generated code stores its count once instead of adding it (M2_DC_SPEED): 176.6 -> 175.9 s, 0.21 MB of RAM back. The play build prints no TRACE lines and reports every 1,800 frames (the serial port is slow on a console). Found for the desktop too, not changed
+there: Lockstep::calls_ never shrinks (a callback every 1,024 instructions;
+estimated 270 KB a second on the desktop). KOS 2.2.1 in extern/kos-dc
+(git-ignored): DreamSDK R4's installed KOS master stops every C++ program
+using libstdc++'s exceptions at startup. Details, measurements and failures:
+platform/dreamcast/HANDOFF.md.
+
 **Vita build: the ROM set.** The 1994 set's M2_ROMSET broke the Vita compile
 check (its CMake builds the runtime itself, without the define);
 platform/vita/CMakeLists.txt defines M2_ROMSET="daytona93", and

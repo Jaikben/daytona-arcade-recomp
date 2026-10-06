@@ -12,6 +12,16 @@
 #include <string>
 #include <utility>
 
+// M2_AL(p, n): p, known n-aligned. With M2_DC_SPEED on GCC (the Dreamcast)
+// it tells the compiler, so a std::memcpy of n bytes through it is one load
+// or store: the SH-4 traps on unaligned access, and without it GCC calls
+// memcpy for every word. Elsewhere it is p itself.
+#if defined(M2_DC_SPEED) && defined(__GNUC__)
+#define M2_AL(p, n) static_cast<decltype(p)>(__builtin_assume_aligned((p), (n)))
+#else
+#define M2_AL(p, n) (p)
+#endif
+
 namespace rt {
 
 // Memory as the i960 sees it. Byte addresses, little-endian.
@@ -99,6 +109,13 @@ public:
     void do_ret_0();
     void do_ret();
     void standard_irq_callback(int, uint32_t) {}
+
+#ifdef M2_DC_SPEED
+    // Work RAM (0x00500000-0x005fffff, the board's), for the Dreamcast's
+    // rewritten generated code (scripts/fast_gen.py: gen::wram_*). Last in
+    // the class, so the members the generated code uses keep their offsets.
+    uint8_t *work_ram = nullptr;
+#endif
 };
 
 // Shims for the transplanted MAME code.
