@@ -1,66 +1,50 @@
 # Handoff
 
-## Mobile touch controls and latest main (2026-10-06)
-
-Rebased mobile again onto origin/main 10c85cb before completing touch input.
-Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
-Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
-the touch-work stash remains as an additional recovery copy. No branch pushed.
-
-Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
-sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
-capture controls independently (device and finger IDs), not ImGui's single
-mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
-menu and safe-area changes release input. Existing physical controls merge
-with touch through Controls; desktop receives zero touch input by default.
-This follows the design's Platform layer & build boundary; runtime/shaders
-and upstream pacing remain unchanged. See mobile handoff for validation.
-
-## Mobile rebase onto remote main (2026-10-06)
-
-Rebased mobile onto origin/main 6817bff, preserving Android document imports,
-iOS Files import, screen sizing and unsigned packaging. CMake conflict
-resolution keeps upstream link/force-feedback sources and Windows socket
-libraries alongside mobile SDL targets. Generated-source paths combine
-M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
-uses the upstream Devices owner. Initialize the link address before Android's
-stale-URI early return. The previous mobile tip is retained at
-backup/mobile-before-main-20261006. Main and the other platform branches are
-unchanged. Existing IPA files predate this rebase and must not be presented as
-rebuilt from it.
-Validation: desktop daytona_app compilation passes; 13 Android-path import
-tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
-ancestor of the rebased tip. iOS/Android device builds are not rerun here.
-
-## iOS launcher and Files picker (2026-10-06)
-
-Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
-keeping a separate private copy for each selection before the existing ROM
-validation. Enabled modern full-screen launch sizing, safe-area placement,
-logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
-drag scrolling. Picker errors are shown beside the ROM field. Changes follow
-the design's thin platform layer; runtime and shaders are unchanged.
-
-Device Release IPA and simulator build succeed. The simulator cannot provide
-visual verification: SDL_CreateGPUDevice reports that its device does not meet
-SDL_GPU Metal hardware requirements; the resulting black screen is not UI
-validation. Native Files selection and layout need another physical-device
-test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
-screen fit based on compilation alone.
-
-## Mobile iOS packaging (2026-10-06)
-
-The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
-signing, stage the device app under `Payload/daytona.app`, and produce
-`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
-CFBundleExecutable and the APPL package type. Custom build and generated-source
-paths are normalized before packaging; argument handling remains compatible
-with macOS Bash 3.2. No ROM archives or generated sources are committed.
-This follows the design document's Platform layer & build and ROM handling
-sections: the shared runtime/renderer is unchanged. See the mobile handoff
-for build validation and device-test status.
-
 ## Current state
+
+**Licence: BSD-3-Clause (LICENSE).** "Copyright (c) 2026, Ben Templeman and
+contributors". The same licence as the MAME code transplanted into the
+runtime; every linked component is compatible (BSD, zlib, MIT, public
+domain). rules.md rule 9, THIRD_PARTY.md and the README say so; the open
+decision is gone. GPL code (the MiSTer core, Supermodel) stays read-only.
+Docs also brought up to date: the mobile notes folded into Current state,
+PR #8's CI, branches now on main, #6 (Android and iOS, with touch, merged),
+and the README's platform table: Android, iOS and PS Vita tested on devices
+and working (2026-10-06), Dreamcast in Flycast.
+
+**Force feedback: confirmed, enhancements documented (issue #9).** The
+reporter confirmed on a Simagic Alpha Mini: no shaking, centring works, no
+cut-outs. Documented in docs/issues.md, not started: a safeguard against
+force feedback cutting out (SDL's DirectInput update reacquires a lost device
+and retries, but its effects stay stopped: restart any effect
+SDL_GetHapticEffectStatus reports stopped, about once a second; a theory from
+SDL's code, seen in another recomp, not in Daytona), and settings asked for
+after FFBPlugin: strength up to 200%, centring spring, resistance, a damper,
+minimum force, with defaults that keep today's force feedback.
+
+**Android and iOS (PR #14, platform/mobile).** The desktop runtime and its
+SDL3/SDL_GPU renderer packaged for Android (arm64, SDLActivity, the game as
+libmain.so) and iOS, from game code generated on a desktop (M2_GEN_ROOT). A
+touch overlay on mobile only: analogue horizontal steering, gas and brake,
+sequential gears, the four views, coin and start, and the launcher menu.
+Fingers are tracked by device and finger ID (not ImGui's one pointer), short
+taps last until a game frame, and focus loss, cancellation, the menu and
+safe-area changes release them; touch merges with physical controls through
+Controls, and the desktop gets no touch input. Android reads the ROM document
+through SDL; iOS imports a private copy of each Files selection (a UIKit
+document picker), the launcher fits the safe area and scrolls. UNSIGNED=1
+platform/mobile/ios/build.sh makes build/ios/Daytona-unsigned.ipa for AltStore.
+Runtime and shaders unchanged (the design's Platform layer & build). Checked:
+Android assembleDebug and iOS device Release builds, plist lint, the unsigned
+IPA; the ROM import and touch unit tests. Tested on devices (2026-10-06):
+Android, iOS and PS Vita all play with no issues reported. Not recorded yet:
+performance figures. (The iOS simulator cannot be used: it stops at
+SDL_CreateGPUDevice, no SDL_GPU Metal there.) Found on an Android device: a
+build that saved the picker's content:// URI in the config, reopened at the
+next start, crashed on opening; a saved content:// is now cleared and the
+archive asked for again (a Browse result is staged into app-private storage
+first). If it still crashes at start, take a logcat before changing the import
+again. Details: platform/mobile/HANDOFF.md.
 
 **Windows setup: pin Clang discovery to VS 2022.** Both setup scripts now
 select the documented VS 2022 toolchain when newer versions are installed
@@ -69,7 +53,8 @@ mismatched cached configuration is cleared, preserving generated sources.
 
 Checked: three setup regression tests pass. Revision A built with VS 2022
 and Clang 19.1.5; 12 CTest tests passed, two optional Lua tests skipped.
-CI now runs the setup tests and builds on branch pushes. Remote CI pending.
+CI now runs the setup tests and builds on branch pushes. Remote CI passed
+(Build and Vita compile check; merged as PR #8).
 
 **Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing
 (Clock, Display, Vrr) chosen from the display's refresh and three settings,
@@ -162,7 +147,7 @@ planned, all off, so the default stays native speed, 57.52 frames/s), #9
 #10 (reference audio's mix matches MAME; native audio's master gain 1.95 and
 missing sample envelopes) and #6.
 
-**Dreamcast port (branch dreamcast, in progress).** platform/dreamcast: a
+**Dreamcast port (in progress; on main since PR #11).** platform/dreamcast: a
 KallistiOS build run by platform/dreamcast/build_dreamcast.py after the
 desktop build, from the `daytona` (Revision A) set only, like platform/vita.
 Runtime changes are behind M2_DC_MEMORY (ROM read through a page cache the
@@ -192,7 +177,7 @@ rom_import.h falls back to daytona93 when a build does not say. Checked on
 the link-play branch's CI: Vita compile check passes (with link play's
 comm_board added to the Vita runtime there).
 
-**Link play (branch link-play).** Revision A's communication board
+**Link play (on main).** Revision A's communication board
 (837-10537), from MAME's m2comm simulation: src/runtime/comm_board.{h,cpp}
 (the protocol: shared RAM set-up at cn_w, the master's 0xff/0xfe numbering
 tokens round the ring, every frame each cabinet's 0xe00-byte block from
@@ -984,8 +969,6 @@ Running the plugin (user's machine, with their ROM set):
 
 ## Open decisions
 
-- Project licence. The Model 2 MiSTer core is GPL-3; lifting from it decides
-  this.
 - FP oracle for lockstep: MAME disagrees with the hardware model on cvtri
   ties (see Findings). When a replay diverges there, the trace diff will show
   MAME's value; the recompiled build follows the model (rules: PCB > MAME).
@@ -1291,18 +1274,3 @@ M1 native (`tools/m2recomp`, `tools/m2native`, `src/runtime/lockstep`):
   harvest patch now logs IAC targets and the seeds include it.
 - Mutation check: the generator's addo template off by one when src1 == 1
   diverges at epoch 3.
-
-
-## Mobile Android — 2026-10-02
-
-- A previous Android build saved the Storage Access Framework picker result
-  (`content://...`) directly in the config. The first ROM-import implementation
-  then tried to reopen that URI from `Launcher` construction on the next app
-  start. On-device report: the updated APK crashed immediately when opening.
-- Startup now treats a saved Android `content://` value as stale migration
-  state: it clears the value, saves the config, and asks the user to select the
-  archive again. Document-provider URIs are only consumed immediately after a
-  Browse result; a verified archive is then staged into app-private storage and
-  the normal path is saved.
-- Device verification still required. If startup still crashes after this
-  migration fix, capture Android logcat before changing the import path again.

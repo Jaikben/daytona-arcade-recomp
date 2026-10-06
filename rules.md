@@ -50,8 +50,10 @@ legal problem, or hours re-deriving something already established.
 9. **Every third-party component is recorded** in `THIRD_PARTY.md` with its
    upstream URL, commit, licence and what was changed. "Copied from MAME" is
    not a record; a commit hash is. **Check licence compatibility before
-   lifting code, not after** — this project's licence is not yet decided, and
-   the Model 2 MiSTer core is GPL-3.
+   lifting code, not after.** This project is BSD-3-Clause (`LICENSE`), so
+   only code under a compatible licence (BSD, MIT, zlib, public domain) may
+   be lifted, its notice kept. GPL code (the Model 2 MiSTer core, GPL-3;
+   Supermodel) is read for reference only, never copied.
 
 ## The design document governs
 

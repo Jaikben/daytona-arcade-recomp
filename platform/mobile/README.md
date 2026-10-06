@@ -1,6 +1,6 @@
 # Android / iOS port
 
-The `mobile` branch keeps the desktop runtime and SDL3/SDL_GPU renderer, and packages the
+This port keeps the desktop runtime and SDL3/SDL_GPU renderer, and packages the
 same recompiled game for Android and iOS.
 
 ## Prerequisite: generate the game code on a desktop host
@@ -68,7 +68,8 @@ The output is `build/ios/Daytona-unsigned.ipa`, containing the arm64 iPhoneOS ap
 inside `Payload/daytona.app`. This mode disables Xcode code signing; AltStore
 must sign the IPA before installation. It does not bundle a ROM archive. Set
 `M2_GEN_ROOT` if the generated sources are outside `build/gen`, and `BUILD_DIR`
-to select a different output directory. Device gameplay still needs testing.
+to select a different output directory. Tested on devices (2026-10-06): Android and
+iOS play with no issues reported.
 
 ## Current input
 

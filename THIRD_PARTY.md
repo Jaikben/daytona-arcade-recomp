@@ -1,5 +1,9 @@
 # Third-party components
 
+This project's own code is under the BSD-3-Clause licence (`LICENSE`). The
+code below keeps its own licence and notices; every component linked into the
+game is under a licence compatible with it (BSD, zlib, MIT, public domain).
+
 Every component this project fetches, links or reads from is recorded here:
 upstream, pinned commit, licence, how it is used and what was changed.
 Vendored checkouts live in git-ignored `extern/` and are never committed.
@@ -44,7 +48,8 @@ board program (EPR-16488A), read and run in MAME.
 
 The Model 2 MiSTer core (https://github.com/alphanu1/sega-model2-mister,
 GPL-3.0-or-later, read at `591e148e87d27e03d50cbf7318bf0b1d1328c4bf`) is read as
-a reference only. Nothing is lifted from it; the project licence is undecided.
+a reference only. Nothing is lifted from it: it is GPL, and this project is
+BSD-3-Clause (`LICENSE`).
 
 ## Shader compilers (tools only)
 

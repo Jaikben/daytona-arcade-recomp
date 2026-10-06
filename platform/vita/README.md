@@ -8,8 +8,9 @@ interpreter, replacement game logic, ROM bytes or generated code is added.
 The desktop SDL3/SDL_GPU application and root CMake build are unchanged.
 The Vita frontend uploads the existing 496x384 software-composited screen
 through SDL2's Vita renderer. This does **not** move the Model 2 rasterizer
-onto the Vita GPU. Performance, memory headroom and full-race parity must
-be measured on a real Vita before this target is considered supported.
+onto the Vita GPU. Tested on a real Vita (2026-10-06): it plays with no
+issues reported. Performance, memory headroom and full-race parity figures
+are not recorded yet.
 
 ## Build
 

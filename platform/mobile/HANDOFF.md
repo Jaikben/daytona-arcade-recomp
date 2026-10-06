@@ -23,8 +23,9 @@ pointing at /opt/android-sdk, which conflicts with ANDROID_HOME. The working
 command unsets ANDROID_SDK_ROOT and sets ANDROID_HOME to the installed user SDK.
 Android Gradle/CMake build caches are now ignored, not removed. The Mac was
 temporarily unreachable; after it returned, the iOS device build succeeded.
-Physical multitouch, device performance and the final overlay appearance still
-need real-device testing; compile/unit tests are not hardware validation.
+Tested on devices (2026-10-06): Android and iOS play, touch controls
+included, with no issues reported. Device performance figures are not
+recorded yet.
 Final Android assembleDebug and iOS device Release builds pass. APK/IPA ZIP
 integrity checks pass; iOS is unsigned arm64 and its copied SHA-256 matches
 the Mac artifact. IPA: build/ios/Daytona-touch-unsigned.ipa. APK:

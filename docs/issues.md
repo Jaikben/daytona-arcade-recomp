@@ -8,9 +8,9 @@ yet. Line numbers drift; the files and functions named are the reference.
 | --- | --- | --- |
 | [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Confirmed: works with SDL's Logitech driver off. "Legacy Logitech wheel support" setting added |
 | [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Four settings added, all off by default (native speed) |
-| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed; not yet tried on a real wheel |
+| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed, confirmed by the reporter on a Simagic Alpha Mini. Enhancements documented, not started |
 | [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
-| [#6](#6-android-version) | Android version | Feature request |
+| [#6](#6-android-version) | Android version | Android and iOS builds with touch controls merged (PR #14); tested on devices, working |
 
 ## #4: Logitech Driving Force cannot be bound on Linux
 
@@ -49,7 +49,9 @@ hint. Hidden on Windows: SDL's Logitech driver is off there by default
 (`hid.dll` cannot send its reports). SDL gives the wheel another GUID under
 the other driver, so its controls are bound again after switching.
 
-**Next:** tell the reporter about the setting; report the 27-byte report
+**Next:** the reporter has been told about the setting and asked whether
+**Invert steering** is still needed after rebinding; if it is, find why the
+kernel driver's axis runs the other way from SDL's. Report the 27-byte report
 check to SDL.
 
 ## #7: Stutter and no refresh-rate options
@@ -285,14 +287,40 @@ copied after the run that shows the problem, before the game is started again.
   EPR-16488A (MAME's default, the one checked) and the older EPR-16488 (not
   checked).
 
-**Next:**
+**Confirmed (2026-10-06):** the reporter tried the build on the Simagic Alpha
+Mini: no more shaking, centring works, and force feedback did not cut out in
+his testing.
 
-1. Now, with no new code: ask the reporter what the launcher shows under the
-   force feedback slider, "wheel (force feedback)" or "gamepad (rumble)".
-2. Done: all four fixes and the log setting
-   (tests pass; not tried on a real wheel). Ask the reporter to try a build of
-   it, and to send the log from a race ("Log force feedback" on) if anything
-   is still wrong.
+### Enhancements (documented, not started)
+
+**Force feedback cutting out (a safeguard).** The reporter's second problem,
+force feedback stopping after 10-20 s or at full lock until a restart, did not
+happen in Daytona but still happens in another recomp (Namco System 22). A
+likely mechanism, read from SDL's code, not measured: when Windows takes the
+wheel away (a direct-drive base resetting at full lock, say), SDL's next
+`SDL_UpdateHapticEffect` reacquires the device and retries, and succeeds
+(`SDL_DINPUT_HapticUpdateEffect`, `src/haptic/windows/SDL_dinputhaptic.c`).
+But a reacquired DirectInput device has its effects stopped, and SDL does not
+start them again, so the game believes force feedback is playing and the wheel
+stays slack. Our retries do not catch it either: the update reports success.
+Daytona probably escapes because the game sends so few commands. The
+safeguard: about once a second, ask `SDL_GetHapticEffectStatus` (where the
+device reports `SDL_HAPTIC_STATUS`) and `SDL_RunHapticEffect` any effect that
+should be playing and is not. No change on a wheel that keeps its effects.
+
+**More force feedback settings,** asked for by the reporter after M2Emulator
+with Boomslangz's FFBPlugin. Enhancements: the defaults keep today's force
+feedback exactly.
+
+| Setting | Default | What it adds |
+| --- | --- | --- |
+| Force feedback strength | 70% (as now) | Up to 200%, clamped at the device's maximum, for weak wheels or a stronger feel |
+| Centring spring | 100% | Scales the game's centring spring (0x3-) |
+| Resistance | 100% | Scales the board's resistance (0x2-, SDL friction) |
+| Damper | 0% | A constant SDL damper, which the arcade board does not have: weight when turning, steadier at speed |
+| Minimum force | 0% | Lifts small forces above a direct-drive wheel's dead zone |
+
+**Next:** the enhancements above, when wanted.
 
 ## #10: Sound effects too loud compared with the music
 
@@ -355,5 +383,9 @@ and envelopes are still open.
 
 ## #6: Android version
 
-A request. The Vita port shows the code can move to other platforms, but
-Android would need touch controls and its own build. Not planned.
+Done in `platform/mobile` (PR #14, from boucymatt): Android (arm64) and iOS
+builds of the desktop runtime and renderer, with on-screen touch controls
+(analogue steering, gas and brake, gears, views, coin and start) that work
+alongside Bluetooth or USB controllers. Tested on devices (2026-10-06):
+Android and iOS work with no issues reported (the PS Vita port too). See
+`platform/mobile/README.md` and its HANDOFF. The issue can be closed.

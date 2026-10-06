@@ -10,6 +10,19 @@ No game data is in this repository. You need your own ROM set (a
 MAME-format `.zip` or `.7z`): `daytona93` (Daytona USA Deluxe '93) or
 `daytona` (Revision A, 1994), or both.
 
+## Platforms
+
+| Platform | Status | Details |
+| --- | --- | --- |
+| Windows, macOS, Linux | The main build; setup below | [docs/getting-started.md](docs/getting-started.md) |
+| Android | Works (arm64), with on-screen touch controls or a Bluetooth or USB controller; tested on a device | [platform/mobile](platform/mobile/README.md) |
+| iOS | Works on iPhone, installed through Xcode or AltStore, with touch controls or a controller; tested on a device | [platform/mobile](platform/mobile/README.md) |
+| PS Vita | Works: a native Vita app (SDL2); tested on a Vita | [platform/vita](platform/vita/README.md) |
+| Dreamcast | Runs in the Flycast emulator with sound and the controller, about 25 frames/s (the arcade runs 57.52); not yet on a console; in progress | [platform/dreamcast](platform/dreamcast/README.md) |
+
+Every port starts from the desktop setup: the game code is generated on a
+desktop computer from your ROM set, then built for the other platform.
+
 ## Setup
 
 **New here? Follow [docs/getting-started.md](docs/getting-started.md)**: step
@@ -92,7 +105,10 @@ opens first:
   is checked against the ROM set this build was recompiled from. Graphics API
   (automatic, Vulkan, Direct3D 12, Metal), Renderer (software, the exact
   CPU renderer; or hardware, on the GPU, experimental), Super sampling
-  (hardware renderer: off, or the 3D drawn at 2x to 4x the original resolution), fullscreen, Draw mode (double buffered,
+  (hardware renderer: off, or the 3D drawn at 2x to 4x the original resolution), fullscreen and the
+  fullscreen mode (borderless, or an exclusive resolution and refresh rate),
+  frame pacing (all off: the arcade's own speed on any display; smooth
+  pacing on a 57.52 Hz display, sync to display, VRR pacing), Draw mode (double buffered,
   as the game; single buffered or every third frame draw less often, for slower
   machines; the game itself runs at full speed), and Skip launcher (start
   the game straight away next time; Esc still opens the launcher). Enhancements
@@ -109,15 +125,20 @@ opens first:
   wheels and pedals are analogue. Wheels, pedals and shifters work as
   separate devices too; binding a wheel or pedal axis also sets its range
   (turn or press as far as full lock or full travel should be, and let go).
-  Force feedback (experimental, untested on a real wheel so far): the arcade wheel's motor (centring, friction, rumble, the
-  wheel pulling) plays on the device steering is bound to (a force feedback
-  wheel, or a gamepad's rumble), with a strength slider. Live meters, dead
-  zones, invert steering.
+  Force feedback (experimental): the arcade wheel's motor (centring,
+  resistance, the wheel being pushed) plays on the device steering is bound
+  to, a force feedback wheel, or a gamepad's rumble when the car is pushed,
+  with a strength slider and an optional log. Live meters, dead zones, invert
+  steering, and Legacy Logitech wheel support (Linux and macOS; on by default
+  on Linux) for older Logitech wheels such as the original Driving Force.
+- **Audio**: volume and mute, separate Music and Effects volumes (both 100%:
+  the arcade's own mix), and native audio (experimental).
 
 In the game, Esc brings the launcher back (Resume, Reset, Quit). Settings
 are saved as they change, with the settings EEPROM and backup RAM, in your
 user data folder (`launcher.ini`). Options: `--rom FILE.zip --autostart
---gpu vulkan|direct3d12|metal --fullscreen`.
+--gpu vulkan|direct3d12|metal --fullscreen --audio native|reference
+--profile NAME` (a separate settings and saves folder).
 
 Default controls:
 
@@ -136,3 +157,12 @@ Sound: the sound board's 68000 program is statically recompiled like the
 i960 code and runs on the native board with the YM3438 (ymfm) and both
 MultiPCMs; output goes through SDL audio. Volume, mute, and separate music
 and effects volumes are on the launcher's Audio tab.
+
+## Licence
+
+This project's own code is under the [BSD-3-Clause licence](LICENSE): use,
+change and share it freely, in your own projects too, keeping the copyright
+notice (in the source, and in the documentation of builds you distribute).
+Code from other projects keeps its own licence and notices; see
+[THIRD_PARTY.md](THIRD_PARTY.md). The licence does not cover Daytona USA
+itself: the ROMs and the code generated from them are never distributed.
