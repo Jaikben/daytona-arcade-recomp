@@ -10,6 +10,34 @@
 
 namespace app {
 
+namespace {
+
+std::string mode_key(const SDL_DisplayMode &m) {
+    char s[64];
+    if (m.pixel_density == 1.0f) std::snprintf(s, sizeof s, "%dx%d@%.3f", m.w, m.h, double(m.refresh_rate));
+    else std::snprintf(s, sizeof s, "%dx%d@%.3f*%.2f", m.w, m.h, double(m.refresh_rate), double(m.pixel_density));
+    return s;
+}
+
+std::string mode_label(const SDL_DisplayMode &m) {
+    char s[64];
+    std::snprintf(s, sizeof s, "%d x %d, %.2f Hz%s", m.w, m.h, double(m.refresh_rate), m.pixel_density == 1.0f ? "" : " (HiDPI)");
+    return s;
+}
+
+} // namespace
+
+void apply_fullscreen_mode(SDL_Window *window, const std::string &key) {
+    int w = 0, h = 0;
+    float hz = 0, density = 1;
+    SDL_DisplayMode mode;
+    if (!key.empty() && std::sscanf(key.c_str(), "%dx%d@%f*%f", &w, &h, &hz, &density) >= 3 &&
+        SDL_GetClosestFullscreenDisplayMode(SDL_GetDisplayForWindow(window), w, h, hz, density > 1, &mode))
+        SDL_SetWindowFullscreenMode(window, &mode);
+    else
+        SDL_SetWindowFullscreenMode(window, nullptr); // borderless, at the desktop's mode
+}
+
 Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window) {
     std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
     std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
@@ -239,6 +267,54 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();
             }
+            {   // exclusive fullscreen: the display's own modes, a custom 57.52 Hz one among them
+                int count = 0;
+                SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(SDL_GetDisplayForWindow(window_), &count);
+                std::string preview = "Desktop (borderless)";
+                for (int i = 0; i < count; ++i)
+                    if (mode_key(*modes[i]) == cfg_.fullscreen_mode) preview = mode_label(*modes[i]);
+                auto choose = [&](const std::string &key) {
+                    cfg_.fullscreen_mode = key;
+                    apply_fullscreen_mode(window_, key);
+                    cfg_.save();
+                };
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::BeginCombo("Fullscreen mode", preview.c_str())) {
+                    if (ImGui::Selectable("Desktop (borderless)", cfg_.fullscreen_mode.empty())) choose("");
+                    for (int i = 0; i < count; ++i) {
+                        const std::string key = mode_key(*modes[i]);
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(mode_label(*modes[i]).c_str(), key == cfg_.fullscreen_mode)) choose(key);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip("Desktop: fullscreen at the desktop's resolution and refresh rate.\n"
+                                      "A mode: exclusive fullscreen at that resolution and refresh rate, such as\n"
+                                      "a 57.52 Hz mode made in the graphics driver's settings.");
+                SDL_free(modes);
+            }
+            ImGui::TextUnformatted("Frame pacing");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(all off: the arcade's own speed on any display)");
+            if (ImGui::Checkbox("Smooth pacing on a 57.52 Hz display", &cfg_.pace_smooth)) cfg_.save();
+            ImGui::SetItemTooltip("On a display set to 57.52 Hz (or 115.05 Hz), one game frame per refresh (or two):\n"
+                                  "no doubled or skipped frames. The speed stays the arcade's, within 1%%.\n"
+                                  "No effect at other refresh rates.");
+            if (ImGui::Checkbox("Sync to display (changes the game's speed)", &cfg_.pace_sync_display)) cfg_.save();
+            ImGui::SetItemTooltip("Runs the game at a rate that divides evenly into your screen's refresh rate, so\n"
+                                  "every frame is shown for the same time and motion is perfectly smooth. On 60, 120,\n"
+                                  "180 and 240 Hz screens the game runs at 60 frames/s, about 4%% faster than the\n"
+                                  "arcade (57.52), and with reference audio the sound plays slightly faster. No effect\n"
+                                  "on screens like 144 Hz or 165 Hz, which can't evenly fit a rate close to the\n"
+                                  "arcade's; on those, use VRR pacing if your monitor supports G-Sync or FreeSync.\n"
+                                  "Off: the game always runs at the arcade's own speed.");
+            if (ImGui::Checkbox("VRR pacing (G-Sync / FreeSync)", &cfg_.pace_vrr)) cfg_.save();
+            ImGui::SetItemTooltip("For a variable-refresh display: each frame is held to exactly 1/57.52 s, so the\n"
+                                  "display refreshes at the game's rate and every frame is shown for the same time.\n"
+                                  "VRR has to be on in the display and the graphics driver; on a fixed-refresh\n"
+                                  "display this looks like the default.");
+            ImGui::TextDisabled("Now: %s.", pacing_status_.c_str());
             if (ImGui::Checkbox("Skip launcher", &cfg_.skip_launcher)) cfg_.save();
             ImGui::SameLine();
             ImGui::TextDisabled("(starts the game straight away; Esc opens this launcher)");
@@ -379,8 +455,10 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                                 "lock or full travel to be, and let go: that sets its range.");
 #ifndef _WIN32 // SDL's own Logitech driver is off on Windows already
             if (ImGui::Checkbox("Legacy Logitech wheel support (Restart Required)", &cfg_.legacy_logitech_wheels)) cfg_.save();
-            ImGui::TextDisabled("For a Logitech wheel that is listed but does nothing when you bind it (the original\n"
-                                "Driving Force). After restarting, bind the wheel's controls again.");
+            ImGui::TextDisabled("Logitech wheels through the system's driver: needed for one that is listed but does\n"
+                                "nothing when you bind it (the original Driving Force). Off: SDL's own driver, which\n"
+                                "on macOS gives the newer wheels force feedback. After a change, restart and bind the\n"
+                                "wheel's controls again.");
 #endif
 
             ImGui::SetNextItemWidth(200);

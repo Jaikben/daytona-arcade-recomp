@@ -19,6 +19,10 @@
 
 namespace app {
 
+// Fullscreen in Config::fullscreen_mode ("WxH@Hz", "*density" when not 1):
+// the display's closest exclusive mode, or borderless at the desktop's ("").
+void apply_fullscreen_mode(SDL_Window *window, const std::string &mode);
+
 class Launcher {
 public:
     Launcher(Config &cfg, SDL_Window *window);
@@ -33,6 +37,7 @@ public:
     void set_error(const std::string &e) { error_ = e; }
     void set_ffb_device(const char *kind) { ffb_device_ = kind; } // what force feedback is playing on
     void set_link_status(const std::string &s) { link_status_ = s; } // link play, for the Game tab
+    void set_pacing_status(const std::string &s) { pacing_status_ = s; } // frame pacing now, for the Game tab
 
 private:
     void check_rom();
@@ -46,6 +51,7 @@ private:
     std::string rom_message_, error_;
     const char *ffb_device_ = "none";
     std::string link_status_ = "off";
+    std::string pacing_status_;
     char link_next_buf_[256] = {};
     char path_buf_[1024] = {};
 

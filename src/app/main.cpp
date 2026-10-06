@@ -16,6 +16,7 @@
 
 #include "app/config.h"
 #include "app/ffb.h"
+#include "app/pacing.h"
 #include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
@@ -74,7 +75,9 @@ public:
         }
         return true;
     }
-    void push(snd::SoundBoard &sb, float gain) {
+    // speed: the game's rate over the arcade's (Sync to display: 1.043 at 60
+    // frames/s), so the sound keeps up with the game; the trim works around it.
+    void push(snd::SoundBoard &sb, float gain, double speed = 1.0) {
         if (!fm_) return;
         const std::vector<float> fm = sb.take_fm(), pcm = sb.take_pcm();
         SDL_PutAudioStreamData(fm_, fm.data(), int(fm.size() * sizeof(float)));
@@ -85,7 +88,7 @@ public:
             SDL_ClearAudioStream(pcm_);
         }
         const double err = std::clamp((queued - kLatency) / kLatency, -1.0, 1.0);
-        const float ratio = float(1.0 + 0.005 * err); // at most 0.5%: inaudible
+        const float ratio = float(speed * (1.0 + 0.005 * err)); // the trim at most 0.5%: inaudible
         SDL_SetAudioStreamFrequencyRatio(fm_, ratio);
         SDL_SetAudioStreamFrequencyRatio(pcm_, ratio);
         SDL_SetAudioStreamGain(fm_, gain);
@@ -215,6 +218,7 @@ int main(int argc, char **argv) {
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
                                           SDL_WINDOW_RESIZABLE | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (!window) return fail("SDL_CreateWindow");
+    app::apply_fullscreen_mode(window, cfg.fullscreen_mode);
     constexpr SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL;
     SDL_GPUDevice *dev = SDL_CreateGPUDevice(formats, false, nullptr);
     if (!dev && !cfg.gpu.empty()) {
@@ -347,9 +351,18 @@ int main(int argc, char **argv) {
     };
     sync_native_audio();
     app::Devices devices; // the gamepad and every joystick (wheels, pedals, shifters)
-    uint64_t last = SDL_GetTicksNS();
-    double pending = 0;
-    const double frame_ns = 1e9 / kArcadeHz;
+    // Frame pacing (launcher > Display; app/pacing.h): the arcade's speed on
+    // the wall clock unless a setting syncs to the display or holds frames for VRR.
+    static_assert(app::kArcadeFrameHz == kArcadeHz);
+    auto display_refresh = [&] {
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+        if (!mode) return 0.0;
+        if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0)
+            return double(mode->refresh_rate_numerator) / mode->refresh_rate_denominator;
+        return double(mode->refresh_rate);
+    };
+    app::Pacer pacer;
+    pacer.set(app::Pacing{}, SDL_GetTicksNS());
 
     while (running) {
         SDL_Event e;
@@ -390,10 +403,18 @@ int main(int argc, char **argv) {
             }
         }
 
-        // Game: arcade speed (57.52 frames/s), presented at the display's rate.
+        // Game: arcade speed (57.52 frames/s), presented at the display's rate,
+        // unless a frame pacing setting says otherwise.
+        const double refresh = display_refresh();
+        if (const app::Pacing p = app::choose_pacing(refresh, {cfg.pace_smooth, cfg.pace_sync_display, cfg.pace_vrr});
+            !(p == pacer.pacing())) {
+            pacer.set(p, SDL_GetTicksNS());
+            std::printf("daytona: frame pacing: %s\n", p.describe(refresh).c_str());
+        }
+        launcher.set_pacing_status(pacer.pacing().describe(refresh));
+        if (game && !in_launcher)
+            if (const uint64_t wait = pacer.wait_ns(SDL_GetTicksNS())) SDL_DelayPrecise(wait); // VRR: hold the frame
         const uint64_t now = SDL_GetTicksNS();
-        pending = std::min(pending + double(now - last), frame_ns * 4);
-        last = now;
         if (game && !in_launcher) {
             game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             game->set_hud_edges(cfg.hud_edges);
@@ -401,7 +422,7 @@ int main(int argc, char **argv) {
             game->board().video().set_external_3d(cfg.renderer == "hardware" && gpu.ok(), true);
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
-            while (pending >= frame_ns) {
+            for (int frames = pacer.frames(now); frames > 0; --frames) {
                 game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices));
                 if (native_active) {
                     const auto bytes = game->board().take_sound_bytes();
@@ -412,7 +433,6 @@ int main(int argc, char **argv) {
                         break;
                     }
                 }
-                pending -= frame_ns;
                 new_frame = have_frame = true;
                 if (max_frames && game->frames() >= max_frames) running = false;
             }
@@ -423,11 +443,11 @@ int main(int argc, char **argv) {
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {
                 game->sound()->set_volumes(cfg.music_volume, cfg.effects_volume);
-                if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
+                if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume, pacer.pacing().game_hz / kArcadeHz);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it
             }
         } else {
-            pending = 0;
+            pacer.pause(now);
             ffb.stop(); // paused in the launcher: let the wheel go
         }
 

@@ -2,13 +2,35 @@
 
 ## Current state
 
+**Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing
+(Clock, Display, Vrr) chosen from the display's refresh and three settings,
+all off (pace_smooth, pace_sync_display, pace_vrr), and Pacer, the per-pass
+frame count. Clock is the old loop moved over unchanged (test: identical
+frame counts over 20,000 random passes). Display: a frame every N refreshes
+(Smooth: a multiple of 57.52 Hz within 1%; Sync: the first division of the
+refresh at or under 61 Hz, if 56 or over: 60 on 60/120/180/240 Hz, nothing on
+144/165), capped by the wall clock (vsync forced off) and restarted after a
+stall. Vrr: one frame per pass, SDL_DelayPrecise to a 1/57.52 s deadline,
+vsync kept (not IMMEDIATE as first planned: VRR with vsync and a frame cap
+does not tear). Reference audio's stream ratio is scaled by game_hz/57.52 so
+Sync to display does not overrun the 240 ms queue; native audio keeps its
+device clock. The refresh is read every pass, so pacing follows the window
+between displays (seen: 60 and 144 Hz). Fullscreen mode (fullscreen_mode,
+"WxH@Hz"): the display's modes in the launcher, applied with
+SDL_GetClosestFullscreenDisplayMode/SDL_SetWindowFullscreenMode. Measured
+over 15 s in the game: default 57.9, Sync on 60 Hz 59.8, VRR 57.53 frames/s.
+Design doc's open question on pacing answered. Not tried on a VRR display;
+not listened to with Sync on.
+
 **Legacy Logitech wheel support (issue #4).** The original Driving Force
 (046d:c294) is listed but sends nothing through SDL 3.4.16's HIDAPI lg4ff
 driver, which reads c294 reports only when they are exactly 27 bytes; the
 reporter confirmed it works with SDL_JOYSTICK_HIDAPI_LG4FF=0. A setting, not
 a change for everyone (SDL's driver serves the wheels it was written for):
 Controls tab, "Legacy Logitech wheel support (Restart Required)",
-legacy_logitech_wheels (off). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
+legacy_logitech_wheels (on by default on Linux, whose kernel driver gives
+Logitech wheels force feedback; off on macOS, where SDL's lg4ff haptics are
+the only force feedback for them). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
 "0" before SDL_Init (SDL reads it when it finds devices; a change while
 running is not guaranteed to hand the wheel back to evdev) and logs it.
 Hidden on Windows, where SDL leaves lg4ff off already (hid.dll). The wheel's

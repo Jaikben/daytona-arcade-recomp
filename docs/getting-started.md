@@ -147,10 +147,23 @@ far as you want full lock to be, and let go; do the same for **Steer
 right**, then press each pedal fully and let go for **Accelerate** and
 **Brake**. The meters at the top show the result. **Force feedback** sets
 how strongly the wheel pushes back (Off turns it off); tick **Invert force**
-if the wheel pulls the wrong way. On Linux or macOS, if a Logitech wheel is
-listed but does nothing when you bind it (the original Driving Force does
-this), tick **Legacy Logitech wheel support**, restart the game and bind the
-wheel again.
+if the wheel pulls the wrong way. **Legacy Logitech wheel support** (Linux
+and macOS) runs Logitech wheels through the system's driver; the original
+Driving Force needs it. It is on by default on Linux. On macOS it is off,
+because SDL's own driver gives the newer Logitech wheels force feedback
+there; tick it if a Logitech wheel is listed but does nothing when you bind
+it. After changing it, restart the game and bind the wheel again.
+
+**Fullscreen mode and frame pacing** (optional, on the Game tab): the game
+runs at the arcade's own speed, 57.52 frames/s, on any display. On a 60 Hz
+display that means a frame shown twice about every 0.4 s, and on a 144 Hz
+one a slight unevenness. **Fullscreen mode** picks an exclusive mode, such
+as a 57.52 Hz mode made in your graphics driver's settings; then tick
+**Smooth pacing on a 57.52 Hz display**. **VRR pacing** is for G-Sync or
+FreeSync displays: the display refreshes at the game's rate. **Sync to
+display** runs the game at 60 frames/s on a 60, 120 or 240 Hz display,
+perfectly smooth but about 4% faster than the arcade. Hover over each for
+details; the line under them says what is in effect.
 
 **Widescreen** (optional): in the launcher, under **Enhancements**, set
 **Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
