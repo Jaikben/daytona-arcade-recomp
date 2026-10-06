@@ -73,5 +73,15 @@ to select a different output directory. Device gameplay still needs testing.
 ## Current input
 
 SDL3 gamepads work on both platforms using the same bindings as desktop. The launcher is
-touch/mouse compatible through SDL/ImGui. In-race on-screen touch driving controls are
-not emulated yet; a physical or paired controller is currently the intended mobile input.
+touch/mouse compatible through SDL/ImGui. iOS and Android show a shared touch overlay
+during gameplay:
+
+- Slide across STEER at the lower left for analogue steering; the middle is neutral.
+- Hold GAS or BRAKE at the lower right. Different fingers can steer and use pedals together.
+- Gear -/+ shift sequentially; V1-V4 select the four views.
+- Coin and Start operate the arcade buttons. Menu pauses and returns to the launcher.
+
+Controls scale with the safe area. Releasing a finger, changing the layout, pausing,
+or backgrounding the app clears held input. Brief button taps are retained until
+the next game frame. Touch and physical controls can be used together. Touch
+steering uses the existing invert setting; buttons are full-travel pedals.

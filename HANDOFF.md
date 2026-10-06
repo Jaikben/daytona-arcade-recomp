@@ -1,5 +1,21 @@
 # Handoff
 
+## Mobile touch controls and latest main (2026-10-06)
+
+Rebased mobile again onto origin/main 10c85cb before completing touch input.
+Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
+Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
+the touch-work stash remains as an additional recovery copy. No branch pushed.
+
+Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
+sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
+capture controls independently (device and finger IDs), not ImGui's single
+mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
+menu and safe-area changes release input. Existing physical controls merge
+with touch through Controls; desktop receives zero touch input by default.
+This follows the design's Platform layer & build boundary; runtime/shaders
+and upstream pacing remain unchanged. See mobile handoff for validation.
+
 ## Mobile rebase onto remote main (2026-10-06)
 
 Rebased mobile onto origin/main 6817bff, preserving Android document imports,

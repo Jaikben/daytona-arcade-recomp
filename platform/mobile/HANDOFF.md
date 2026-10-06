@@ -1,5 +1,35 @@
 # Mobile port handoff
 
+## 2026-10-06: shared touch driving
+
+Rebased onto main 10c85cb before finishing input work. Raw SDL touch events
+drive a shared mobile overlay with steering, gas/brake, sequential gears,
+V1-V4, Coin, Start and Menu. Finger/device pairs retain their original control;
+sliding off a pedal releases it without activating a neighbouring button.
+Short taps are latched for one sampled game frame, but cancellation discards
+the latch. Menu/background/focus loss and resized safe areas clear all fingers.
+The existing Controls sampler merges touch with physical controls, including
+the existing steering-invert option. Desktop touch values default to zero.
+
+Tests: test_touch_controls.cpp checks simultaneous steering/pedals, duplicate
+finger IDs on separate devices, clamping, release, short taps, cancellation,
+menu reset and non-overlapping in-bounds layout at 480x272, 844x390, 2400x1080
+and 1024x768. Build/run with:
+`c++ -std=c++20 -Isrc -Iextern/sdl3/include tests/test_touch_controls.cpp -o /tmp/daytona-touch-test && /tmp/daytona-touch-test`.
+The existing 13 Android-path and 2 desktop-path ROM import tests also pass.
+
+Android requires a consistent SDK environment: this host has ANDROID_SDK_ROOT
+pointing at /opt/android-sdk, which conflicts with ANDROID_HOME. The working
+command unsets ANDROID_SDK_ROOT and sets ANDROID_HOME to the installed user SDK.
+Android Gradle/CMake build caches are now ignored, not removed. The Mac was
+temporarily unreachable; after it returned, the iOS device build succeeded.
+Physical multitouch, device performance and the final overlay appearance still
+need real-device testing; compile/unit tests are not hardware validation.
+Final Android assembleDebug and iOS device Release builds pass. APK/IPA ZIP
+integrity checks pass; iOS is unsigned arm64 and its copied SHA-256 matches
+the Mac artifact. IPA: build/ios/Daytona-touch-unsigned.ipa. APK:
+platform/mobile/android/app/build/outputs/apk/debug/app-debug.apk.
+
 ## 2026-10-06: iPhone launcher repair
 
 The supplied device photo showed clipped help text and inaccessible lower
