@@ -747,7 +747,19 @@ void GpuFastRenderer::draw(rt::Video &video) {
             upload_layer(foreground_, video.foreground_layer());
             foreground_generation_ = video.foreground_generation();
         }
-        draw_layer(background_, video);
+        if (video.wide_margin() && video.background_layer().size() == size_t(rt::Video::W) * rt::Video::H) {
+            const float left = sx(-float(video.wide_margin()));
+            const float width = float(video.width()) * scale_;
+            if (video.stretch_backdrop()) {
+                vita2d_draw_texture_part_scale(background_, left, sy(0), 0, 0,
+                    float(rt::Video::W), float(rt::Video::H), width / float(rt::Video::W), scale_);
+            } else {
+                vita2d_draw_rectangle(left, sy(0), width, float(rt::Video::H) * scale_,
+                                     swap_rb(video.background_layer()[0]));
+                vita2d_draw_texture_part_scale(background_, sx(0), sy(0), 0, 0,
+                    float(rt::Video::W), float(rt::Video::H), scale_, scale_);
+            }
+        } else draw_layer(background_, video);
         draw_polygons(video);
         draw_layer(foreground_, video);
     }

@@ -1,5 +1,37 @@
 # Handoff
 
+## Vita main rebase and ImGui launcher (2026-10-06)
+
+Rebased psvita-native-frontend onto fetched origin/main 50d6638. Recovery
+branch backup/vita-before-imgui-20261006 retains the pre-rebase history.
+Main and PSP branches are not modified by this work; no Vita push performed.
+
+Replaced the GXM frontend's bitmap menu with pinned upstream Dear ImGui,
+rendered through the existing vita2d context. All 28 Vita options, dual-ROM
+launching, link settings, physical controls and saved settings remain.
+Front touch operates rows, adjustment buttons and the scrolling settings
+panel; D-pad selection scrolls into view. UI work runs only in the launcher,
+pause menu and loading screen. No additional gameplay display buffering.
+The adapter supports the uniform-tint primitives used here, not arbitrary
+per-vertex colour gradients. Geometry fringe AA is disabled; font AA remains.
+
+Rebase integration preserves the Vita native-sized backdrop stretch path,
+widescreen CPU tile fallback and foreground caches, while adapting the HUD
+polygon helper to upstream panel detection. Non-Vita external-renderer
+margin handling is retained. Host desktop app compiles; all 13 Vita host
+tests pass, including real ImGui draw generation against a mocked backend,
+pool exhaustion and GPU shutdown synchronization. These checks do not prove
+physical Vita rendering, touch behaviour or gameplay performance.
+The Vita ImGui target disables its unused desktop shell-opening handler,
+which otherwise links unavailable execvp/waitpid functions from VitaSDK.
+
+Both VitaSDK GPU builds pass. Final dual-ROM package:
+build/vita-enhancements/daytona_vita.vpk (01.24, Daytona Recomp ImGui).
+ZIP integrity and ARM ELF checks pass; the bundled daytona.self SHA256
+matches build/vita-revision-a/eboot.bin. Archive contains executables and
+licenses only, no ROM archives. Physical Vita installation remains untested.
+
+
 ## Mobile touch controls and latest main (2026-10-06)
 
 ## Vita Revision A link and dual-ROM launcher (2026-10-03)

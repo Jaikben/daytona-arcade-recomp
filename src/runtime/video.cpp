@@ -919,7 +919,7 @@ void Video::screen_update(const std::vector<GeoPoly> &polys, int windows, const 
 #endif
 #ifndef M2_DC_MEMORY
         if (margin_) {
-            hud_on_ = hud_edges_ && raster_.race_hud_visible(polys, crtc_x_ + margin_, crtc_y_);
+            hud_on_ = hud_edges_ && raster_.find_race_hud(polys, crtc_x_ + margin_, crtc_y_);
             set_raster_hud_moves();
             std::fill(screen_.begin(), screen_.end(), 0u);
             if (hud_on_) copy_front_hud_to_edges(screen_);
@@ -1110,14 +1110,17 @@ void Video::set_wide_margin(int margin) {
 #ifdef M2_VITA_RENDER_OPT
     margin = std::clamp(margin, 0, 200);
 #else
+    if (external_3d_ && !desktop_) margin = 0;
     margin = std::max(margin, 0);
 #endif
     if (margin == margin_) return;
     margin_ = margin;
     set_raster_hud_moves();
     screen_.assign(size_t(width()) * H, 0u);
+#ifndef M2_DC_MEMORY
     background_gpu_.assign(screen_.size(), 0u);
     foreground_gpu_.assign(screen_.size(), 0u);
+#endif
     ++background_generation_; ++foreground_generation_;
     raster_.set_wide_margin(margin_);
     render_done_ = false; // redraw the 3D layer at the new width

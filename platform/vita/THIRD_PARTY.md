@@ -78,3 +78,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+# ImGui menu integration
+
+The GXM launcher links the same pinned Dear ImGui core recorded in the root
+THIRD_PARTY.md (MIT). Its unmodified core provides widgets/font atlas; the
+Vita input and vita2d draw adapter is project code. The VPK includes
+licenses/imgui.txt. No proprietary shader compiler or additional plugin is
+needed for the menu; it uses libvita2d's existing public homebrew shaders.

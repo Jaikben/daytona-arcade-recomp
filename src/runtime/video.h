@@ -55,6 +55,7 @@ public:
     // With widescreen, behind 3D: stretch the tile backdrop across the whole
     // width (on) or fill the margins with the sky's plain colour (off, default).
     void set_stretch_backdrop(bool on) { stretch_backdrop_ = on; }
+    bool stretch_backdrop() const { return stretch_backdrop_; }
     // With widescreen: the race HUD's side groups (lap times; position,
     // condition panel, course map) at the screen edges instead of 4:3 centred.
     void set_hud_edges(bool on) {
@@ -72,6 +73,9 @@ public:
         if (enabled == external_3d_ && desktop == desktop_) return;
         external_3d_ = enabled;
         desktop_ = desktop;
+#ifndef M2_VITA_RENDER_OPT
+        if (enabled && !desktop && margin_) set_wide_margin(0);
+#endif
         gpu_front_margin_ = -1;
         render_done_ = false;
     }
@@ -291,6 +295,9 @@ private:
     std::vector<uint32_t> gpu_pens_;
     uint64_t instance_;
     bool gpu_background_ = false;
+    std::vector<uint32_t> gpu_front_source_;
+    int gpu_front_margin_ = -1;
+    bool gpu_front_hud_ = false;
     int margin_ = 0;
     int dw_ = W;                               // draw()'s output width
     std::vector<uint32_t> stretch_row_;        // widescreen: one backdrop row, for stretching

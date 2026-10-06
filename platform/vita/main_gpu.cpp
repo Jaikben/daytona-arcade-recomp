@@ -9,6 +9,7 @@
 #include "async_log.h"
 #include "gpu_fast.h"
 #include "gpu_text.h"
+#include "imgui_vita.h"
 #include "runtime/game_loop.h"
 #include "runtime/rom_import.h"
 
@@ -204,26 +205,30 @@ int cycle_value(int value, const int *choices, int count, int direction) {
     return choices[(index + (direction < 0 ? count - 1 : 1)) % count];
 }
 
-void draw_menu(bool have_game, bool options, int selection, const VitaSettings &settings,
+uint32_t ui_buttons = 0;
+void draw_menu(bool have_game, bool &options, int &selection, const VitaSettings &settings,
                const std::string &status, double fps) {
-    const unsigned white = RGBA8(235,235,235,255), yellow = RGBA8(255,200,70,255);
-    vita::gpu_text(options ? "DAYTONA RECOMP - OPTIONS" : "DAYTONA RECOMP - ROM / LINK", 30, 24, white, 3, 49, 1);
-    char line[128];
-    if (!options) {
-        std::snprintf(line, sizeof line, "FPS %.1F  CPU %d MHz  GPU %d MHz  GXM", fps,
-                      scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency());
-        vita::gpu_text(line, 30, 64, white, 2, 70, 1);
-        const bool other_rom = settings.revision_a != (std::strcmp(M2_ROMSET, "daytona") == 0);
-        const char *labels[4] = {other_rom ? "START SELECTED ROM" : have_game ? "RESUME GAME" : "START GAME",
-                                "RESET GAME", "OPTIONS", "SAVE AND QUIT"};
-        for (int i = 0; i < 4; ++i) {
-            std::string label = std::string(i == selection ? "> " : "  ") + labels[i];
-            vita::gpu_text(label, 46, 126 + i * 44, i == selection ? yellow : white, 2, 70, 1);
-        }
-        vita::gpu_text(status, 30, 342, white, 2, 74, 6);
-        vita::gpu_text("CROSS SELECT  CIRCLE RESUME  START+SELECT MENU", 30, 516, white, 2, 74, 1);
-        return;
-    }
+    ImGui::SetNextWindowPos({12, 12});
+    ImGui::SetNextWindowSize({936, 520});
+    ImGui::Begin("Daytona USA", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    ImGui::Text("Daytona USA | %.1f FPS | CPU %d MHz | GPU %d MHz", fps,
+                scePowerGetArmClockFrequency(), scePowerGetGpuClockFrequency());
+    if (ImGui::Button("Game")) { options = false; selection = 0; }
+    ImGui::SameLine();
+    if (ImGui::Button("Options")) { options = true; selection = 0; }
+    ImGui::SameLine(); ImGui::TextDisabled("D-pad navigate | X select | O back");
+    ImGui::Separator();
+    static int previous_selection = -1;
+    static bool previous_options = false;
+    const bool scroll_to_selection = selection != previous_selection || options != previous_options;
+    if (ImGui::BeginChild("settings", {0, -100}, ImGuiChildFlags_None)) {
+        if (!options) {
+            const char *labels[] = {have_game ? "Resume / launch selected ROM" : "Start game", "Reset game", "Options", "Quit"};
+            for (int i = 0; i < 4; ++i) {
+                if (ImGui::Selectable(labels[i], selection == i, 0, {0, 36})) { selection = i; ui_buttons = vita::Cross; }
+                if (selection == i && scroll_to_selection) ImGui::SetScrollHereY();
+            }
+        } else {
     const char *values[28];
     char link_fields[6][64];
     for (int i = 0; i < 4; ++i) {
@@ -258,14 +263,27 @@ void draw_menu(bool have_game, bool options, int selection, const VitaSettings &
     values[16]=settings.skip_launcher ? "SKIP LAUNCHER: ON" : "SKIP LAUNCHER: OFF";
     static const char* curves[] = {"STEERING CURVE: LINEAR", "STEERING CURVE: SOFT", "STEERING CURVE: EXTRA SOFT"};
     values[14]=curves[settings.steer_curve];
-    const int first = std::max(0, selection - 11);
-    for (int i = first; i < std::min(first + 12, 28); ++i) {
-        std::string label = std::string(i == selection ? "> " : "  ") + values[i];
-        vita::gpu_text(label, 42, 68 + (i - first) * 32, i == selection ? yellow : white, 2, 70, 1);
+
+            for (int i = 0; i < 28; ++i) {
+                ImGui::PushID(i);
+                if (ImGui::Selectable(values[i], selection == i, 0, {760, 32})) { selection = i; ui_buttons = vita::Cross; }
+                if (selection == i && scroll_to_selection) ImGui::SetScrollHereY();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("<")) { selection = i; ui_buttons = vita::Left; }
+                ImGui::SameLine();
+                if (ImGui::SmallButton(">")) { selection = i; ui_buttons = vita::Right; }
+                ImGui::PopID();
+            }
+        }
     }
-    vita::gpu_text(status, 30, 489, white, 1, 112, 2);
-    vita::gpu_text("LEFT/RIGHT CHANGE  CROSS SELECT  CIRCLE BACK", 30, 526, white, 1, 112, 1);
+    ImGui::EndChild();
+    previous_selection = selection; previous_options = options;
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", status.c_str());
+    ImGui::TextDisabled("START+SELECT menu | SELECT+TRIANGLE test | SELECT+SQUARE service");
+    ImGui::End();
 }
+
 } // namespace
 
 int main(int, char **) {
@@ -314,11 +332,16 @@ int main(int, char **) {
     vita2d_set_vblank_wait(1);
     vita2d_set_clear_color(RGBA8(0,0,0,255));
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+    vita::ImGuiVita ui;
+    if (!ui.init()) {
+        log.fault("ImGui font texture allocation failed\n");
+        vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
+    }
 
     vita::GpuFastRenderer gpu;
     if (!gpu.ok()) {
         log.fault("GPU25: framebuffer texture allocation failed\n");
-        gpu.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
+        gpu.shutdown(); ui.shutdown(); vita2d_fini(); SDL_Quit(); restore_clocks(); return 1;
     }
     log.log("GPU25 stage: GPU texture arenas ready: reserved_mb=%.2f; audio begin\n", double(gpu.reserved_bytes()) / (1024.0 * 1024.0));
     vita::Audio audio;
@@ -475,7 +498,13 @@ int main(int, char **) {
         gpu.reset_materials();
         status = std::string("LOADING ") + M2_ROMSET + "...";
         gpu.prepare_frame();
-        vita2d_start_drawing(); vita2d_clear_screen(); draw_menu(false, false, 0, settings, status, display_fps); vita2d_end_drawing(); vita2d_swap_buffers();
+        vita2d_start_drawing(); vita2d_clear_screen();
+        ui.frame(1.f / 60);
+        ImGui::SetNextWindowPos({24, 24}); ImGui::SetNextWindowSize({912, 496});
+        ImGui::Begin("Starting Daytona USA", nullptr, ImGuiWindowFlags_NoDecoration);
+        ImGui::TextWrapped("%s", status.c_str());
+        ImGui::End(); ui.render();
+        vita2d_end_drawing(); vita2d_swap_buffers();
         try {
             if (settings.link_enabled && !settings.revision_a)
                 throw std::runtime_error("LINK PLAY REQUIRES DAYTONA REVISION A. SELECT THAT ROM OR TURN LINK OFF.");
@@ -538,6 +567,8 @@ int main(int, char **) {
             audio.pause(); native_audio.pause(); save(); clock.reset(); wait_release = true;
         }
         if (menu && !wait_release) {
+            pressed |= ui_buttons;
+            ui_buttons = 0;
             if (options) {
                 constexpr int kOptionCount = 28;
                 if (pressed & vita::Up) selection = (selection + kOptionCount - 1) % kOptionCount;
@@ -708,7 +739,9 @@ int main(int, char **) {
                 if (comm) shown_status += " CABINET " + std::to_string(comm->id()) + "/" +
                     std::to_string(comm->count()) + (comm->link() == rt::CommBoard::Link::Lost ? " LOST" : "");
             }
+            ui.frame(float(elapsed));
             draw_menu(bool(game), options, selection, settings, shown_status, display_fps);
+            ui.render();
         }
         else if (game) {
             if (gpu_fast) gpu.draw(game->board().video()); else gpu.draw_exact(game->board().video());
@@ -779,6 +812,7 @@ int main(int, char **) {
     native_audio.close();
     audio.close();
     gpu.shutdown();
+    ui.shutdown();
     restore_clocks();
     vita2d_fini();
     perf_log.close(); // join file I/O before destroying SDL synchronization

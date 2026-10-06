@@ -36,6 +36,8 @@ int next_uid = 1;
 bool scene = false;
 void reset_graphics_state();
 std::vector<float> ordered_x;
+struct LayerDraw { float x, y, w, h, xs, ys; };
+std::vector<LayerDraw> layers;
 std::vector<const void *> ordered_palettes;
 #include "vita_gpu_capture.inc"
 
@@ -59,7 +61,7 @@ void start_scene() {
     require(!scene && readers.empty(), "temporary pool reused before GPU completion");
     pool_used = 0;
     reset_graphics_state();
-    ordered_x.clear(); ordered_palettes.clear();
+    ordered_x.clear(); ordered_palettes.clear(); layers.clear();
     captured_draws.clear(); clip_rectangle = {0, 0, 960, 544};
     scene = true;
 }
@@ -195,6 +197,7 @@ void vita2d_draw_texture_part_scale(const vita2d_texture* t, float x, float y, f
                                    float w, float h, float xs, float ys) {
     mock::require(tx >= 0 && ty >= 0 && tx + w <= t->gxm_tex.width && ty + h <= t->gxm_tex.height,
                   "layer source rectangle exceeds texture");
+    mock::layers.push_back({x, y, w, h, xs, ys});
     vita2d_draw_texture_scale(t, x, y, xs, ys);
 }
 void vita2d_draw_texture_scale(const vita2d_texture *t, float, float, float, float) {
@@ -347,6 +350,12 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
         video.frame_start();
         video.screen_update(polys, 0, images.mem);
         mock::require(video.width() == 496 + 2 * margin, "external wide width");
+        if (margin) {
+            mock::require(video.background_layer().size() == 496u * 384u, "wide backdrop must stay native-sized");
+            const auto generation = video.foreground_generation();
+            video.screen_update(polys, 0, images.mem);
+            mock::require(video.foreground_generation() == generation, "unchanged wide HUD uploaded again");
+        }
         renderer.prepare_frame();
         mock::start_scene();
         renderer.draw(video);
@@ -416,7 +425,6 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
     polys = {panel};
     video.frame_start(); video.screen_update(polys, 0, images.mem);
     mock::require(video.hud_at_edges_active(), "race panel enables HUD relocation");
-
     mock::require(!video.gpu_foreground(), "edge HUD must retain the shared per-item CPU fallback");
     const auto unchanged_generation = video.foreground_generation();
     video.screen_update(polys, 0, images.mem);
@@ -436,6 +444,8 @@ void test_vertices(vita::GpuFastRenderer &renderer, const Images &images) {
         projected.v[i].x += 93; projected.v[i].y = -projected.v[i].y;
     }
     mock::require(video.raster().hud_polygon_offset(projected) == 93, "right HUD polygon moves to edge");
+    projected.z = 0x601;
+    mock::require(video.raster().hud_polygon_offset(projected) == 0, "only panel exact z moves");
     projected.z = 0x8000;
     mock::require(video.raster().hud_polygon_offset(projected) == 0, "scenery is not moved with HUD");
     video.set_wide_margin(0);

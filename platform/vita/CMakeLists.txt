@@ -103,6 +103,12 @@ else()
 endif()
 if(DAYTONA_VITA_GPU_FAST)
     include("${CMAKE_CURRENT_SOURCE_DIR}/pinned_vita2d.cmake")
+    set(IMGUI_DIR "${DAYTONA_ROOT}/extern/imgui")
+    add_library(vita_imgui STATIC "${IMGUI_DIR}/imgui.cpp" "${IMGUI_DIR}/imgui_draw.cpp"
+        "${IMGUI_DIR}/imgui_tables.cpp" "${IMGUI_DIR}/imgui_widgets.cpp")
+    target_include_directories(vita_imgui PUBLIC "${IMGUI_DIR}")
+    target_compile_definitions(vita_imgui PRIVATE IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS)
+    target_link_libraries(vita_runtime PUBLIC vita_imgui)
     set(VITA_BUFFER_LICENSE FILE "${buffered_vita2d_source_SOURCE_DIR}/LICENSE" "licenses/libvita2d.txt")
 endif()
 
@@ -126,8 +132,9 @@ else()
             SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub ScePgf_stub ScePvf_stub
             SceCommonDialog_stub SceAppMgr_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub
             SceNet_stub SceNetCtl_stub
+            SceTouch_stub
             freetype png jpeg z pthread m)
-        set(VITA_APP_NAME "Daytona Recomp GPU25")
+        set(VITA_APP_NAME "Daytona Recomp ImGui")
     else()
         add_executable(daytona_vita main.cpp ${GEN_SOURCES})
         target_link_libraries(daytona_vita PRIVATE vita_runtime ${VITA_SDL_TARGET} SceCtrl_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub pthread m)
@@ -144,8 +151,9 @@ else()
         set(VITA_OTHER_GAME FILE "${DAYTONA_VITA_REV_A_SELF}" "daytona.self")
     endif()
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
-        VERSION "01.23" NAME "${VITA_APP_NAME}"
+        VERSION "01.24" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
         FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md"
+        FILE "${DAYTONA_ROOT}/extern/imgui/LICENSE.txt" "licenses/imgui.txt"
         ${VITA_BUFFER_LICENSE} ${VITA_OTHER_GAME})
 endif()

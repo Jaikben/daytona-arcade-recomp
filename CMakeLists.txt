@@ -392,6 +392,11 @@ endif()
 # device frame rates. Off by default: not part of the desktop build.
 option(M2_VITA_TESTS "Build the PS Vita frontend's host tests" OFF)
 if(M2_VITA_TESTS)
+    add_executable(test_vita_imgui tests/test_vita_imgui.cpp
+        extern/imgui/imgui.cpp extern/imgui/imgui_draw.cpp
+        extern/imgui/imgui_tables.cpp extern/imgui/imgui_widgets.cpp)
+    target_include_directories(test_vita_imgui PRIVATE . tests/vita_gpu_shim extern/imgui)
+    add_test(NAME vita_imgui COMMAND test_vita_imgui)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(test_vita_link tests/test_vita_link.cpp src/app/link_socket.cpp src/runtime/comm_board.cpp)
         target_include_directories(test_vita_link PRIVATE tests/vita_link_shim src)

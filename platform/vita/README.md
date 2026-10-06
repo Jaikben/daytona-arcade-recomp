@@ -1,5 +1,19 @@
 # Native PS Vita target (experimental)
 
+## ImGui launcher (01.24)
+
+The GXM build now uses Dear ImGui for its launcher, options and loading screen.
+D-pad navigates, Cross activates, Left/Right changes the highlighted setting,
+and Circle goes back/resumes. Front touch selects rows, arrow buttons and the
+scrollbar. Start+Select still opens the menu during play. The existing clocks,
+ROM selector, link configuration, steering curves and display/audio options
+retain their saved vita.cfg values. Both ROM executables use the new UI.
+
+ImGui draws through the existing vita2d/GXM context only while the menu is
+visible. No SDL3 renderer, extra display-buffer mode or game-renderer switch
+was introduced. Wide GPU tiles remain disabled following the earlier hardware
+slowdown. Host contract tests do not establish appearance or speed on a Vita.
+
 This is a VitaSDK/SDL2 frontend for the existing native runtime. It is a
 native Vita application, **not a PSP/Adrenaline build**. The i960, TGP and
 68000 programs still come from the host recompilation pipeline. No
