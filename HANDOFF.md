@@ -2,6 +2,22 @@
 
 ## Current state
 
+**Hold Test button (the test menu without F2).** rt::TestHold
+(src/runtime/test_hold.h): holds the cabinet's Test switch (in0 0x04, active
+low) for 173 frames (3 s), from game frame 240 at the earliest, then reports
+it is done. Launcher, Game tab, next to Start: "Hold Test button"
+(Config::hold_test, not saved; it clears itself when the hold ends); F2 and
+any Test binding still work. For mobile, which has no F2 key. Measured first
+(m2run, screen hash at frame 2,400): the game wants a fresh press from about
+frame 200 after power-on; a press already down then is ignored even if held
+to frame 287; a 3 s hold from frame 200, 240, 600 or 1,200 gives the same
+screen as a 10-frame press at 1,200 (the test menu; the menu's
+Test-selects-an-item does not fire). Revision A the same. test_test_hold. Tried in the desktop app
+(2026-10-06): the test menu opens and the box clears.
+Left for the Vita frontends' developer: GPU25 has no Test item; the plain
+frontend's TEST SWITCH presses for one frame only, which can be missed; both
+can use rt::TestHold. Dreamcast has no way into the test menu yet.
+
 **Licence: BSD-3-Clause (LICENSE).** "Copyright (c) 2026, Ben Templeman and
 contributors". The same licence as the MAME code transplanted into the
 runtime; every linked component is compatible (BSD, zlib, MIT, public

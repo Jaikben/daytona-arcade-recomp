@@ -110,8 +110,9 @@ opens first:
   frame pacing (all off: the arcade's own speed on any display; smooth
   pacing on a 57.52 Hz display, sync to display, VRR pacing), Draw mode (double buffered,
   as the game; single buffered or every third frame draw less often, for slower
-  machines; the game itself runs at full speed), and Skip launcher (start
-  the game straight away next time; Esc still opens the launcher). Enhancements
+  machines; the game itself runs at full speed), Skip launcher (start
+  the game straight away next time; Esc still opens the launcher), and Hold
+  Test button (opens the game's test menu without an F2 key, as on mobile). Enhancements
   (off by default): widescreen 16:10, 16:9 or 21:9, which shows more of the
   scene at the sides with the HUD kept 4:3 in the centre, or with "HUD at
   the screen edges" (experimental) the lap times, position, condition panel and course map
