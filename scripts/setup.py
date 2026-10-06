@@ -33,6 +33,7 @@ ever leaves roms/ and build/.
 """
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -132,22 +133,28 @@ VSWHERE = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x
                        "Microsoft Visual Studio", "Installer", "vswhere.exe")
 
 
-def vs_has_clang():
-    """Visual Studio (or its Build Tools) with the Clang toolset component,
-    which setup.ps1 installs: the ClangCL toolset needs no developer prompt."""
+def vs_with_clang():
+    """Return a Visual Studio 2022 instance with both compiler and toolset.
+
+    Match setup.ps1's VS 2022 install, even when a newer VS also has Clang.
+    CMake must use this same instance, not its default (possibly newer) VS.
+    """
     if not os.path.exists(VSWHERE):
-        return False
-    out = subprocess.run([VSWHERE, "-latest", "-products", "*", "-requires",
-                          "Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset", "-property", "installationPath"],
-                         capture_output=True, text=True).stdout
-    return bool(out.strip())
+        return None
+    out = subprocess.run([VSWHERE, "-latest", "-version", "[17,18)", "-products", "*", "-requires",
+                          "Microsoft.VisualStudio.Component.VC.Llvm.Clang",
+                          "Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset", "-format", "json", "-utf8"],
+                         capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    instances = json.loads(out)
+    return instances[0] if instances else None
 
 
 def cached(build, key):
     try:
-        for line in open(os.path.join(build, "CMakeCache.txt")):
-            if line.startswith(key + ":"):
-                return line.split("=", 1)[1].strip()
+        with open(os.path.join(build, "CMakeCache.txt")) as cache:
+            for line in cache:
+                if line.startswith(key + ":"):
+                    return line.split("=", 1)[1].strip()
     except OSError:
         pass
     return None
@@ -162,12 +169,23 @@ def configure_and_build(build, romset="daytona93"):
         # Clang (clang-cl) when Visual Studio has it, else MSVC.
         cmd += ["-A", "x64"]
         choice = os.environ.get("M2_COMPILER", "").lower()  # clang or msvc forces one (CI builds both)
-        if choice == "clang" and not vs_has_clang():
-            sys.exit("setup: M2_COMPILER=clang, but Visual Studio has no Clang tools (setup.ps1 adds them)")
-        toolset = "ClangCL" if choice != "msvc" and vs_has_clang() else ""
+        clang_vs = vs_with_clang() if choice != "msvc" else None
+        if choice == "clang" and not clang_vs:
+            sys.exit("setup: M2_COMPILER=clang, but Visual Studio 2022 has no Clang tools (setup.ps1 adds them)")
+        toolset = "ClangCL" if clang_vs else ""
         if toolset:
-            cmd += ["-T", toolset]
-            print("Compiler: Clang (Visual Studio's ClangCL toolset)")
+            major = clang_vs["installationVersion"].split(".", 1)[0]
+            capabilities = json.loads(subprocess.run(["cmake", "-E", "capabilities"],
+                                      capture_output=True, text=True, check=True).stdout)
+            generator = next((g["name"] for g in capabilities["generators"]
+                              if g["name"].startswith(f"Visual Studio {major} ")), None)
+            if not generator:
+                sys.exit(f"setup: this CMake does not support Visual Studio {major}, where Clang is installed")
+            instance = clang_vs["installationPath"].replace("\\", "/")
+            cmd += ["-G", generator, "-DCMAKE_GENERATOR_INSTANCE=" + instance, "-T", toolset]
+            want["CMAKE_GENERATOR"] = generator
+            want["CMAKE_GENERATOR_INSTANCE"] = instance
+            print(f"Compiler: Clang ({generator}, {instance})")
         else:
             print("Compiler: MSVC. For Clang, run setup.ps1, which adds Visual Studio's Clang tools.")
         want["CMAKE_GENERATOR_TOOLSET"] = toolset
@@ -177,8 +195,8 @@ def configure_and_build(build, romset="daytona93"):
             cmd += ["-DCMAKE_C_COMPILER=clang-cl", "-DCMAKE_CXX_COMPILER=clang-cl"]
     if os.path.exists(os.path.join(build, "CMakeCache.txt")):
         if any((cached(build, k) or "") != v for k, v in want.items()):
-            # A compiler or toolset cannot change in place: start this build directory's CMake state again.
-            print("The build directory was configured for another compiler; reconfiguring it.")
+            # A generator, instance or toolset cannot change in place.
+            print("The build directory was configured for another compiler or Visual Studio installation; reconfiguring it.")
             os.remove(os.path.join(build, "CMakeCache.txt"))
             shutil.rmtree(os.path.join(build, "CMakeFiles"), ignore_errors=True)
     if not os.path.exists(os.path.join(build, "CMakeCache.txt")):

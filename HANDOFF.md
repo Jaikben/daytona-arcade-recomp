@@ -62,6 +62,15 @@ for build validation and device-test status.
 
 ## Current state
 
+**Windows setup: pin Clang discovery to VS 2022.** Both setup scripts now
+select the documented VS 2022 toolchain when newer versions are installed
+alongside it. CMake receives the matching generator and installation path;
+mismatched cached configuration is cleared, preserving generated sources.
+
+Checked: three setup regression tests pass. Revision A built with VS 2022
+and Clang 19.1.5; 12 CTest tests passed, two optional Lua tests skipped.
+CI now runs the setup tests and builds on branch pushes. Remote CI pending.
+
 **Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing
 (Clock, Display, Vrr) chosen from the display's refresh and three settings,
 all off (pace_smooth, pace_sync_display, pace_vrr), and Pacer, the per-pass
