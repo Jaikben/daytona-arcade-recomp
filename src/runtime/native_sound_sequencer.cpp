@@ -211,6 +211,7 @@ void NativeSoundSequencer::note_on(Channel &c, uint8_t note, uint8_t velocity) {
     auto &voice = allocate(rom);
     voice.active = true; voice.drum = drum; voice.held = false;
     voice.channel = c.channel; voice.note_code = note_code;
+    voice.event.music = music_channel(c.channel);
     voice.velocity = byte(kVelocity + shift_ + (velocity & 127)); voice.tuning = tuning;
     voice.age = ++voice_age_; voice.lifetime = duration;
     voice.event.bank = banks_[rom];
@@ -292,7 +293,7 @@ void NativeSoundSequencer::controller(Channel &c, uint8_t control, uint8_t value
         break;
     case 0x50:
         for (auto &v : voices_) {
-            const bool music = v.channel <= 9 || v.channel == 15;
+            const bool music = music_channel(v.channel);
             if (v.active && (value == 0x7d ? !music && !v.reserved : value == 0x7e ? music : true)) stop_voice(v);
         }
         bend_ = {}; hold_ = {};
@@ -429,7 +430,7 @@ void NativeSoundSequencer::update_engines() {
         auto &v = voices_[28 + slot];
         if (!on) { stop_voice(v); return; }
         const bool starting = !v.active;
-        v.active = true; v.channel = 10; v.event.bank = banks_[1];
+        v.active = true; v.channel = 10; v.event.music = false; v.event.bank = banks_[1];
         if (starting) v.event.sample_index = uint16_t(sample | ((pitch & 1) << 8));
         update_voice(v, pitch, level >> 1, pan, starting ? EventKind::NoteOn : EventKind::Update);
     };

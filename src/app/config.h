@@ -17,6 +17,8 @@ struct Config {
     bool skip_launcher = false; // start the game straight away (as --autostart); Esc still opens the launcher
     float volume = 0.8f;      // 0..1
     bool mute = false;
+    float music_volume = 1.0f;   // 0..1: the music against the effects (both 1: as the arcade mixes them)
+    float effects_volume = 1.0f; // 0..1
     bool native_audio = false; // applies on reset; reference remains the default
     // Enhancements (off by default).
     std::string aspect;        // widescreen: "" (original 4:3), "16:10", "16:9", "21:9"

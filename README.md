@@ -134,5 +134,5 @@ Default controls:
 
 Sound: the sound board's 68000 program is statically recompiled like the
 i960 code and runs on the native board with the YM3438 (ymfm) and both
-MultiPCMs; output goes through SDL audio. Volume and mute are in the
-launcher.
+MultiPCMs; output goes through SDL audio. Volume, mute, and separate music
+and effects volumes are on the launcher's Audio tab.

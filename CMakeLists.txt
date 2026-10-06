@@ -308,6 +308,10 @@ add_executable(test_native_sample_mixer tests/test_native_sample_mixer.cpp src/r
 target_include_directories(test_native_sample_mixer PRIVATE src/runtime)
 add_test(NAME native_sample_mixer COMMAND test_native_sample_mixer)
 
+add_executable(test_multipcm_volumes tests/test_multipcm_volumes.cpp src/runtime/multipcm.cpp)
+target_include_directories(test_multipcm_volumes PRIVATE src)
+add_test(NAME multipcm_volumes COMMAND test_multipcm_volumes)
+
 add_executable(test_native_sound_sequencer tests/test_native_sound_sequencer.cpp src/runtime/native_sound_sequencer.cpp)
 target_include_directories(test_native_sound_sequencer PRIVATE src)
 add_test(NAME native_sound_sequencer COMMAND test_native_sound_sequencer)

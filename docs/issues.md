@@ -9,7 +9,7 @@ yet. Line numbers drift; the files and functions named are the reference.
 | [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Cause found (in SDL); waiting on the reporter |
 | [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Plan agreed: four settings, all off by default |
 | [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed on branch `ffb-drive-board`; not yet tried on a real wheel |
-| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Depends on the audio mode; asking the reporter |
+| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added on branch `audio-music-effects`, both audio modes |
 | [#6](#6-android-version) | Android version | Feature request |
 
 ## #4: Logitech Driving Force cannot be bound on Linux
@@ -281,7 +281,11 @@ the YM3438 at 0.30 and each MultiPCM at 0.5
 ([sound_board.cpp](../src/runtime/sound_board.cpp)). The MultiPCM code matches
 MAME's, and the output was checked against MAME's recordings (HANDOFF.md). So
 MAME has the same balance, and MAME's gains may not match a real cabinet. Music
-and effects share both MultiPCM chips, so a balance setting is hard here.
+and effects share both MultiPCM chips, and the driver hands out voices as they
+are needed, so a voice cannot be told apart by its chip or slot.
+
+Measured in `race_basic`'s race (reference audio, RMS of the mixed output):
+the effects alone 0.195, the music alone 0.059, about 10 dB apart.
 
 **Native audio:** a real problem.
 
@@ -296,7 +300,35 @@ and effects share both MultiPCM chips, so a balance setting is hard here.
   them apart by channel
   ([native_sound_sequencer.cpp](../src/runtime/native_sound_sequencer.cpp)).
 
-**Next:** ask the reporter which audio mode they use.
+### Done: Music and Effects volumes (branch `audio-music-effects`)
+
+A new **Audio** tab in the launcher has Volume, Mute, **Music** and
+**Effects** (both 100% by default) and the Native audio switch.
+
+- **Which voice is which (reference audio).** At each key-on the sound board
+  finds the driver's voice for that chip and slot in the 68000's RAM and reads
+  its channel; music is channels 0-9 and 15, as the driver's own "stop music"
+  command has it. From the driver's code: two voice pools of 28 at 0xf01500
+  and 0xf01618, ten bytes each (byte 0 nonzero when in use, bit 3 the chip;
+  byte 1 the slot code; byte 3 the channel); records with byte 6 0xff are the
+  engine layers' reserved ones and are skipped (they carry the wrong chip
+  bit). The engine's fixed slots on the second chip have no voice record and
+  count as effects.
+- **Checked** against the native sequencer's class for the same notes (the
+  oracle's pairing): race 4,899 of 4,899 notes agree, attract 2,274 of 2,274;
+  Revision A race 4,892 of 4,892, attract 2,095 of 2,095. Exactly one voice
+  record per key-on.
+- **At 100% and 100% nothing changes:** `race_basic`'s reference audio WAV is
+  byte-identical before and after (20 MB), and the screen hash and instruction
+  counts are unchanged. Music alone plus effects alone equals the full mix in
+  all but 0.097% of samples, the ones where a chip clips at 16 bits in the full
+  mix.
+- **Native audio:** each note carries the class from its channel; the mixer
+  scales each voice by its volume.
+
+**Next:** ask the reporter which audio mode they use, and whether Music and
+Effects let them get the balance they remember. Native audio's master gain
+and envelopes are still open.
 
 ## #6: Android version
 

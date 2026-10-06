@@ -23,6 +23,7 @@ public:
     void send(const uint8_t *bytes, size_t count);
     void render(float *stereo, size_t frames);
     Stats stats() const;
+    void set_volumes(float music, float effects) { mixer_.set_volumes(music, effects); } // the launcher's two volumes
     const NativeSoundSequencer::Stats &sequence_stats() const { return sequencer_.stats(); }
 private:
     std::vector<uint8_t> program_;

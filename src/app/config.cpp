@@ -41,6 +41,8 @@ void Config::load() {
         else if (k == "supersampling") supersampling = std::clamp(std::atoi(v.c_str()), 1, 4);
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
+        else if (k == "music_volume") music_volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
+        else if (k == "effects_volume") effects_volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "native_audio") native_audio = v == "1";
         else if (k == "deadzone") controls.deadzone = std::strtof(v.c_str(), nullptr);
         else if (k == "joy_deadzone") controls.joy_deadzone = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 0.4f);
@@ -78,6 +80,8 @@ void Config::save() const {
     f << "supersampling=" << supersampling << "\n";
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";
+    f << "music_volume=" << music_volume << "\n";
+    f << "effects_volume=" << effects_volume << "\n";
     f << "native_audio=" << (native_audio ? 1 : 0) << "\n";
     f << "deadzone=" << controls.deadzone << "\n";
     f << "joy_deadzone=" << controls.joy_deadzone << "\n";

@@ -294,6 +294,7 @@ int main(int argc, char **argv) {
                 if (!native_audio.open(std::move(engine)))
                     throw std::runtime_error(std::string("Cannot open native audio: ") + SDL_GetError());
                 native_audio.volume(cfg.volume);
+                native_audio.volumes(cfg.music_volume, cfg.effects_volume);
                 native_audio.mute(cfg.mute);
             } else if (audio_initialized) {
                 have_audio = audio.open(snd::SoundBoard::kYmClock / 144.0, snd::SoundBoard::kPcmClock / 224.0);
@@ -331,6 +332,7 @@ int main(int argc, char **argv) {
         if (native_fault) in_launcher = true;
         if (!native_audio.available()) return;
         native_audio.volume(cfg.volume);
+        native_audio.volumes(cfg.music_volume, cfg.effects_volume);
         native_audio.mute(cfg.mute);
         if (in_launcher || !running) native_audio.pause();
         else if (!native_audio.resume()) {
@@ -416,6 +418,7 @@ int main(int argc, char **argv) {
             launcher.set_ffb_device(ffb.device_kind());
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {
+                game->sound()->set_volumes(cfg.music_volume, cfg.effects_volume);
                 if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it
             }

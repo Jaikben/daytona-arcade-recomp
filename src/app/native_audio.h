@@ -65,6 +65,12 @@ public:
         gain_.store(uint32_t(std::clamp(gain, 0.f, 1.f) * 65536.f), std::memory_order_relaxed);
     }
     void mute(bool muted) { muted_.store(muted, std::memory_order_relaxed); }
+    // The music and effects volumes (0..1), for an engine that has them.
+    void volumes(float music, float effects) {
+        auto level = [](float v) { return uint32_t((std::isfinite(v) ? std::clamp(v, 0.f, 1.f) : 0.f) * 65536.f); };
+        music_.store(level(music), std::memory_order_relaxed);
+        effects_.store(level(effects), std::memory_order_relaxed);
+    }
 
     // Main is the single producer. Overflow rejects the entire packet and
     // must be reported by the caller: losing a note-off is not recoverable.
@@ -102,6 +108,7 @@ private:
     std::array<uint8_t, kQueueSize> queue_{};
     std::atomic<uint32_t> read_{0}, write_{0}, callbacks_{0}, frames_{0}, overflows_{0}, failed_{0};
     std::atomic<uint32_t> gain_{52428}, muted_{0}, unsupported_{0}, invalid_{0};
+    std::atomic<uint32_t> music_{65536}, effects_{65536};
 
     void health() {
         if constexpr (requires { engine_->stats().unsupported; engine_->stats().invalid; }) {
@@ -128,6 +135,9 @@ private:
         const float gain = self.muted_.load(std::memory_order_relaxed) ? 0.f
             : float(self.gain_.load(std::memory_order_relaxed)) / 65536.f;
         float mix[kChunkFrames * 2];
+        if constexpr (requires { self.engine_->set_volumes(1.f, 1.f); })
+            self.engine_->set_volumes(float(self.music_.load(std::memory_order_relaxed)) / 65536.f,
+                                      float(self.effects_.load(std::memory_order_relaxed)) / 65536.f);
         try {
             if (!self.failed_.load(std::memory_order_relaxed)) self.receive();
             while (remaining) {

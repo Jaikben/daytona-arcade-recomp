@@ -2,6 +2,7 @@
 // not a MultiPCM register, envelope, LFO, or timing implementation.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +77,7 @@ public:
         uint32_t loop_start = kHeaderLoop;
         uint32_t loop_end = 0; // exclusive; zero uses the sample header end
         Envelope envelope{};
+        bool effect = false; // an effect's voice, else music's: which of the two volumes scales it
     };
     struct Stats {
         uint64_t rendered_frames = 0;
@@ -98,6 +100,10 @@ public:
     bool active(unsigned slot) const noexcept;
     unsigned active_voices() const noexcept;
     bool set_master_gain(float gain) noexcept;
+    // The launcher's music and effects volumes (0..1; both 1: unchanged).
+    void set_volumes(float music, float effects) noexcept {
+        volumes_[0] = std::clamp(music, 0.0f, 1.0f), volumes_[1] = std::clamp(effects, 0.0f, 1.0f);
+    }
     // Enabled by default. Disable only for raw mixer/reference measurements.
     // Stereo-linked immediate attack, 50 ms exponential recovery; no lookahead.
     // Toggling or all_stop clears the attenuation state.
@@ -116,7 +122,7 @@ private:
         const NativeSampleBank::Sample* sample = nullptr;
         uint64_t phase = 0, step = 0;
         uint32_t loop_start = 0, end = 0;
-        bool loop = false, active = false;
+        bool loop = false, active = false, effect = false;
         float gain = 0, pan = 0, left = 0, right = 0;
         float level = 0, stage_start = 0, stage_end = 0, sustain = 1;
         uint32_t stage_elapsed = 0, stage_frames = 0;
@@ -130,6 +136,7 @@ private:
     static void advance_envelope(Voice& voice) noexcept;
     std::array<Voice, kVoices> voices_{};
     float master_gain_ = kDefaultMasterGain;
+    float volumes_[2] = {1.0f, 1.0f}; // music, effects
     float limiter_gain_ = 1.0f;
     bool peak_limiter_ = true;
     Stats stats_{};

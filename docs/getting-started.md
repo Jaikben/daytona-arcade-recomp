@@ -174,6 +174,10 @@ ahead trees, rocks and buildings are drawn. **Default** is the game's own.
 machines; **Further** and **Furthest** draw more. The road itself is not
 affected yet.
 
+**Audio** tab: **Volume** and **Mute**, and **Music** and **Effects**
+for the balance between the music and everything else (the engine, skids,
+crashes). Both at 100% is the game as the arcade's sound board mixes it.
+
 Default keys: arrows to steer, accelerate and brake; 5 inserts a coin,
 Enter is start; A S D F are the view buttons; 1-4 or Q/W change gear. The
 full table is in the [README](../README.md#playing).

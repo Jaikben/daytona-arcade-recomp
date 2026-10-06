@@ -2,6 +2,31 @@
 
 ## Current state
 
+**Audio tab: music and effects volumes (issue #10).** Launcher: a new Audio
+tab with Volume, Mute, Music, Effects (music_volume, effects_volume: 1 and 1
+by default) and the Native audio switch, moved from the Game tab. Reference
+audio: at each MultiPCM key-on, SoundBoard::voice_channel reads the owning
+channel from the driver's voice pools in 68000 RAM (0xf01500 and 0xf01618, 28
+records of 10 bytes; byte 0 nonzero in use, bit 3 the chip; byte 1 the slot
+code; byte 3 the channel; byte 6 0xff on the engine layers' reserved records,
+skipped: they carry chip 0's bit with chip 1's fixed slot codes, which gave
+1,597 false double matches in a race before they were skipped). Music is
+channels 0-9 and 15 (NativeSoundSequencer::music_channel, the driver's "stop
+music" set); a key-on with no record (the engine's fixed slots 18-27 on chip
+1) is an effect. MultiPcm sums music and effect slots apart and scales them
+before its 16-bit clamp; at 1 and 1 the sums are added as before. Native
+audio: VoiceEvent::music, NativeSampleMixer::set_volumes per voice, set from
+the audio callback through atomics.
+Checked: class against the native sequencer's channel, note for note
+(scratch program on the oracle's pairing): daytona93 race 4,899/4,899, attract
+2,274/2,274; daytona race 4,892/4,892, attract 2,095/2,095; one voice record
+per key-on. race_basic reference WAV byte-identical before and after (20 MB);
+screen hash ad67233983ea8808 and instruction counts unchanged. Music alone +
+effects alone = the full mix except 0.097% of samples, where a chip clips in
+the full mix. Race RMS: effects 0.195, music 0.059 (10 dB). New tests:
+multipcm_volumes, native_sample_mixer's volumes case; all CTest tests pass.
+Not listened to on this machine.
+
 **Force feedback: Daytona's drive board commands (issue #9).** The command
 meanings taken from Supermodel's later drive boards were wrong for Daytona:
 the game's centring spring (0x39-0x3C, on all race) was played as a 60 ms

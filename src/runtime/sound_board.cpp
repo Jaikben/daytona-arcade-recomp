@@ -1,5 +1,7 @@
 #include "runtime/sound_board.h"
 
+#include "runtime/native_sound_sequencer.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -102,6 +104,23 @@ uint8_t SoundBoard::read(uint32_t addr) {
     }
 }
 
+// The driver's voices: two pools of 28, ten bytes each, in its RAM at
+// 0xf01500 and 0xf01618. Byte 0 is zero when free, bit 3 the MultiPCM;
+// byte 1 the slot code it writes to the chip, byte 3 the owning channel
+// (the command's low nibble), byte 6 0xff for the engine layers' reserved
+// records, which never take a voice (the allocator wants 0) and carry chip
+// 0's bit with chip 1's fixed slot codes. Read from the driver's code: the
+// allocator at 0x1688, the slot select at 0x1652, a note's start at
+// 0xc22-0xd26.
+int SoundBoard::voice_channel(unsigned chip, uint8_t slot) const {
+    for (uint32_t pool : {0x1500u, 0x1618u})
+        for (uint32_t v = pool; v < pool + 28 * 10; v += 10) {
+            const uint8_t *voice = &cpu_.ram[v];
+            if (voice[0] && voice[6] != 0xff && (voice[0] >> 3 & 1) == chip && voice[1] == slot) return voice[3] & 15;
+        }
+    return -1;
+}
+
 void SoundBoard::write(uint32_t addr, uint16_t data) {
     const uint8_t d = uint8_t(data);
     switch (addr) {
@@ -116,13 +135,19 @@ void SoundBoard::write(uint32_t addr, uint16_t data) {
         }
         break;
     case 0xc40001: case 0xc40003: case 0xc40005: case 0xc40007:
+    case 0xc60001: case 0xc60003: case 0xc60005: case 0xc60007: {
         render_pcm_to(sched_.count);
-        pcm1_.write((addr - 0xc40001) / 2, d);
+        const unsigned chip = addr >= 0xc60001, offset = (addr & 7) >> 1;
+        MultiPcm &pcm = chip ? pcm2_ : pcm1_;
+        if (offset == 1) pcm_slot_[chip] = d;
+        else if (offset == 2) pcm_register_[chip] = d;
+        else if (offset == 0 && pcm_register_[chip] == 4 && (d & 0x80)) { // key on: music's voice or an effect's
+            const int channel = voice_channel(chip, pcm_slot_[chip]);
+            pcm.set_effect(channel < 0 || !NativeSoundSequencer::music_channel(unsigned(channel)));
+        }
+        pcm.write(offset, d);
         break;
-    case 0xc60001: case 0xc60003: case 0xc60005: case 0xc60007:
-        render_pcm_to(sched_.count);
-        pcm2_.write((addr - 0xc60001) / 2, d);
-        break;
+    }
     case 0xc50000: render_pcm_to(sched_.count); pcm1_.set_bank(data & 3); break;
     case 0xc70000: render_pcm_to(sched_.count); pcm2_.set_bank(data & 3); break;
     case 0xd00001: case 0xd00003: case 0xd00005: case 0xd00007:

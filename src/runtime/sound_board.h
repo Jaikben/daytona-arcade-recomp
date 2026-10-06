@@ -49,6 +49,14 @@ public:
     std::vector<float> take_pcm() { return std::exchange(pcm_out_, {}); }
 
     uint64_t instructions() const { return sched_.count; }
+    // The launcher's music and effects volumes (0..1; both 1: unchanged).
+    void set_volumes(float music, float effects) { pcm1_.set_volumes(music, effects), pcm2_.set_volumes(music, effects); }
+    // Which driver channel owns the voice on MultiPCM `chip` (0, 1) at slot
+    // code `slot` (the value the driver writes to the slot register), from
+    // the driver's voice pools in its RAM; -1 if none does (the engine's
+    // fixed slots).
+    int voice_channel(unsigned chip, uint8_t slot) const;
+    const std::vector<uint8_t> &ram() const { return cpu_.ram; } // the 68000's work RAM, 0xf00000 on (tests)
     size_t bytes_received() const { return received_; }
 
     // Devices (the 68000's view)
@@ -86,6 +94,7 @@ private:
 
     // MultiPCMs
     MultiPcm pcm1_, pcm2_;
+    uint8_t pcm_slot_[2] = {}, pcm_register_[2] = {}; // what each chip's driver writes are aimed at
     uint64_t pcm_done_ = 0;
     std::vector<float> pcm_out_;
 };

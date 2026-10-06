@@ -23,6 +23,13 @@ public:
     void set_bank(unsigned bank) { bank_ = bank & 3; }
     // Renders n stereo samples, each channel as MAME's put_int_clamp(v, 32768).
     void generate(float *left, float *right, int n);
+    // The launcher's music and effects volumes (0..1; both 1: MAME's output,
+    // bit for bit). The sound board marks the selected slot at each key-on
+    // with whose voice it is (SoundBoard::voice_channel).
+    void set_volumes(float music, float effects) { music_ = music, effects_ = effects; }
+    void set_effect(bool effect) {
+        if (cur_slot_ < uint32_t(kVoices)) slots_[cur_slot_].effect = effect;
+    }
 
 private:
     struct Sample {
@@ -62,6 +69,7 @@ private:
         uint8_t vibrato = 0;
         Lfo amplitude_lfo;
         uint8_t tremolo = 0;
+        bool effect = false; // an effect's voice, else music's
     };
 
     static constexpr uint32_t TL_SHIFT = 12, EG_SHIFT = 16, LFO_SHIFT = 8;
@@ -86,6 +94,7 @@ private:
     float rate_;
     Slot slots_[kVoices];
     uint32_t cur_slot_ = 0, address_ = 0;
+    float music_ = 1.0f, effects_ = 1.0f;
 
     uint32_t attack_step_[0x40] = {}, decay_release_step_[0x40] = {}, freq_step_table_[0x400] = {};
     int32_t left_pan_table_[0x800] = {}, right_pan_table_[0x800] = {}, linear_to_exp_volume_[0x400] = {};
