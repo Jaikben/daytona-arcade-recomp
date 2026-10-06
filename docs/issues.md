@@ -8,7 +8,7 @@ yet. Line numbers drift; the files and functions named are the reference.
 | --- | --- | --- |
 | [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Cause found (in SDL); waiting on the reporter |
 | [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Plan agreed: four settings, all off by default |
-| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands decoded wrongly (checked against the drive board's program): the centring spring is played as a shake; plan: four fixes, one setting |
+| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed on branch `ffb-drive-board`; not yet tried on a real wheel |
 | [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Depends on the audio mode; asking the reporter |
 | [#6](#6-android-version) | Android version | Feature request |
 
@@ -266,8 +266,10 @@ copied after the run that shows the problem, before the game is started again.
 
 1. Now, with no new code: ask the reporter what the launcher shows under the
    force feedback slider, "wheel (force feedback)" or "gamepad (rumble)".
-2. Make the fixes and add the log setting. Then ask the reporter to try again,
-   and to send the log from a race if anything is still wrong.
+2. Done on branch `ffb-drive-board`: all four fixes and the log setting
+   (tests pass; not tried on a real wheel). Ask the reporter to try a build of
+   it, and to send the log from a race ("Log force feedback" on) if anything
+   is still wrong.
 
 ## #10: Sound effects too loud compared with the music
 

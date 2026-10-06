@@ -37,6 +37,7 @@ struct Config {
     bool link_framesync = false;         // hold every cabinet to the master's frame
     float ffb_strength = 0.7f; // force feedback (the drive board) on the steering device: 0 off .. 1
     bool ffb_invert = false;   // turn the wheel the other way
+    bool ffb_log = false;      // log the force feedback device, failures and the commands (daytona.log on Windows)
 
     Config() { controls.set_defaults(); }
     static std::string path();  // <pref path>/launcher.ini

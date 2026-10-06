@@ -1,9 +1,14 @@
 // Force feedback: the drive board's state (rt::DriveBoard, from the game's
-// commands) on the host's wheel. A wheel with SDL haptics gets a centring
-// spring, friction, a vibration and a constant force (the "turn the wheel"
-// commands), on its steering axis; a gamepad without them gets rumble (the
-// vibration and the turning force's size). The device is the one steering is
-// bound to: the wheel/joystick binding first, else the gamepad.
+// commands) on the host's wheel. A wheel with SDL haptics gets the board's
+// one effect at a time on its steering axis: a spring (centring, with or
+// without a dead zone, or uncentring as a negative spring), friction (the
+// board's resistance) or a constant force. A gamepad without haptics gets
+// rumble: the constant force on the large motor, uncentring on the small one;
+// the springs and resistance, on all race, give none. A wheel whose haptics
+// fail to open gets nothing, not rumble (on DirectInput, SDL's rumble is a
+// shake through the wheel), and the open is tried again. The device is the
+// one steering is bound to: the wheel/joystick binding first, else the
+// gamepad.
 #pragma once
 
 #include "app/controls.h"
@@ -20,22 +25,28 @@ class ForceFeedback {
 public:
     ~ForceFeedback() { close(); }
     // Each frame: the drive commands the game sent, the devices, the
-    // settings (strength 0..1, 0 = off; invert the turning force).
+    // settings (strength 0..1, 0 = off; invert the turning force; log: the
+    // device, failed calls and each command with the game's frame, to stderr).
     void update(const std::vector<uint8_t> &commands, const Devices &devices, const Controls &controls, float strength,
-                bool invert);
-    void stop();  // the game paused or reset: let the wheel go
+                bool invert, bool log = false, uint64_t frame = 0);
+    void stop();  // the game paused: let the wheel go (the board's state is kept for resuming)
+    void reset(); // a new game: stop, and the board as at power-on
     void close(); // release the device
     const rt::DriveBoard &state() const { return drive_; }
-    const char *device_kind() const; // "wheel (force feedback)", "gamepad (rumble)" or "none", for the launcher
+    const char *device_kind() const; // what force feedback plays on, for the launcher
 
 private:
     rt::DriveBoard drive_;
     SDL_Joystick *joy_ = nullptr; // the device the effects are on
     SDL_Haptic *haptic_ = nullptr;
-    int spring_ = -1, friction_ = -1, sine_ = -1, constant_ = -1;
-    int sent_[4] = {-1, -1, -1, -1}; // the levels last sent to each effect: only changes go to the device
-    bool running_ = false, stopped_ = false;
+    bool wants_haptic_ = false; // the device has force feedback but it is not open (yet): no rumble
+    uint64_t retry_at_ = 0;     // SDL_GetTicks() when the haptic open is tried again
+    bool reported_ = false;     // the open failure was logged
+    int spring_ = -1, friction_ = -1, constant_ = -1;
+    int sent_[3] = {-1, -1, -1}; // what each effect was last set to: only changes go to the device
+    bool running_ = false, stopped_ = false, log_ = false;
     void open(SDL_Joystick *joy);
+    void open_haptic();
     void apply(float strength, bool invert);
 };
 
