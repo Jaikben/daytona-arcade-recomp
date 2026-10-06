@@ -40,7 +40,9 @@ ignored, so a noisy axis can block a bind until Esc.
 **Done:** a setting rather than a change for
 everyone, since SDL's driver works for the Logitech wheels it was written for
 and only this older one is affected. Controls tab: **Legacy Logitech wheel
-support (Restart Required)** (`legacy_logitech_wheels`, off by default). On, it
+support (Restart Required)** (`legacy_logitech_wheels`; on by default on Linux, whose kernel
+driver gives Logitech wheels force feedback; off on macOS, where only SDL's
+driver does). On, it
 sets `SDL_HINT_JOYSTICK_HIDAPI_LG4FF` to `"0"` before `SDL_Init`
 ([main.cpp](../src/app/main.cpp)), as the Graphics API setting does with its
 hint. Hidden on Windows: SDL's Logitech driver is off there by default

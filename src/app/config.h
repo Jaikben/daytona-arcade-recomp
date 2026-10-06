@@ -42,9 +42,15 @@ struct Config {
     bool ffb_log = false;      // log the force feedback device, failures and the commands (daytona.log on Windows)
     // Linux and macOS: Logitech wheels through the system's driver, not SDL's
     // own (its HIDAPI lg4ff driver, off on Windows already). Some, like the
-    // original Driving Force, send SDL's driver nothing (issue #4). Applies at
-    // start-up; SDL gives the wheel another GUID, so it is bound again.
+    // original Driving Force, send SDL's driver nothing (issue #4). On by
+    // default on Linux, whose kernel driver gives the wheels force feedback;
+    // off on macOS, where only SDL's driver does. Applies at start-up; SDL
+    // gives the wheel another GUID, so it is bound again.
+#ifdef __linux__
+    bool legacy_logitech_wheels = true;
+#else
     bool legacy_logitech_wheels = false;
+#endif
 
     Config() { controls.set_defaults(); }
     static std::string path();  // <pref path>/launcher.ini

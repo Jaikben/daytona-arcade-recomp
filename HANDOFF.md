@@ -8,7 +8,9 @@ driver, which reads c294 reports only when they are exactly 27 bytes; the
 reporter confirmed it works with SDL_JOYSTICK_HIDAPI_LG4FF=0. A setting, not
 a change for everyone (SDL's driver serves the wheels it was written for):
 Controls tab, "Legacy Logitech wheel support (Restart Required)",
-legacy_logitech_wheels (off). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
+legacy_logitech_wheels (on by default on Linux, whose kernel driver gives
+Logitech wheels force feedback; off on macOS, where SDL's lg4ff haptics are
+the only force feedback for them). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
 "0" before SDL_Init (SDL reads it when it finds devices; a change while
 running is not guaranteed to hand the wheel back to evdev) and logs it.
 Hidden on Windows, where SDL leaves lg4ff off already (hid.dll). The wheel's

@@ -379,8 +379,10 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                                 "lock or full travel to be, and let go: that sets its range.");
 #ifndef _WIN32 // SDL's own Logitech driver is off on Windows already
             if (ImGui::Checkbox("Legacy Logitech wheel support (Restart Required)", &cfg_.legacy_logitech_wheels)) cfg_.save();
-            ImGui::TextDisabled("For a Logitech wheel that is listed but does nothing when you bind it (the original\n"
-                                "Driving Force). After restarting, bind the wheel's controls again.");
+            ImGui::TextDisabled("Logitech wheels through the system's driver: needed for one that is listed but does\n"
+                                "nothing when you bind it (the original Driving Force). Off: SDL's own driver, which\n"
+                                "on macOS gives the newer wheels force feedback. After a change, restart and bind the\n"
+                                "wheel's controls again.");
 #endif
 
             ImGui::SetNextItemWidth(200);

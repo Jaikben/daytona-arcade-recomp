@@ -147,10 +147,12 @@ far as you want full lock to be, and let go; do the same for **Steer
 right**, then press each pedal fully and let go for **Accelerate** and
 **Brake**. The meters at the top show the result. **Force feedback** sets
 how strongly the wheel pushes back (Off turns it off); tick **Invert force**
-if the wheel pulls the wrong way. On Linux or macOS, if a Logitech wheel is
-listed but does nothing when you bind it (the original Driving Force does
-this), tick **Legacy Logitech wheel support**, restart the game and bind the
-wheel again.
+if the wheel pulls the wrong way. **Legacy Logitech wheel support** (Linux
+and macOS) runs Logitech wheels through the system's driver; the original
+Driving Force needs it. It is on by default on Linux. On macOS it is off,
+because SDL's own driver gives the newer Logitech wheels force feedback
+there; tick it if a Logitech wheel is listed but does nothing when you bind
+it. After changing it, restart the game and bind the wheel again.
 
 **Widescreen** (optional): in the launcher, under **Enhancements**, set
 **Widescreen** to 16:10, 16:9 or 21:9. You see more of the scene at the
