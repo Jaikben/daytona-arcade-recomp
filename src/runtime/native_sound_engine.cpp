@@ -46,6 +46,7 @@ void NativeSoundEngine::apply(const NativeSoundSequencer::VoiceEvent &value) {
         params.pitch = value.source_rate_hz / NativeSampleMixer::kOutputRate;
         params.gain = value.gain;
         params.pan = value.pan;
+        params.effect = !value.music;
         mixer_.note_on(value.voice_id, banks_[value.rom][value.bank], value.sample_index, params);
         break;
     }

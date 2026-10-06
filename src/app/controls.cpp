@@ -198,11 +198,12 @@ float Controls::value(Action a, const bool *keys, const Devices &d) const {
         x = x <= deadzone ? 0.f : (x - deadzone) / (1.f - deadzone); // rescale past the dead zone: full travel still reaches 1
         v = std::max(v, x);
     }
-    return std::max(v, b.joy.value(d, joy_deadzone));
+    return std::max({v, b.joy.value(d, joy_deadzone), touch[a]});
 }
 
 bool Controls::analog_source(Action a, const Devices &d) const {
-    return (d.pad && bind[a].pad.kind == PadInput::Axis) || (bind[a].joy.kind == JoyInput::Axis && d.find(bind[a].joy.guid));
+    return (touch_steering && (a == SteerLeft || a == SteerRight)) ||
+           (d.pad && bind[a].pad.kind == PadInput::Axis) || (bind[a].joy.kind == JoyInput::Axis && d.find(bind[a].joy.guid));
 }
 
 rt::Inputs Controls::sample(const bool *keys, const Devices &d) {

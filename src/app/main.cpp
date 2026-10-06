@@ -16,6 +16,7 @@
 
 #include "app/config.h"
 #include "app/ffb.h"
+#include "app/pacing.h"
 #include "app/link_socket.h"
 #include "app/gpu/gpu_renderer.h"
 #include "app/launcher.h"
@@ -27,6 +28,9 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlgpu3.h"
 #include "imgui.h"
+#ifdef M2_MOBILE
+#include "app/touch_overlay.h"
+#endif
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -74,7 +78,9 @@ public:
         }
         return true;
     }
-    void push(snd::SoundBoard &sb, float gain) {
+    // speed: the game's rate over the arcade's (Sync to display: 1.043 at 60
+    // frames/s), so the sound keeps up with the game; the trim works around it.
+    void push(snd::SoundBoard &sb, float gain, double speed = 1.0) {
         if (!fm_) return;
         const std::vector<float> fm = sb.take_fm(), pcm = sb.take_pcm();
         SDL_PutAudioStreamData(fm_, fm.data(), int(fm.size() * sizeof(float)));
@@ -85,7 +91,7 @@ public:
             SDL_ClearAudioStream(pcm_);
         }
         const double err = std::clamp((queued - kLatency) / kLatency, -1.0, 1.0);
-        const float ratio = float(1.0 + 0.005 * err); // at most 0.5%: inaudible
+        const float ratio = float(speed * (1.0 + 0.005 * err)); // the trim at most 0.5%: inaudible
         SDL_SetAudioStreamFrequencyRatio(fm_, ratio);
         SDL_SetAudioStreamFrequencyRatio(pcm_, ratio);
         SDL_SetAudioStreamGain(fm_, gain);
@@ -195,7 +201,16 @@ int main(int argc, char **argv) {
 
     // the name graphics overlays and drivers see (patches/sdl3: Vulkan's application name)
     SDL_SetAppMetadata("Daytona USA", nullptr, "daytona-recomp");
+#ifdef M2_MOBILE
+    // Mobile shells are landscape-only and always occupy the display.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    cfg.fullscreen = true;
+#endif
     if (!cfg.gpu.empty()) SDL_SetHint(SDL_HINT_GPU_DRIVER, cfg.gpu.c_str());
+    if (cfg.legacy_logitech_wheels) { // before the joysticks start: SDL reads it when it finds the devices
+        SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "0");
+        std::fprintf(stderr, "daytona: Logitech wheels through the system's driver\n");
+    }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return fail("SDL_Init");
     if (!SDL_InitSubSystem(SDL_INIT_HAPTIC)) std::fprintf(stderr, "daytona: no force feedback (%s)\n", SDL_GetError());
     Audio audio;
@@ -211,6 +226,7 @@ int main(int argc, char **argv) {
     SDL_Window *window = SDL_CreateWindow("Daytona USA", W * 2, H * 2,
                                           SDL_WINDOW_RESIZABLE | (cfg.fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
     if (!window) return fail("SDL_CreateWindow");
+    app::apply_fullscreen_mode(window, cfg.fullscreen_mode);
     constexpr SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL;
     SDL_GPUDevice *dev = SDL_CreateGPUDevice(formats, false, nullptr);
     if (!dev && !cfg.gpu.empty()) {
@@ -229,7 +245,15 @@ int main(int argc, char **argv) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::StyleColorsDark();
+#ifdef SDL_PLATFORM_IOS
+    // UIKit reports logical points; the SDL backend handles Retina framebuffer
+    // scaling. Applying the display scale here again makes controls oversized.
+    ImGui::GetStyle().FontSizeBase = 17.0f;
+    ImGui::GetStyle().FramePadding = ImVec2(8, 6);
+    ImGui::GetStyle().ScrollbarSize = 20.0f;
+#else
     ImGui::GetStyle().ScaleAllSizes(SDL_GetWindowDisplayScale(window));
+#endif
     ImGui_ImplSDL3_InitForSDLGPU(window);
     ImGui_ImplSDLGPU3_InitInfo ii;
     ii.Device = dev;
@@ -294,6 +318,7 @@ int main(int argc, char **argv) {
                 if (!native_audio.open(std::move(engine)))
                     throw std::runtime_error(std::string("Cannot open native audio: ") + SDL_GetError());
                 native_audio.volume(cfg.volume);
+                native_audio.volumes(cfg.music_volume, cfg.effects_volume);
                 native_audio.mute(cfg.mute);
             } else if (audio_initialized) {
                 have_audio = audio.open(snd::SoundBoard::kYmClock / 144.0, snd::SoundBoard::kPcmClock / 224.0);
@@ -331,6 +356,7 @@ int main(int argc, char **argv) {
         if (native_fault) in_launcher = true;
         if (!native_audio.available()) return;
         native_audio.volume(cfg.volume);
+        native_audio.volumes(cfg.music_volume, cfg.effects_volume);
         native_audio.mute(cfg.mute);
         if (in_launcher || !running) native_audio.pause();
         else if (!native_audio.resume()) {
@@ -341,13 +367,64 @@ int main(int argc, char **argv) {
     };
     sync_native_audio();
     app::Devices devices; // the gamepad and every joystick (wheels, pedals, shifters)
-    uint64_t last = SDL_GetTicksNS();
-    double pending = 0;
-    const double frame_ns = 1e9 / kArcadeHz;
+    // Frame pacing (launcher > Display; app/pacing.h): the arcade's speed on
+    // the wall clock unless a setting syncs to the display or holds frames for VRR.
+    static_assert(app::kArcadeFrameHz == kArcadeHz);
+    auto display_refresh = [&] {
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+        if (!mode) return 0.0;
+        if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0)
+            return double(mode->refresh_rate_numerator) / mode->refresh_rate_denominator;
+        return double(mode->refresh_rate);
+    };
+    app::Pacer pacer;
+    pacer.set(app::Pacing{}, SDL_GetTicksNS());
+#ifdef M2_MOBILE
+    // Preserve startup detection for a controller paired before launching.
+    int pad_count = 0;
+    SDL_JoystickID *pads = SDL_GetGamepads(&pad_count);
+    if (pads && pad_count > 0) devices.pad = SDL_OpenGamepad(pads[0]);
+    SDL_free(pads);
+#endif
 
+#ifdef M2_MOBILE
+    app::TouchControls touch;
+    SDL_Rect touch_area{};
+    int touch_width = 0, touch_height = 0;
+#endif
     while (running) {
+#ifdef M2_MOBILE
+        int tw = 0, th = 0;
+        SDL_GetWindowSize(window, &tw, &th);
+        SDL_Rect area{0, 0, tw, th};
+        SDL_GetWindowSafeArea(window, &area);
+        if (tw != touch_width || th != touch_height || area.x != touch_area.x || area.y != touch_area.y ||
+            area.w != touch_area.w || area.h != touch_area.h) {
+            touch.layout(float(area.x), float(area.y), float(area.w), float(area.h));
+            touch_area = area; touch_width = tw; touch_height = th;
+        }
+        if (in_launcher) touch.clear();
+#endif
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+#ifdef M2_MOBILE
+            if (e.type == SDL_EVENT_WINDOW_FOCUS_LOST || e.type == SDL_EVENT_WILL_ENTER_BACKGROUND) {
+                touch.clear();
+                in_launcher = true;
+            }
+            if (!in_launcher && (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_MOTION ||
+                e.type == SDL_EVENT_FINGER_UP || e.type == SDL_EVENT_FINGER_CANCELED)) {
+                const float tx = e.tfinger.x * touch_width, ty = e.tfinger.y * touch_height;
+                if (e.type == SDL_EVENT_FINGER_DOWN)
+                    in_launcher = touch.down(e.tfinger.touchID, e.tfinger.fingerID, tx, ty);
+                else if (e.type == SDL_EVENT_FINGER_MOTION)
+                    touch.move(e.tfinger.touchID, e.tfinger.fingerID, tx, ty);
+                else if (e.type == SDL_EVENT_FINGER_UP)
+                    touch.up(e.tfinger.touchID, e.tfinger.fingerID);
+                else if (e.type == SDL_EVENT_FINGER_CANCELED)
+                    touch.cancel(e.tfinger.touchID, e.tfinger.fingerID);
+            }
+#endif
             devices.handle_event(e);
             if (e.type == SDL_EVENT_QUIT) running = false;
             else if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11) {
@@ -362,6 +439,11 @@ int main(int argc, char **argv) {
             }
         }
 
+#ifdef M2_MOBILE
+        if (in_launcher) touch.clear();
+        cfg.controls.touch = touch.values;
+        cfg.controls.touch_steering = touch.steering;
+#endif
         sync_native_audio();
         if (native_active) {
             const auto health = native_audio.stats();
@@ -384,10 +466,18 @@ int main(int argc, char **argv) {
             }
         }
 
-        // Game: arcade speed (57.52 frames/s), presented at the display's rate.
+        // Game: arcade speed (57.52 frames/s), presented at the display's rate,
+        // unless a frame pacing setting says otherwise.
+        const double refresh = display_refresh();
+        if (const app::Pacing p = app::choose_pacing(refresh, {cfg.pace_smooth, cfg.pace_sync_display, cfg.pace_vrr});
+            !(p == pacer.pacing())) {
+            pacer.set(p, SDL_GetTicksNS());
+            std::printf("daytona: frame pacing: %s\n", p.describe(refresh).c_str());
+        }
+        launcher.set_pacing_status(pacer.pacing().describe(refresh));
+        if (game && !in_launcher)
+            if (const uint64_t wait = pacer.wait_ns(SDL_GetTicksNS())) SDL_DelayPrecise(wait); // VRR: hold the frame
         const uint64_t now = SDL_GetTicksNS();
-        pending = std::min(pending + double(now - last), frame_ns * 4);
-        last = now;
         if (game && !in_launcher) {
             game->set_aspect(cfg.aspect_ratio()); // widescreen: no-op unless it changed
             game->set_hud_edges(cfg.hud_edges);
@@ -395,8 +485,13 @@ int main(int argc, char **argv) {
             game->board().video().set_external_3d(cfg.renderer == "hardware" && gpu.ok(), true);
             game->set_stretch_backdrop(cfg.stretch_backdrop);
             rt::GameLoop::set_draw_distance(cfg.draw_distance);
-            while (pending >= frame_ns) {
+            for (int frames = pacer.frames(now); frames > 0; --frames) {
                 game->run_frame(cfg.controls.sample(SDL_GetKeyboardState(nullptr), devices));
+#ifdef M2_MOBILE
+                touch.consumed();
+                cfg.controls.touch = touch.values;
+                cfg.controls.touch_steering = touch.steering;
+#endif
                 if (native_active) {
                     const auto bytes = game->board().take_sound_bytes();
                     if (!native_audio.send(bytes.data(), bytes.size())) {
@@ -406,7 +501,6 @@ int main(int argc, char **argv) {
                         break;
                     }
                 }
-                pending -= frame_ns;
                 new_frame = have_frame = true;
                 if (max_frames && game->frames() >= max_frames) running = false;
             }
@@ -416,11 +510,12 @@ int main(int argc, char **argv) {
             launcher.set_ffb_device(ffb.device_kind());
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {
-                if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume);
+                game->sound()->set_volumes(cfg.music_volume, cfg.effects_volume);
+                if (have_audio) audio.push(*game->sound(), cfg.mute ? 0.0f : cfg.volume, pacer.pacing().game_hz / kArcadeHz);
                 else game->sound()->take_fm(), game->sound()->take_pcm(); // nowhere to play it
             }
         } else {
-            pending = 0;
+            pacer.pause(now);
             ffb.stop(); // paused in the launcher: let the wheel go
         }
 
@@ -476,11 +571,15 @@ int main(int argc, char **argv) {
         }
 
         ImDrawData *draw = nullptr;
-        if (in_launcher) {
+        if (in_launcher
+#ifdef M2_MOBILE
+            || game != nullptr
+#endif
+        ) {
             ImGui_ImplSDLGPU3_NewFrame();
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
-            switch (launcher.draw(game != nullptr, devices)) {
+            if (in_launcher) switch (launcher.draw(game != nullptr, devices)) {
             case app::Launcher::StartGame:
             case app::Launcher::Reset:
                 if (start_game()) in_launcher = false, have_frame = false;
@@ -489,6 +588,9 @@ int main(int argc, char **argv) {
             case app::Launcher::Quit: running = false; break;
             default: break;
             }
+#ifdef M2_MOBILE
+            else app::draw_touch_controls(touch);
+#endif
             sync_native_audio();
             ImGui::Render();
             draw = ImGui::GetDrawData();

@@ -321,9 +321,10 @@ void MultiPcm::write(unsigned offset, uint8_t data) {
 
 void MultiPcm::generate(float *left, float *right, int n) {
     for (int i = 0; i < n; ++i) {
-        int32_t smpl = 0, smpr = 0;
+        int32_t sums[2][2] = {}; // music, effects; left, right
         for (Slot &slot : slots_) {
             if (!slot.playing) continue;
+            int32_t &smpl = sums[slot.effect][0], &smpr = sums[slot.effect][1];
             const uint32_t vol = (slot.total_level >> TL_SHIFT) | (slot.pan << 7);
             uint32_t spos = slot.offset >> TL_SHIFT;
             uint32_t step = slot.step;
@@ -356,6 +357,11 @@ void MultiPcm::generate(float *left, float *right, int n) {
             sample = (sample * envelope_generator_update(slot)) >> 10;
             smpl += (left_pan_table_[vol] * sample) >> TL_SHIFT;
             smpr += (right_pan_table_[vol] * sample) >> TL_SHIFT;
+        }
+        int32_t smpl = sums[0][0] + sums[1][0], smpr = sums[0][1] + sums[1][1];
+        if (music_ != 1.0f || effects_ != 1.0f) { // the launcher's balance; at 1 and 1 the sums as they are
+            smpl = int32_t(std::lround(float(sums[0][0]) * music_ + float(sums[1][0]) * effects_));
+            smpr = int32_t(std::lround(float(sums[0][1]) * music_ + float(sums[1][1]) * effects_));
         }
         left[i] = float(clamp16(smpl)) / 32768.0f;
         right[i] = float(clamp16(smpr)) / 32768.0f;

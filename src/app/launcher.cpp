@@ -1,4 +1,8 @@
 #include "app/launcher.h"
+#include "app/rom_file.h"
+#ifdef SDL_PLATFORM_IOS
+#include "rom_picker.h"
+#endif
 
 #include "imgui.h"
 
@@ -10,9 +14,50 @@
 
 namespace app {
 
+namespace {
+
+std::string mode_key(const SDL_DisplayMode &m) {
+    char s[64];
+    if (m.pixel_density == 1.0f) std::snprintf(s, sizeof s, "%dx%d@%.3f", m.w, m.h, double(m.refresh_rate));
+    else std::snprintf(s, sizeof s, "%dx%d@%.3f*%.2f", m.w, m.h, double(m.refresh_rate), double(m.pixel_density));
+    return s;
+}
+
+std::string mode_label(const SDL_DisplayMode &m) {
+    char s[64];
+    std::snprintf(s, sizeof s, "%d x %d, %.2f Hz%s", m.w, m.h, double(m.refresh_rate), m.pixel_density == 1.0f ? "" : " (HiDPI)");
+    return s;
+}
+
+} // namespace
+
+void apply_fullscreen_mode(SDL_Window *window, const std::string &key) {
+    int w = 0, h = 0;
+    float hz = 0, density = 1;
+    SDL_DisplayMode mode;
+    if (!key.empty() && std::sscanf(key.c_str(), "%dx%d@%f*%f", &w, &h, &hz, &density) >= 3 &&
+        SDL_GetClosestFullscreenDisplayMode(SDL_GetDisplayForWindow(window), w, h, hz, density > 1, &mode))
+        SDL_SetWindowFullscreenMode(window, &mode);
+    else
+        SDL_SetWindowFullscreenMode(window, nullptr); // borderless, at the desktop's mode
+}
+
 Launcher::Launcher(Config &cfg, SDL_Window *window) : cfg_(cfg), window_(window) {
-    std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
     std::snprintf(link_next_buf_, sizeof link_next_buf_, "%s", cfg_.link_next.c_str());
+#ifdef SDL_PLATFORM_ANDROID
+    // Older mobile builds saved the picker result (content://...) directly.
+    // Do not reopen such a URI during startup: Android's temporary document
+    // grant may be stale, and the picker/JNI path is not part of launcher
+    // construction. Ask the user to browse again and import it then.
+    if (RomFile::is_content_uri(cfg_.rom_path)) {
+        cfg_.rom_path.clear();
+        path_buf_[0] = '\0';
+        cfg_.save();
+        rom_message_ = "Select the ROM set again with Browse.";
+        return;
+    }
+#endif
+    std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
     check_rom();
 }
 
@@ -23,19 +68,29 @@ void Launcher::check_rom() {
         rom_message_ = "Choose your " M2_ROMSET " ROM set (.zip or .7z).";
         return;
     }
-    // Keep the path absolute, so the saved setting works from any directory.
-    std::error_code ec;
-    const auto abs = std::filesystem::absolute(cfg_.rom_path, ec);
-    if (!ec && abs.string() != cfg_.rom_path && std::filesystem::exists(abs, ec)) {
-        cfg_.rom_path = abs.lexically_normal().string();
-        std::snprintf(path_buf_, sizeof path_buf_, "%s", cfg_.rom_path.c_str());
-        cfg_.save();
-    }
     try {
-        checks_ = rt::check_rom_set(cfg_.rom_path);
+        // Android's picker grants access to a content URI, not a raw /sdcard
+        // path. Stage it through SDL's Android reader before the plain-file
+        // archive code verifies it. Invalid imports never replace a good copy.
+        RomFile selected(cfg_.rom_path);
+        checks_ = rt::check_rom_set(selected.path());
         int good = 0;
         for (const auto &c : checks_) good += c.ok;
-        rom_ok_ = good == int(checks_.size());
+        const bool verified = !checks_.empty() && good == int(checks_.size());
+        if (verified) {
+            std::string path = selected.commit();
+            // Keep ordinary paths absolute, including the saved Android copy.
+            std::error_code ec;
+            const auto abs = std::filesystem::absolute(path, ec);
+            if (!ec && std::filesystem::exists(abs, ec)) path = abs.lexically_normal().string();
+            if (cfg_.rom_path != path) {
+                cfg_.rom_path = path;
+                std::snprintf(path_buf_, sizeof path_buf_, "%s", path.c_str());
+                cfg_.save();
+            }
+        }
+        // Do not enable Start if committing the imported archive failed.
+        rom_ok_ = verified;
         rom_message_ = rom_ok_ ? "All " + std::to_string(good) + " files verified."
                                : std::to_string(int(checks_.size()) - good) + " of " + std::to_string(checks_.size()) +
                                      " files missing or wrong: this is not the " M2_ROMSET " set.";
@@ -48,14 +103,20 @@ void SDLCALL Launcher::dialog_done(void *self, const char *const *files, int) {
     auto *l = static_cast<Launcher *>(self);
     std::lock_guard<std::mutex> g(l->dialog_mutex_);
     l->dialog_pending_ = false;
-    if (files && files[0]) l->dialog_result_ = files[0];
-    else if (!files) l->error_ = std::string("File dialog unavailable (") + SDL_GetError() + "); type the path instead.";
+    if (files && files[0]) {
+        l->dialog_result_ = files[0];
+        l->error_.clear();
+    } else if (!files) l->error_ = std::string("ROM picker: ") + SDL_GetError();
 }
 
 void Launcher::browse() {
     static const SDL_DialogFileFilter filters[] = {{"ROM set (zip, 7z)", "zip;7z"}, {"All files", "*"}};
     dialog_pending_ = true;
+#ifdef SDL_PLATFORM_IOS
+    ios_browse_rom(window_, dialog_done, this);
+#else
     SDL_ShowOpenFileDialog(dialog_done, this, window_, filters, 2, cfg_.rom_path.empty() ? nullptr : cfg_.rom_path.c_str(), false);
+#endif
 }
 
 void Launcher::start_capture(int action, CaptureKind kind, const Devices &devices) {
@@ -170,9 +231,18 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
+#ifdef SDL_PLATFORM_IOS
+    SDL_Rect safe{};
+    if (SDL_GetWindowSafeArea(window_, &safe) && safe.w > 0 && safe.h > 0) {
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + safe.x, vp->Pos.y + safe.y));
+        ImGui::SetNextWindowSize(ImVec2(float(safe.w), float(safe.h)));
+    }
+#endif
     ImGui::SetNextWindowBgAlpha(game_running ? 0.85f : 1.0f);
     ImGui::Begin("Daytona USA", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PushTextWrapPos();
 
     ImGui::TextUnformatted("DAYTONA USA");
     ImGui::SameLine();
@@ -183,6 +253,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
         if (ImGui::BeginTabItem("Game")) {
             ImGui::Spacing();
             ImGui::TextUnformatted("ROM set");
+#ifdef SDL_PLATFORM_ANDROID
+            ImGui::TextWrapped("Browse grants read access to your ZIP/7z. A verified copy is kept in app storage.");
+#endif
             ImGui::SetNextItemWidth(-200);
             if (ImGui::InputText("##rom", path_buf_, sizeof path_buf_, ImGuiInputTextFlags_EnterReturnsTrue)) {
                 cfg_.rom_path = path_buf_;
@@ -198,6 +271,9 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 check_rom();
             }
             ImGui::TextColored(rom_ok_ ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(1, 0.6f, 0.3f, 1), "%s", rom_message_.c_str());
+            if (!error_.empty()) {
+                ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "%s", error_.c_str());
+            }
             if (!checks_.empty() && ImGui::TreeNode("Files")) {
                 if (ImGui::BeginTable("files", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
                     for (const auto &c : checks_) {
@@ -239,6 +315,54 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();
             }
+            {   // exclusive fullscreen: the display's own modes, a custom 57.52 Hz one among them
+                int count = 0;
+                SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(SDL_GetDisplayForWindow(window_), &count);
+                std::string preview = "Desktop (borderless)";
+                for (int i = 0; i < count; ++i)
+                    if (mode_key(*modes[i]) == cfg_.fullscreen_mode) preview = mode_label(*modes[i]);
+                auto choose = [&](const std::string &key) {
+                    cfg_.fullscreen_mode = key;
+                    apply_fullscreen_mode(window_, key);
+                    cfg_.save();
+                };
+                ImGui::SetNextItemWidth(200);
+                if (ImGui::BeginCombo("Fullscreen mode", preview.c_str())) {
+                    if (ImGui::Selectable("Desktop (borderless)", cfg_.fullscreen_mode.empty())) choose("");
+                    for (int i = 0; i < count; ++i) {
+                        const std::string key = mode_key(*modes[i]);
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(mode_label(*modes[i]).c_str(), key == cfg_.fullscreen_mode)) choose(key);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip("Desktop: fullscreen at the desktop's resolution and refresh rate.\n"
+                                      "A mode: exclusive fullscreen at that resolution and refresh rate, such as\n"
+                                      "a 57.52 Hz mode made in the graphics driver's settings.");
+                SDL_free(modes);
+            }
+            ImGui::TextUnformatted("Frame pacing");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(all off: the arcade's own speed on any display)");
+            if (ImGui::Checkbox("Smooth pacing on a 57.52 Hz display", &cfg_.pace_smooth)) cfg_.save();
+            ImGui::SetItemTooltip("On a display set to 57.52 Hz (or 115.05 Hz), one game frame per refresh (or two):\n"
+                                  "no doubled or skipped frames. The speed stays the arcade's, within 1%%.\n"
+                                  "No effect at other refresh rates.");
+            if (ImGui::Checkbox("Sync to display (changes the game's speed)", &cfg_.pace_sync_display)) cfg_.save();
+            ImGui::SetItemTooltip("Runs the game at a rate that divides evenly into your screen's refresh rate, so\n"
+                                  "every frame is shown for the same time and motion is perfectly smooth. On 60, 120,\n"
+                                  "180 and 240 Hz screens the game runs at 60 frames/s, about 4%% faster than the\n"
+                                  "arcade (57.52), and with reference audio the sound plays slightly faster. No effect\n"
+                                  "on screens like 144 Hz or 165 Hz, which can't evenly fit a rate close to the\n"
+                                  "arcade's; on those, use VRR pacing if your monitor supports G-Sync or FreeSync.\n"
+                                  "Off: the game always runs at the arcade's own speed.");
+            if (ImGui::Checkbox("VRR pacing (G-Sync / FreeSync)", &cfg_.pace_vrr)) cfg_.save();
+            ImGui::SetItemTooltip("For a variable-refresh display: each frame is held to exactly 1/57.52 s, so the\n"
+                                  "display refreshes at the game's rate and every frame is shown for the same time.\n"
+                                  "VRR has to be on in the display and the graphics driver; on a fixed-refresh\n"
+                                  "display this looks like the default.");
+            ImGui::TextDisabled("Now: %s.", pacing_status_.c_str());
             if (ImGui::Checkbox("Skip launcher", &cfg_.skip_launcher)) cfg_.save();
             ImGui::SameLine();
             ImGui::TextDisabled("(starts the game straight away; Esc opens this launcher)");
@@ -292,20 +416,6 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             ImGui::TextDisabled("Scenery around the course. Default is the game's own; shorter is faster,\n"
                                 "further shows more trees and buildings ahead (not more road).");
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextUnformatted("Audio");
-            ImGui::SetNextItemWidth(200);
-            int vol = int(cfg_.volume * 100.0f + 0.5f);
-            if (ImGui::SliderInt("Volume", &vol, 0, 100, "%d%%")) {
-                cfg_.volume = float(vol) / 100.0f;
-                cfg_.save();
-            }
-            ImGui::SameLine();
-            if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
-            if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &cfg_.native_audio)) cfg_.save();
-            ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -391,6 +501,13 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             ImGui::TextDisabled("Triggers, sticks, wheels and pedals are analogue. To bind a wheel or pedal axis,\n"
                                 "click its button, then turn the wheel or press the pedal as far as you want full\n"
                                 "lock or full travel to be, and let go: that sets its range.");
+#ifndef _WIN32 // SDL's own Logitech driver is off on Windows already
+            if (ImGui::Checkbox("Legacy Logitech wheel support (Restart Required)", &cfg_.legacy_logitech_wheels)) cfg_.save();
+            ImGui::TextDisabled("Logitech wheels through the system's driver: needed for one that is listed but does\n"
+                                "nothing when you bind it (the original Driving Force). Off: SDL's own driver, which\n"
+                                "on macOS gives the newer wheels force feedback. After a change, restart and bind the\n"
+                                "wheel's controls again.");
+#endif
 
             ImGui::SetNextItemWidth(200);
             int ffb = int(cfg_.ffb_strength * 100.0f + 0.5f);
@@ -453,8 +570,39 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             }
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Audio")) {
+            ImGui::Spacing();
+            auto percent = [&](const char *label, float &value) { // a 0..1 setting as 0-100%
+                ImGui::SetNextItemWidth(200);
+                int v = int(value * 100.0f + 0.5f);
+                if (ImGui::SliderInt(label, &v, 0, 100, "%d%%")) {
+                    value = float(v) / 100.0f;
+                    cfg_.save();
+                }
+            };
+            percent("Volume", cfg_.volume);
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Mute", &cfg_.mute)) cfg_.save();
+            ImGui::Spacing();
+            percent("Music", cfg_.music_volume);
+            percent("Effects", cfg_.effects_volume);
+            ImGui::TextDisabled("The balance between the music and everything else (the engine, skids, crashes).\n"
+                                "100%% and 100%% is the game as the arcade's sound board mixes it.");
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Checkbox("Native audio (Experimental, Reset Required)", &cfg_.native_audio)) cfg_.save();
+            ImGui::TextDisabled("Shared native sequencer/mixer; reference audio remains available for comparison.");
+            ImGui::EndTabItem();
+        }
+
         ImGui::EndTabBar();
     }
+    ImGui::PopTextWrapPos();
+#ifdef M2_MOBILE
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(0))
+        ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+#endif
     ImGui::End();
     return result;
 }

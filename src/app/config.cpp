@@ -41,6 +41,12 @@ void Config::load() {
         else if (k == "supersampling") supersampling = std::clamp(std::atoi(v.c_str()), 1, 4);
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
+        else if (k == "fullscreen_mode") fullscreen_mode = v;
+        else if (k == "pace_smooth") pace_smooth = v == "1";
+        else if (k == "pace_sync_display") pace_sync_display = v == "1";
+        else if (k == "pace_vrr") pace_vrr = v == "1";
+        else if (k == "music_volume") music_volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
+        else if (k == "effects_volume") effects_volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "native_audio") native_audio = v == "1";
         else if (k == "deadzone") controls.deadzone = std::strtof(v.c_str(), nullptr);
         else if (k == "joy_deadzone") controls.joy_deadzone = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 0.4f);
@@ -52,6 +58,7 @@ void Config::load() {
         else if (k == "ffb_strength") ffb_strength = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "ffb_invert") ffb_invert = v == "1";
         else if (k == "ffb_log") ffb_log = v == "1";
+        else if (k == "legacy_logitech_wheels") legacy_logitech_wheels = v == "1";
         else
             for (int a = 0; a < kNumActions; a++) {
                 const std::string base = action_key(Action(a));
@@ -78,6 +85,12 @@ void Config::save() const {
     f << "supersampling=" << supersampling << "\n";
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";
+    f << "fullscreen_mode=" << fullscreen_mode << "\n";
+    f << "pace_smooth=" << (pace_smooth ? 1 : 0) << "\n";
+    f << "pace_sync_display=" << (pace_sync_display ? 1 : 0) << "\n";
+    f << "pace_vrr=" << (pace_vrr ? 1 : 0) << "\n";
+    f << "music_volume=" << music_volume << "\n";
+    f << "effects_volume=" << effects_volume << "\n";
     f << "native_audio=" << (native_audio ? 1 : 0) << "\n";
     f << "deadzone=" << controls.deadzone << "\n";
     f << "joy_deadzone=" << controls.joy_deadzone << "\n";
@@ -89,6 +102,7 @@ void Config::save() const {
     f << "ffb_strength=" << ffb_strength << "\n";
     f << "ffb_invert=" << (ffb_invert ? 1 : 0) << "\n";
     f << "ffb_log=" << (ffb_log ? 1 : 0) << "\n";
+    f << "legacy_logitech_wheels=" << (legacy_logitech_wheels ? 1 : 0) << "\n";
     for (int a = 0; a < kNumActions; a++) {
         const Binding &b = controls.bind[a];
         f << action_key(Action(a)) << ".key=" << (b.key == SDL_SCANCODE_UNKNOWN ? "" : SDL_GetScancodeName(b.key)) << "\n";

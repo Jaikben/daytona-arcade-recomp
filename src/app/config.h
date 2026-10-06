@@ -14,9 +14,18 @@ struct Config {
     std::string gpu;          // "" (automatic), vulkan, direct3d12, metal
     std::string renderer = "software"; // the 3D: software (CPU, exact) or hardware (SDL_GPU)
     bool fullscreen = false;
+    // Exclusive fullscreen in this mode ("WxH@Hz", with "*density" when not
+    // 1), or "" for borderless at the desktop's mode.
+    std::string fullscreen_mode;
+    // Frame pacing (#7, app/pacing.h); all off: the arcade's speed on any display.
+    bool pace_smooth = false;       // a display at a multiple of 57.52 Hz: one frame per refresh(es)
+    bool pace_sync_display = false; // the game at a rate dividing the refresh (60 on 60/120/240 Hz: 4% fast)
+    bool pace_vrr = false;          // each frame held to 1/57.52 s, for a variable-refresh display
     bool skip_launcher = false; // start the game straight away (as --autostart); Esc still opens the launcher
     float volume = 0.8f;      // 0..1
     bool mute = false;
+    float music_volume = 1.0f;   // 0..1: the music against the effects (both 1: as the arcade mixes them)
+    float effects_volume = 1.0f; // 0..1
     bool native_audio = false; // applies on reset; reference remains the default
     // Enhancements (off by default).
     std::string aspect;        // widescreen: "" (original 4:3), "16:10", "16:9", "21:9"
@@ -38,6 +47,17 @@ struct Config {
     float ffb_strength = 0.7f; // force feedback (the drive board) on the steering device: 0 off .. 1
     bool ffb_invert = false;   // turn the wheel the other way
     bool ffb_log = false;      // log the force feedback device, failures and the commands (daytona.log on Windows)
+    // Linux and macOS: Logitech wheels through the system's driver, not SDL's
+    // own (its HIDAPI lg4ff driver, off on Windows already). Some, like the
+    // original Driving Force, send SDL's driver nothing (issue #4). On by
+    // default on Linux, whose kernel driver gives the wheels force feedback;
+    // off on macOS, where only SDL's driver does. Applies at start-up; SDL
+    // gives the wheel another GUID, so it is bound again.
+#ifdef __linux__
+    bool legacy_logitech_wheels = true;
+#else
+    bool legacy_logitech_wheels = false;
+#endif
 
     Config() { controls.set_defaults(); }
     static std::string path();  // <pref path>/launcher.ini

@@ -178,6 +178,7 @@ bool NativeSampleMixer::note_on(unsigned slot, const NativeSampleBank& bank,
     v.loop = p.loop;
     v.active = true;
     v.gain = p.gain;
+    v.effect = p.effect;
     v.pan = p.pan;
     gains(v);
     v.sustain = p.envelope.sustain;
@@ -264,6 +265,7 @@ void NativeSampleMixer::render(float* out, size_t frames) noexcept {
         if (!v.active) continue;
         const uint64_t end = uint64_t(v.end) << 32;
         const uint64_t loop = uint64_t(v.loop_start) << 32;
+        const float volume = volumes_[v.effect];
         for (size_t frame = 0; frame < frames && v.active; ++frame) {
             advance_envelope(v);
             if (!v.active) break;
@@ -273,7 +275,7 @@ void NativeSampleMixer::render(float* out, size_t frames) noexcept {
             const float a = v.bank->value(*v.sample, index);
             const float b = v.bank->value(*v.sample, next);
             const float fraction = float(uint32_t(v.phase)) * float(1.0 / kPhaseScale);
-            const float sample = (a + (b - a) * fraction) * v.level;
+            const float sample = (a + (b - a) * fraction) * v.level * volume;
             out[frame * 2] += sample * v.left;
             out[frame * 2 + 1] += sample * v.right;
             v.phase += v.step;

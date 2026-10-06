@@ -13,6 +13,7 @@
 #include <SDL3/SDL.h>
 
 #include <string>
+#include <array>
 #include <vector>
 
 namespace app {
@@ -65,6 +66,8 @@ struct Binding {
 };
 
 struct Controls {
+    std::array<float, kNumActions> touch{};
+    bool touch_steering = false;
     Binding bind[kNumActions];
     float deadzone = 0.08f;       // stick and trigger dead zone (fraction of travel)
     float joy_deadzone = 0.02f;   // joystick (wheel, pedal) axis dead zone

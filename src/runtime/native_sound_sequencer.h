@@ -12,6 +12,9 @@ namespace snd {
 
 class NativeSoundSequencer {
 public:
+    // The driver's music channels: the ones its "stop music" command (0x50
+    // 0x7e) stops. The rest, and the engine layers, are effects.
+    static bool music_channel(unsigned channel) { return channel <= 9 || channel == 15; }
     enum class EventKind : uint8_t { NoteOn, NoteOff, Update, Stop };
     struct VoiceEvent {
         uint64_t frame = 0;
@@ -20,6 +23,7 @@ public:
         uint16_t sample_index = 0;
         double source_rate_hz = 0;
         float gain = 0, pan = 0;
+        bool music = false; // a music channel's (0-9, 15), else an effect's: the launcher's two volumes
     };
     struct Stats {
         uint64_t input_bytes = 0, messages = 0, sequence_events = 0;

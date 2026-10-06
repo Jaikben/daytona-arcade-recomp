@@ -4,6 +4,7 @@
 #endif
 #include "native_sample_mixer.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -227,6 +228,36 @@ void envelope_and_blocks() {
         split.render(b.data() + 2 * offset, n); offset += n;
     }
     assert(offset == 1024 && std::memcmp(a.data(), b.data(), sizeof a) == 0);
+}
+
+// The launcher's music and effects volumes scale only their own voices, and
+// at 1 and 1 change nothing.
+void music_and_effects_volumes() {
+    auto rom = fixture(0x2008);
+    header(rom, 0, 0x2000, 8, 0);
+    const uint8_t wave[] = {0, 32, 64, 96, 0, 224, 192, 160};
+    std::memcpy(rom.data() + 0x2000, wave, sizeof wave);
+    Bank bank(rom.data(), rom.size(), 0);
+    auto music = instant(), effect = instant();
+    music.pitch = 0.75; music.gain = 0.4f; music.pan = -0.5f;
+    effect.pitch = 0.5; effect.gain = 0.3f; effect.pan = 0.25f; effect.effect = true;
+    Mixer both, unity, music_only, effects_only, no_effects, half_music;
+    for (Mixer* m : {&both, &unity, &music_only, &effects_only, &no_effects, &half_music}) m->set_peak_limiter(false);
+    for (Mixer* m : {&both, &unity, &no_effects, &half_music}) assert(m->note_on(0, bank, 0, music) && m->note_on(1, bank, 0, effect));
+    assert(music_only.note_on(0, bank, 0, music));
+    assert(effects_only.note_on(1, bank, 0, effect));
+    unity.set_volumes(1.0f, 1.0f);
+    no_effects.set_volumes(1.0f, 0.0f);
+    half_music.set_volumes(0.5f, 1.0f);
+    std::array<float, 256> a{}, b{}, c{}, d{}, e{}, f{};
+    both.render(a.data(), 128); unity.render(b.data(), 128); music_only.render(c.data(), 128);
+    effects_only.render(d.data(), 128); no_effects.render(e.data(), 128); half_music.render(f.data(), 128);
+    for (size_t i = 0; i < a.size(); ++i) {
+        assert(a[i] == b[i]);                  // 1 and 1: bit for bit as before
+        assert(e[i] == c[i]);                  // effects at 0: the music alone
+        near(f[i], 0.5f * c[i] + d[i], 1e-6f); // music at half
+    }
+    assert(std::any_of(d.begin(), d.end(), [](float v) { return v != 0; }));
 }
 
 void default_gain_boost() {
@@ -472,8 +503,9 @@ int main() {
     playback();
     envelope_and_blocks();
     default_gain_boost();
+    music_and_effects_volumes();
     peak_limiter_stereo_link();
     peak_limiter_blocks_and_recovery();
     validation_and_bounded_render();
-    std::puts("native sample decoder/mixer: bounds, 8/12-bit, bank windows, loop/pitch, ADSR, pan, calibrated gain, stereo peak limiter, allocation-free render passed");
+    std::puts("native sample decoder/mixer: bounds, 8/12-bit, bank windows, loop/pitch, ADSR, pan, calibrated gain, music/effects volumes, stereo peak limiter, allocation-free render passed");
 }

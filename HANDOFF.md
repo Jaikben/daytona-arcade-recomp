@@ -1,5 +1,65 @@
 # Handoff
 
+## Mobile touch controls and latest main (2026-10-06)
+
+Rebased mobile again onto origin/main 10c85cb before completing touch input.
+Kept upstream pacing.cpp and Pacer alongside mobile controller startup, iOS
+Files import and screen fixes. Backup: backup/mobile-before-main-touch-20261006;
+the touch-work stash remains as an additional recovery copy. No branch pushed.
+
+Shared mobile-only touch overlay: analogue horizontal steering, gas/brake,
+sequential gears, four views, coin/start and launcher menu. Raw SDL fingers
+capture controls independently (device and finger IDs), not ImGui's single
+mouse pointer. Short taps survive until a game frame; focus loss, cancellation,
+menu and safe-area changes release input. Existing physical controls merge
+with touch through Controls; desktop receives zero touch input by default.
+This follows the design's Platform layer & build boundary; runtime/shaders
+and upstream pacing remain unchanged. See mobile handoff for validation.
+
+## Mobile rebase onto remote main (2026-10-06)
+
+Rebased mobile onto origin/main 6817bff, preserving Android document imports,
+iOS Files import, screen sizing and unsigned packaging. CMake conflict
+resolution keeps upstream link/force-feedback sources and Windows socket
+libraries alongside mobile SDL targets. Generated-source paths combine
+M2_GEN_ROOT with upstream M2_ROMSET. Mobile startup gamepad enumeration now
+uses the upstream Devices owner. Initialize the link address before Android's
+stale-URI early return. The previous mobile tip is retained at
+backup/mobile-before-main-20261006. Main and the other platform branches are
+unchanged. Existing IPA files predate this rebase and must not be presented as
+rebuilt from it.
+Validation: desktop daytona_app compilation passes; 13 Android-path import
+tests and 2 desktop-path tests pass with the host SDL shim. Remote main is an
+ancestor of the rebased tip. iOS/Android device builds are not rerun here.
+
+## iOS launcher and Files picker (2026-10-06)
+
+Replaced the unsupported SDL iOS dialog with a UIKit document import delegate,
+keeping a separate private copy for each selection before the existing ROM
+validation. Enabled modern full-screen launch sizing, safe-area placement,
+logical-point ImGui styling, text wrapping, a visible scrollbar and blank-space
+drag scrolling. Picker errors are shown beside the ROM field. Changes follow
+the design's thin platform layer; runtime and shaders are unchanged.
+
+Device Release IPA and simulator build succeed. The simulator cannot provide
+visual verification: SDL_CreateGPUDevice reports that its device does not meet
+SDL_GPU Metal hardware requirements; the resulting black screen is not UI
+validation. Native Files selection and layout need another physical-device
+test. See platform/mobile/HANDOFF.md. Do not claim successful picker import or
+screen fit based on compilation alone.
+
+## Mobile iOS packaging (2026-10-06)
+
+The iOS build script supports `UNSIGNED=1` for AltStore: disable Xcode
+signing, stage the device app under `Payload/daytona.app`, and produce
+`build/ios/Daytona-unsigned.ipa`. The bundle template now explicitly supplies
+CFBundleExecutable and the APPL package type. Custom build and generated-source
+paths are normalized before packaging; argument handling remains compatible
+with macOS Bash 3.2. No ROM archives or generated sources are committed.
+This follows the design document's Platform layer & build and ROM handling
+sections: the shared runtime/renderer is unchanged. See the mobile handoff
+for build validation and device-test status.
+
 ## Current state
 
 **Windows setup: pin Clang discovery to VS 2022.** Both setup scripts now
@@ -10,6 +70,67 @@ mismatched cached configuration is cleared, preserving generated sources.
 Checked: three setup regression tests pass. Revision A built with VS 2022
 and Clang 19.1.5; 12 CTest tests passed, two optional Lua tests skipped.
 CI now runs the setup tests and builds on branch pushes. Remote CI pending.
+
+**Frame pacing and fullscreen mode (issue #7).** src/app/pacing.h: Pacing
+(Clock, Display, Vrr) chosen from the display's refresh and three settings,
+all off (pace_smooth, pace_sync_display, pace_vrr), and Pacer, the per-pass
+frame count. Clock is the old loop moved over unchanged (test: identical
+frame counts over 20,000 random passes). Display: a frame every N refreshes
+(Smooth: a multiple of 57.52 Hz within 1%; Sync: the first division of the
+refresh at or under 61 Hz, if 56 or over: 60 on 60/120/180/240 Hz, nothing on
+144/165), capped by the wall clock (vsync forced off) and restarted after a
+stall. Vrr: one frame per pass, SDL_DelayPrecise to a 1/57.52 s deadline,
+vsync kept (not IMMEDIATE as first planned: VRR with vsync and a frame cap
+does not tear). Reference audio's stream ratio is scaled by game_hz/57.52 so
+Sync to display does not overrun the 240 ms queue; native audio keeps its
+device clock. The refresh is read every pass, so pacing follows the window
+between displays (seen: 60 and 144 Hz). Fullscreen mode (fullscreen_mode,
+"WxH@Hz"): the display's modes in the launcher, applied with
+SDL_GetClosestFullscreenDisplayMode/SDL_SetWindowFullscreenMode. Measured
+over 15 s in the game: default 57.9, Sync on 60 Hz 59.8, VRR 57.53 frames/s.
+Design doc's open question on pacing answered. Not tried on a VRR display;
+not listened to with Sync on.
+
+**Legacy Logitech wheel support (issue #4).** The original Driving Force
+(046d:c294) is listed but sends nothing through SDL 3.4.16's HIDAPI lg4ff
+driver, which reads c294 reports only when they are exactly 27 bytes; the
+reporter confirmed it works with SDL_JOYSTICK_HIDAPI_LG4FF=0. A setting, not
+a change for everyone (SDL's driver serves the wheels it was written for):
+Controls tab, "Legacy Logitech wheel support (Restart Required)",
+legacy_logitech_wheels (on by default on Linux, whose kernel driver gives
+Logitech wheels force feedback; off on macOS, where SDL's lg4ff haptics are
+the only force feedback for them). On, main sets SDL_HINT_JOYSTICK_HIDAPI_LG4FF to
+"0" before SDL_Init (SDL reads it when it finds devices; a change while
+running is not guaranteed to hand the wheel back to evdev) and logs it.
+Hidden on Windows, where SDL leaves lg4ff off already (hid.dll). The wheel's
+GUID differs between the drivers, so it is bound again after switching.
+Checked: a throwaway --profile with the setting on logs it, runs and saves it;
+all CTest tests pass. Not tried with a Logitech wheel here.
+
+**Audio tab: music and effects volumes (issue #10).** Launcher: a new Audio
+tab with Volume, Mute, Music, Effects (music_volume, effects_volume: 1 and 1
+by default) and the Native audio switch, moved from the Game tab. Reference
+audio: at each MultiPCM key-on, SoundBoard::voice_channel reads the owning
+channel from the driver's voice pools in 68000 RAM (0xf01500 and 0xf01618, 28
+records of 10 bytes; byte 0 nonzero in use, bit 3 the chip; byte 1 the slot
+code; byte 3 the channel; byte 6 0xff on the engine layers' reserved records,
+skipped: they carry chip 0's bit with chip 1's fixed slot codes, which gave
+1,597 false double matches in a race before they were skipped). Music is
+channels 0-9 and 15 (NativeSoundSequencer::music_channel, the driver's "stop
+music" set); a key-on with no record (the engine's fixed slots 18-27 on chip
+1) is an effect. MultiPcm sums music and effect slots apart and scales them
+before its 16-bit clamp; at 1 and 1 the sums are added as before. Native
+audio: VoiceEvent::music, NativeSampleMixer::set_volumes per voice, set from
+the audio callback through atomics.
+Checked: class against the native sequencer's channel, note for note
+(scratch program on the oracle's pairing): daytona93 race 4,899/4,899, attract
+2,274/2,274; daytona race 4,892/4,892, attract 2,095/2,095; one voice record
+per key-on. race_basic reference WAV byte-identical before and after (20 MB);
+screen hash ad67233983ea8808 and instruction counts unchanged. Music alone +
+effects alone = the full mix except 0.097% of samples, where a chip clips in
+the full mix. Race RMS: effects 0.195, music 0.059 (10 dB). New tests:
+multipcm_volumes, native_sample_mixer's volumes case; all CTest tests pass.
+Not listened to on this machine.
 
 **Force feedback: Daytona's drive board commands (issue #9).** The command
 meanings taken from Supermodel's later drive boards were wrong for Daytona:
@@ -1170,3 +1291,18 @@ M1 native (`tools/m2recomp`, `tools/m2native`, `src/runtime/lockstep`):
   harvest patch now logs IAC targets and the seeds include it.
 - Mutation check: the generator's addo template off by one when src1 == 1
   diverges at epoch 3.
+
+
+## Mobile Android — 2026-10-02
+
+- A previous Android build saved the Storage Access Framework picker result
+  (`content://...`) directly in the config. The first ROM-import implementation
+  then tried to reopen that URI from `Launcher` construction on the next app
+  start. On-device report: the updated APK crashed immediately when opening.
+- Startup now treats a saved Android `content://` value as stale migration
+  state: it clears the value, saves the config, and asks the user to select the
+  archive again. Document-provider URIs are only consumed immediately after a
+  Browse result; a verified archive is then staged into app-private storage and
+  the normal path is saved.
+- Device verification still required. If startup still crashes after this
+  migration fix, capture Android logcat before changing the import path again.

@@ -52,6 +52,14 @@ This applies to Vita and all desktop frontends. Reference audio, saved
 volume/mute settings, sample pitch, command timing and voice balance are
 unchanged. Routine Vita logging stays off; fault reporting remains enabled.
 
+## Music and effects volumes
+
+Each note event carries whether its channel is music (0-9 and 15, the ones the
+driver's "stop music" command stops) or an effect (the rest and the engine
+layers). The mixer scales each voice by the launcher's Music or Effects volume;
+at 100% and 100% the output is unchanged. The audio callback takes both from
+atomics, like the master volume, so only it touches the engine.
+
 ## Fidelity and performance limits
 
 The mixer uses interpolated PCM and a short linear ADSR, not the original

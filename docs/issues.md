@@ -6,10 +6,10 @@ yet. Line numbers drift; the files and functions named are the reference.
 
 | Issue | Summary | Status |
 | --- | --- | --- |
-| [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Cause found (in SDL); waiting on the reporter |
-| [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Plan agreed: four settings, all off by default |
-| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed on branch `ffb-drive-board`; not yet tried on a real wheel |
-| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Depends on the audio mode; asking the reporter |
+| [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Confirmed: works with SDL's Logitech driver off. "Legacy Logitech wheel support" setting added |
+| [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Four settings added, all off by default (native speed) |
+| [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed; not yet tried on a real wheel |
+| [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
 | [#6](#6-android-version) | Android version | Feature request |
 
 ## #4: Logitech Driving Force cannot be bound on Linux
@@ -35,10 +35,22 @@ axes from their rest values, so pedals resting at either end work. One weakness
 to fix later: while an axis is being tracked, buttons and other axes are
 ignored, so a noisy axis can block a bind until Esc.
 
-**Next:** ask the reporter to run once with `SDL_JOYSTICK_HIDAPI_LG4FF=0`. If the
-wheel binds, the fix is to set `SDL_HINT_JOYSTICK_HIDAPI_LG4FF` to `"0"` on
-Linux before `SDL_Init` in [main.cpp](../src/app/main.cpp), and to report the
-report-length check to SDL.
+**Confirmed:** with `SDL_JOYSTICK_HIDAPI_LG4FF=0` the wheel works.
+
+**Done:** a setting rather than a change for
+everyone, since SDL's driver works for the Logitech wheels it was written for
+and only this older one is affected. Controls tab: **Legacy Logitech wheel
+support (Restart Required)** (`legacy_logitech_wheels`; on by default on Linux, whose kernel
+driver gives Logitech wheels force feedback; off on macOS, where only SDL's
+driver does). On, it
+sets `SDL_HINT_JOYSTICK_HIDAPI_LG4FF` to `"0"` before `SDL_Init`
+([main.cpp](../src/app/main.cpp)), as the Graphics API setting does with its
+hint. Hidden on Windows: SDL's Logitech driver is off there by default
+(`hid.dll` cannot send its reports). SDL gives the wheel another GUID under
+the other driver, so its controls are bound again after switching.
+
+**Next:** tell the reporter about the setting; report the 27-byte report
+check to SDL.
 
 ## #7: Stutter and no refresh-rate options
 
@@ -73,15 +85,15 @@ of them off the game behaves as it does now. A faster display may show frames
 more often; it never makes the game faster unless the player turns on Sync to
 display.
 
-None of these settings exist yet; today the only display setting is
-fullscreen on or off.
+**Done** (launcher, Game tab, under Fullscreen; `src/app/pacing.h`): all four,
+off by default. The table is as built.
 
 | Setting | Default | When turned on |
 | --- | --- | --- |
 | Sync to display | Off | The game runs at a rate that divides evenly into the display's refresh and is close to the arcade's: 60 frames/s on 60, 120, 180 and 240 Hz, 57.5 on 115 Hz. No effect where no such rate exists (144 Hz, 165 Hz). |
-| Smooth pacing at 57.524 Hz | Off | One game frame per refresh when the display is within about 1% of the arcade's rate; no doubled or skipped frames. Speed unchanged. |
-| VRR pacing | Off | Frames presented without vsync (immediate or mailbox present mode), each timed to 57.52 Hz, so a G-Sync or FreeSync display refreshes at the game's rate. Speed unchanged. |
-| Exclusive fullscreen and refresh picker | Off | Fullscreen in a chosen display mode (resolution and refresh) instead of the desktop's; saved in the config. |
+| Smooth pacing on a 57.52 Hz display | Off | One game frame per refresh (or two, at 115.05 Hz) when the display is within 1% of a multiple of the arcade's rate; no doubled or skipped frames. Speed within 1%. |
+| VRR pacing | Off | Each frame held to 1/57.52 s by a precise sleep, one game frame per present, so a G-Sync or FreeSync display refreshes at the game's rate. Vsync stays on (the usual way to drive VRR: no tearing), not the immediate present mode first planned. Speed unchanged. |
+| Fullscreen mode | Desktop | A list of the display's modes: exclusive fullscreen at the chosen resolution and refresh (a custom 57.52 Hz mode made in the driver among them) instead of borderless at the desktop's. |
 
 Description for Sync to display in the options:
 
@@ -89,13 +101,24 @@ Description for Sync to display in the options:
 > Runs the game at a rate that divides evenly into your screen's refresh rate,
 > so every frame is shown for the same time and motion is perfectly smooth. On
 > 60, 120, 180 and 240 Hz screens the game runs at 60 frames/s, about 4% faster
-> than the arcade (57.52), and the music plays slightly faster. It has no
+> than the arcade (57.52), and with reference audio the sound plays slightly
+> faster (native audio keeps the music's own tempo). It has no
 > effect on screens like 144 Hz or 165 Hz, which can't evenly fit a rate close
 > to the arcade's; on those, use VRR pacing if your monitor supports G-Sync or
 > FreeSync. Off: the game always runs at the arcade's own speed.
 
 Why only even divisions: locking to 60 on a 144 Hz display still shows frames
 for 2 or 3 refreshes (2.4 refreshes each), no smoother than 57.52, and 4% fast.
+
+**Checked:** `test_app_pacing` (the mode for 0, 50, 57.52, 59.94, 60, 115, 120,
+144, 165, 180 and 240 Hz; the default's frame count against the old loop's
+arithmetic over 20,000 random passes; one frame per refresh at 60 Hz with 2 ms
+of jitter; every 2nd at 120 Hz; held to its rate with vsync forced off; VRR
+frames exactly 1/57.52 s apart, no burst after a stall). In the game, frames
+counted over 15 s: default 57.9, Sync to display on a 60 Hz display 59.8, VRR
+57.53 frames/s. With two displays (60 and 144 Hz) the pacing follows the
+window: Sync to display went back to the arcade's speed when the window moved
+to the 144 Hz one. Not yet tried on a VRR display, nor listened to.
 
 **Notes for the implementation:**
 
@@ -266,7 +289,7 @@ copied after the run that shows the problem, before the game is started again.
 
 1. Now, with no new code: ask the reporter what the launcher shows under the
    force feedback slider, "wheel (force feedback)" or "gamepad (rumble)".
-2. Done on branch `ffb-drive-board`: all four fixes and the log setting
+2. Done: all four fixes and the log setting
    (tests pass; not tried on a real wheel). Ask the reporter to try a build of
    it, and to send the log from a race ("Log force feedback" on) if anything
    is still wrong.
@@ -281,7 +304,11 @@ the YM3438 at 0.30 and each MultiPCM at 0.5
 ([sound_board.cpp](../src/runtime/sound_board.cpp)). The MultiPCM code matches
 MAME's, and the output was checked against MAME's recordings (HANDOFF.md). So
 MAME has the same balance, and MAME's gains may not match a real cabinet. Music
-and effects share both MultiPCM chips, so a balance setting is hard here.
+and effects share both MultiPCM chips, and the driver hands out voices as they
+are needed, so a voice cannot be told apart by its chip or slot.
+
+Measured in `race_basic`'s race (reference audio, RMS of the mixed output):
+the effects alone 0.195, the music alone 0.059, about 10 dB apart.
 
 **Native audio:** a real problem.
 
@@ -296,7 +323,35 @@ and effects share both MultiPCM chips, so a balance setting is hard here.
   them apart by channel
   ([native_sound_sequencer.cpp](../src/runtime/native_sound_sequencer.cpp)).
 
-**Next:** ask the reporter which audio mode they use.
+### Done: Music and Effects volumes
+
+A new **Audio** tab in the launcher has Volume, Mute, **Music** and
+**Effects** (both 100% by default) and the Native audio switch.
+
+- **Which voice is which (reference audio).** At each key-on the sound board
+  finds the driver's voice for that chip and slot in the 68000's RAM and reads
+  its channel; music is channels 0-9 and 15, as the driver's own "stop music"
+  command has it. From the driver's code: two voice pools of 28 at 0xf01500
+  and 0xf01618, ten bytes each (byte 0 nonzero when in use, bit 3 the chip;
+  byte 1 the slot code; byte 3 the channel); records with byte 6 0xff are the
+  engine layers' reserved ones and are skipped (they carry the wrong chip
+  bit). The engine's fixed slots on the second chip have no voice record and
+  count as effects.
+- **Checked** against the native sequencer's class for the same notes (the
+  oracle's pairing): race 4,899 of 4,899 notes agree, attract 2,274 of 2,274;
+  Revision A race 4,892 of 4,892, attract 2,095 of 2,095. Exactly one voice
+  record per key-on.
+- **At 100% and 100% nothing changes:** `race_basic`'s reference audio WAV is
+  byte-identical before and after (20 MB), and the screen hash and instruction
+  counts are unchanged. Music alone plus effects alone equals the full mix in
+  all but 0.097% of samples, the ones where a chip clips at 16 bits in the full
+  mix.
+- **Native audio:** each note carries the class from its channel; the mixer
+  scales each voice by its volume.
+
+**Next:** ask the reporter which audio mode they use, and whether Music and
+Effects let them get the balance they remember. Native audio's master gain
+and envelopes are still open.
 
 ## #6: Android version
 
