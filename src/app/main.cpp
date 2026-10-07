@@ -349,6 +349,7 @@ int main(int argc, char **argv) {
     };
 
     bool in_launcher = true, running = true, have_frame = false, new_frame = false;
+    bool cursor_hidden = false; // the launcher's "Hide mouse cursor in game", in effect now
     int reported_hardware = -1; // the renderer last reported (-1: none yet)
     // Skip launcher (saved) or --autostart: straight into the game when the ROM
     // set checks out; otherwise the launcher shows, with the reason.
@@ -446,6 +447,17 @@ int main(int argc, char **argv) {
         cfg.controls.touch = touch.values;
         cfg.controls.touch_steering = touch.steering;
 #endif
+        // The mouse cursor: hidden while the game plays if the launcher says so,
+        // shown whenever the launcher is open. ImGui sets the cursor on every
+        // frame it draws (mobile draws its touch controls in play), so it is
+        // told to leave the cursor alone while hidden.
+        if (const bool hide = cfg.hide_cursor && game && !in_launcher; hide != cursor_hidden) {
+            hide ? SDL_HideCursor() : SDL_ShowCursor();
+            if (hide) ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            else ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+            cursor_hidden = hide;
+        }
+
         sync_native_audio();
         if (native_active) {
             const auto health = native_audio.stats();

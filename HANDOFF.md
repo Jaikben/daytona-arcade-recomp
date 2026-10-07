@@ -567,6 +567,16 @@ Changes are local on psvita-native-frontend; no push to main or PSP.
 
 ## Current state
 
+**Hide mouse cursor in game (issue #18).** Launcher, Game tab, next to
+Fullscreen: "Hide mouse cursor in game" (hide_cursor, saved, off by default).
+One rule in the main loop, every pass: hidden when the option is on, a game
+exists and the launcher is closed; shown otherwise, so Esc (or a fault that
+opens the launcher) shows it and Resume or Start hides it again, without
+touching each place in_launcher changes. While hidden, ImGui's
+NoMouseCursorChange is set: its SDL backend shows the cursor on every frame it
+draws, and mobile draws its touch controls during play. Tried in the desktop
+app (2026-10-07): hidden in play, shown on Esc, hidden again on Resume.
+
 **Hold Test button (the test menu without F2).** rt::TestHold
 (src/runtime/test_hold.h): holds the cabinet's Test switch (in0 0x04, active
 low) for 173 frames (3 s), from game frame 240 at the earliest, then reports

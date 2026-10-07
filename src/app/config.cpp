@@ -42,6 +42,7 @@ void Config::load() {
         else if (k == "volume") volume = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         else if (k == "mute") mute = v == "1";
         else if (k == "fullscreen_mode") fullscreen_mode = v;
+        else if (k == "hide_cursor") hide_cursor = v == "1";
         else if (k == "pace_smooth") pace_smooth = v == "1";
         else if (k == "pace_sync_display") pace_sync_display = v == "1";
         else if (k == "pace_vrr") pace_vrr = v == "1";
@@ -86,6 +87,7 @@ void Config::save() const {
     f << "volume=" << volume << "\n";
     f << "mute=" << (mute ? 1 : 0) << "\n";
     f << "fullscreen_mode=" << fullscreen_mode << "\n";
+    f << "hide_cursor=" << (hide_cursor ? 1 : 0) << "\n";
     f << "pace_smooth=" << (pace_smooth ? 1 : 0) << "\n";
     f << "pace_sync_display=" << (pace_sync_display ? 1 : 0) << "\n";
     f << "pace_vrr=" << (pace_vrr ? 1 : 0) << "\n";

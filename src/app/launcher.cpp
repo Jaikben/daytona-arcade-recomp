@@ -315,6 +315,10 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
                 SDL_SetWindowFullscreen(window_, cfg_.fullscreen);
                 cfg_.save();
             }
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Hide mouse cursor in game", &cfg_.hide_cursor)) cfg_.save();
+            ImGui::SetItemTooltip("No mouse cursor while the game plays. It shows again whenever this\n"
+                                  "launcher opens (Esc), and hides again on Resume.");
             {   // exclusive fullscreen: the display's own modes, a custom 57.52 Hz one among them
                 int count = 0;
                 SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(SDL_GetDisplayForWindow(window_), &count);

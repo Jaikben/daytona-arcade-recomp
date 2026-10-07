@@ -14,6 +14,7 @@ struct Config {
     std::string gpu;          // "" (automatic), vulkan, direct3d12, metal
     std::string renderer = "software"; // the 3D: software (CPU, exact) or hardware (SDL_GPU)
     bool fullscreen = false;
+    bool hide_cursor = false; // no mouse cursor while the game plays; it shows again in the launcher
     // Exclusive fullscreen in this mode ("WxH@Hz", with "*density" when not
     // 1), or "" for borderless at the desktop's mode.
     std::string fullscreen_mode;

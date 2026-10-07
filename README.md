@@ -105,7 +105,8 @@ opens first:
   is checked against the ROM set this build was recompiled from. Graphics API
   (automatic, Vulkan, Direct3D 12, Metal), Renderer (software, the exact
   CPU renderer; or hardware, on the GPU, experimental), Super sampling
-  (hardware renderer: off, or the 3D drawn at 2x to 4x the original resolution), fullscreen and the
+  (hardware renderer: off, or the 3D drawn at 2x to 4x the original resolution), fullscreen, hide the
+  mouse cursor in game (it shows again in the launcher), the
   fullscreen mode (borderless, or an exclusive resolution and refresh rate),
   frame pacing (all off: the arcade's own speed on any display; smooth
   pacing on a 57.52 Hz display, sync to display, VRR pacing), Draw mode (double buffered,
