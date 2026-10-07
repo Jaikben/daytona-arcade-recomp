@@ -63,10 +63,14 @@ int main() {
         return 1;
     }
     app::Devices devices;
+    pump(devices);
+    // Real joysticks plugged in while the tests run (a wheel, a pad) are
+    // opened too: the counts below are on top of them.
+    const size_t present = devices.joys.size();
     const SDL_JoystickID wheel_id = attach(SDL_JOYSTICK_TYPE_WHEEL, 1, 2, "Test wheel");
     const SDL_JoystickID pedals_id = attach(SDL_JOYSTICK_TYPE_THROTTLE, 2, 0, "Test pedals");
     pump(devices);
-    check(devices.joys.size() == 2, "both virtual devices opened");
+    check(devices.joys.size() == present + 2, "both virtual devices opened");
     SDL_Joystick *wheel = SDL_GetJoystickFromID(wheel_id), *pedals = SDL_GetJoystickFromID(pedals_id);
     check(wheel && pedals, "devices found by id");
     if (!wheel || !pedals) return 1;
@@ -157,6 +161,24 @@ int main() {
     drive.command(0x1f);
     check(drive.effect == Effect::None && drive.force() == 0, "0x1-: no force");
 
+    // The board's own loop on the wheel's position (the centring override).
+    drive.command(0x34); // centring spring, dead zone 2%, full level by 10%
+    const float spring = drive.level(Effect::Centre);
+    check(drive.motor(0.0f) == 0 && drive.motor(0.015f) == 0, "spring: nothing in its dead zone");
+    check(drive.motor(0.5f) == -spring && drive.motor(-0.5f) == spring, "spring: back to the centre at its level");
+    check(std::fabs(drive.motor(0.06f) + spring / 2) < 1e-6f, "spring: half way up its ramp");
+    drive.command(0x3c); // with the wider dead zone
+    check(drive.motor(0.05f) == 0 && drive.motor(0.5f) < 0, "dead-zone spring: 6%");
+    drive.command(0x44);
+    check(drive.motor(0.3f) > 0 && drive.motor(-0.3f) < 0, "uncentring: away from the centre");
+    drive.command(0x64);
+    check(drive.motor(0.7f) == drive.force(), "constant force: as it is");
+    drive.command(0x27);
+    check(drive.motor(0.5f) == 0, "resistance: no direction");
+    drive.command(0x34), drive.command(0x01);
+    check(drive.motor(0.5f) == 0, "motor off: nothing");
+    drive.command(0x0a);
+
     // Force feedback on a steering device without haptics: rumble. The wheel
     // here is replaced by a pad-like joystick that can rumble.
     const SDL_JoystickID rumbler_id = attach(SDL_JOYSTICK_TYPE_GAMEPAD, 2, 4, "Test rumbler", true);
@@ -197,7 +219,7 @@ int main() {
 
     SDL_DetachVirtualJoystick(pedals_id);
     pump(devices);
-    check(devices.joys.size() == 1, "unplugged devices closed");
+    check(devices.joys.size() == present + 1, "unplugged devices closed");
     in = c.sample(no_keys, devices);
     check(in.accel == 0x20, "pedals gone: accelerator up");
 

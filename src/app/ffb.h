@@ -27,8 +27,11 @@ public:
     // Each frame: the drive commands the game sent, the devices, the
     // settings (strength 0..1, 0 = off; invert the turning force; log: the
     // device, failed calls and each command with the game's frame, to stderr).
+    // centring_override (Linux, for drivers without a spring effect): the
+    // springs worked out here from the wheel's position (-1 left .. +1 right,
+    // as the game sees it) and sent in the constant force, not as a spring.
     void update(const std::vector<uint8_t> &commands, const Devices &devices, const Controls &controls, float strength,
-                bool invert, bool log = false, uint64_t frame = 0);
+                bool invert, bool log = false, uint64_t frame = 0, float wheel = 0.0f, bool centring_override = false);
     void stop();  // the game paused: let the wheel go (the board's state is kept for resuming)
     void reset(); // a new game: stop, and the board as at power-on
     void close(); // release the device
@@ -45,6 +48,8 @@ private:
     int spring_ = -1, friction_ = -1, constant_ = -1;
     int sent_[3] = {-1, -1, -1}; // what each effect was last set to: only changes go to the device
     bool running_ = false, stopped_ = false, log_ = false;
+    bool override_ = false; // centring worked out here, sent as constant force
+    float wheel_ = 0.0f;    // the wheel's position, -1 left .. +1 right
     void open(SDL_Joystick *joy);
     void open_haptic();
     void apply(float strength, bool invert);

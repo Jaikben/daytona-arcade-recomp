@@ -523,7 +523,13 @@ int main(int argc, char **argv) {
             }
             // the drive board's commands this frame, as force feedback
             ffb.update(std::exchange(game->board().io().drive_commands, {}), devices, cfg.controls, cfg.ffb_strength,
-                       cfg.ffb_invert, cfg.ffb_log, game->frames());
+                       cfg.ffb_invert, cfg.ffb_log, game->frames(),
+                       (float(game->board().io().inputs.steer) - 128.0f) / 96.0f,
+#ifdef __linux__
+                       cfg.ffb_centring_override); // Linux only: drivers without a spring effect
+#else
+                       false);
+#endif
             launcher.set_ffb_device(ffb.device_kind());
             launcher.set_link_status(link_status(game->board().comm_board(), link.get(), cfg));
             if (game->sound()) {

@@ -23,6 +23,8 @@
 // 0..1 relative to the board's strongest command (at the factory DIP setting).
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace rt {
@@ -62,6 +64,28 @@ struct DriveBoard {
     }
     // The constant force, -1 (left) .. +1 (right).
     float force() const { return level(Effect::Force) * float(direction); }
+
+    // The force the board's own closed loop drives for a wheel at x (-1 full
+    // left .. +1 full right; +1 pushes right), for a host device whose driver
+    // has no spring effect (the launcher's centring override). The springs
+    // push towards the centre, rising over 8% of the travel beyond their dead
+    // zone (2%, or 6% for 0x38-0x3F) to their level: the board's ramp, about
+    // 2 power steps per position step, reaches it within a few percent.
+    // Uncentring pushes away; the constant force is as it is; resistance has
+    // no direction and gives nothing here.
+    float motor(float x) const {
+        switch (effect) {
+        case Effect::Centre:
+        case Effect::CentreDeadZone: {
+            const float dead = effect == Effect::CentreDeadZone ? 0.06f : 0.02f;
+            const float ramp = std::clamp((std::fabs(x) - dead) / 0.08f, 0.0f, 1.0f);
+            return -std::copysign(level(effect) * ramp, x);
+        }
+        case Effect::Uncentre: return std::copysign(level(effect), x); // at the centre: right, as the board's direction 1
+        case Effect::Force: return force();
+        default: return 0.0f;
+        }
+    }
 
 private:
     void set(Effect e, int n) { effect = e, strength = n; }

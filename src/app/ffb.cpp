@@ -103,9 +103,15 @@ void ForceFeedback::close() {
 }
 
 void ForceFeedback::update(const std::vector<uint8_t> &commands, const Devices &devices, const Controls &controls,
-                           float strength, bool invert, bool log, uint64_t frame) {
+                           float strength, bool invert, bool log, uint64_t frame, float wheel, bool centring_override) {
     stopped_ = false;
     log_ = log;
+    wheel_ = std::clamp(wheel, -1.0f, 1.0f);
+    if (centring_override != override_ && log_)
+        std::fprintf(stderr, "daytona: force feedback: centring %s\n",
+                     centring_override ? "worked out from the wheel's position, in the constant force (override)"
+                                       : "through the device's spring");
+    override_ = centring_override;
     for (uint8_t c : commands) {
         if (log_) std::fprintf(stderr, "daytona: force feedback: frame %" PRIu64 ": command %02x\n", frame, c);
         drive_.command(c);
@@ -141,7 +147,11 @@ void ForceFeedback::apply(float strength, bool invert) {
     using Effect = rt::DriveBoard::Effect;
     if (!joy_) return;
     strength = std::clamp(strength, 0.0f, 1.0f);
-    const float force = std::clamp(drive_.force() * (invert ? -1.0f : 1.0f), -1.0f, 1.0f) * strength;
+    // With the centring override the springs come from the board's own loop on
+    // the wheel's position and go out in the constant force; the spring effect
+    // is left at nothing.
+    const float push = override_ && haptic_ ? drive_.motor(wheel_) : drive_.force();
+    const float force = std::clamp(push * (invert ? -1.0f : 1.0f), -1.0f, 1.0f) * strength;
     const float uncentre = drive_.level(Effect::Uncentre) * strength;
     if (!haptic_) {
         if (wants_haptic_) return; // a wheel whose haptics did not open: nothing until they do
@@ -160,8 +170,8 @@ void ForceFeedback::apply(float strength, bool invert) {
     };
     {   // the springs: towards the centre (the dead zone about 6% of the travel,
         // else 2%, as the board's), or away from it as a negative spring
-        const float centre = std::max(drive_.level(Effect::Centre), drive_.level(Effect::CentreDeadZone)) * strength;
-        const auto sat = Uint16(std::lround(std::max(centre, uncentre) * 0xffff));
+        const float centre = override_ ? 0.0f : std::max(drive_.level(Effect::Centre), drive_.level(Effect::CentreDeadZone)) * strength;
+        const auto sat = Uint16(std::lround((override_ ? 0.0f : std::max(centre, uncentre)) * 0xffff));
         const bool away = uncentre > 0;
         const Uint16 deadband = drive_.effect == Effect::CentreDeadZone ? 0x1000 : drive_.effect == Effect::Centre ? 0x0500 : 0;
         SDL_HapticEffect e{};

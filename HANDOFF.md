@@ -567,6 +567,21 @@ Changes are local on psvita-native-frontend; no push to main or PSP.
 
 ## Current state
 
+**Force feedback: centring driver override, Linux (issue #16).** A PS2
+Driving Force on Linux feels crashes but no centring on bends: the kernel's
+Logitech driver offers, as far as known (hid-lg4ff from memory, not checked
+here), constant force and autocentre but no spring, so the board's centring
+spring is never played (autocentre is off: the game centres the wheel).
+rt::DriveBoard::motor(x): the force the board's own closed loop drives for a
+wheel at x (springs towards the centre over 8% beyond a 2%/6% dead zone,
+uncentring away, the constant force as is, resistance nothing). Controls tab,
+Linux only: "Centring driver override" (ffb_centring_override, off); on, the
+constant force carries motor(wheel) from the game's own steer value
+(io().inputs.steer) and the spring effect carries nothing. main passes it on
+Linux only. Also: test_app_controls counted every joystick, so a real wheel
+plugged in failed it (#16); it counts on top of what is there. Tests pass;
+not tried on a wheel without a spring.
+
 **Hide mouse cursor in game (issue #18).** Launcher, Game tab, next to
 Fullscreen: "Hide mouse cursor in game" (hide_cursor, saved, off by default).
 One rule in the main loop, every pass: hidden when the option is on, a game

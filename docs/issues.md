@@ -9,6 +9,7 @@ yet. Line numbers drift; the files and functions named are the reference.
 | [#4](#4-logitech-driving-force-cannot-be-bound-on-linux) | Logitech Driving Force (PS2) cannot be bound on Linux | Confirmed: works with SDL's Logitech driver off. "Legacy Logitech wheel support" setting added |
 | [#7](#7-stutter-and-no-refresh-rate-options) | Stutter; no resolution or refresh-rate options | Four settings added, all off by default (native speed) |
 | [#9](#9-force-feedback-only-rumbles-on-a-direct-drive-wheel) | Force feedback only rumbles on a direct-drive wheel | Commands were decoded wrongly (the centring spring played as a shake). Fixed, confirmed by the reporter on a Simagic Alpha Mini. Enhancements documented, not started |
+| [#16](#16-force-feedback-on-a-driving-force-under-linux-no-centring-on-bends) | Force feedback on a Driving Force under Linux: no centring on bends; a failing test | "Centring driver override" (Linux) added; the test fixed |
 | [#10](#10-sound-effects-too-loud-compared-with-the-music) | Sound effects too loud compared with the music | Music and Effects volumes added, both audio modes |
 | [#6](#6-android-version) | Android version | Android and iOS builds with touch controls merged (PR #14); tested on devices, working |
 
@@ -380,6 +381,45 @@ A new **Audio** tab in the launcher has Volume, Mute, **Music** and
 **Next:** ask the reporter which audio mode they use, and whether Music and
 Effects let them get the balance they remember. Native audio's master gain
 and envelopes are still open.
+
+## #16: Force feedback on a Driving Force under Linux: no centring on bends
+
+**Report (mikefairbank, the #4 reporter):** with the PS2 Driving Force on
+Linux, force feedback is felt on crashes but not round ordinary bends; Invert
+force was needed; the wheel seems to twitch just before a crash; and the
+`app_controls` test failed.
+
+**No centring on bends.** In Daytona the feel through a corner is the board's
+centring spring (0x3-), on all race. A game cannot drive the motor directly:
+it asks the driver for effects, and the Linux kernel's Logitech driver offers
+this wheel, as far as known (from memory of `hid-lg4ff`, not checked here), a
+constant force and its own autocentre, but no spring. The spring is then not
+created, and autocentre is off because the game centres the wheel itself, so
+nothing centres it on bends; crashes come through as constant force. The
+force feedback log's first line (`spring no/yes`) confirms it.
+
+**Done: "Centring driver override"** (Controls tab, Linux only,
+`ffb_centring_override`, off). On, the game's springs are worked out from the
+wheel's position the game sees (`rt::DriveBoard::motor`: towards the centre,
+rising over 8% of the travel beyond the board's dead zone of 2%, or 6% for
+0x38-0x3F, to the spring's level; uncentring away) and sent in the constant
+force; the spring effect is left at nothing. Off, nothing changes, and on
+other systems it is not offered (main ignores the setting outside Linux), so
+the Simagic on Windows (#9) is untouched. Invert force flips the centring with
+the crash pushes, so once crashes push the right way, so does the centring.
+
+**Invert force needed:** left as it is: the Simagic (#9) did not need it, and
+which of 0x5-/0x6- is left on a cabinet is still unknown.
+
+**The twitch before a crash:** each command is played on the frame the game
+sends it, with nothing predicted here, so it comes from the game (its
+collision checks); likely the same on a cabinet.
+
+**The failing test:** `app_controls` counted every joystick, so a wheel plugged
+in while the tests ran made "both virtual devices opened" fail. It now counts
+on top of the devices already there.
+
+**Next:** the reporter to try the override and send the log's first line.
 
 ## #6: Android version
 

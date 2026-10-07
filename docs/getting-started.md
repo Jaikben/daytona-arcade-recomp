@@ -149,7 +149,8 @@ right**, then press each pedal fully and let go for **Accelerate** and
 how strongly the wheel pushes back (Off turns it off); tick **Invert force**
 if the wheel pulls the wrong way. **Legacy Logitech wheel support** (Linux
 and macOS) runs Logitech wheels through the system's driver; the original
-Driving Force needs it. It is on by default on Linux. On macOS it is off,
+Driving Force needs it. It is on by default on Linux. On Linux, if such a wheel pushes on crashes but
+doesn't centre on bends, tick **Centring driver override**. On macOS it is off,
 because SDL's own driver gives the newer Logitech wheels force feedback
 there; tick it if a Logitech wheel is listed but does nothing when you bind
 it. After changing it, restart the game and bind the wheel again.

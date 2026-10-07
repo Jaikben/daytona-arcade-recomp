@@ -533,6 +533,13 @@ Launcher::Result Launcher::draw(bool game_running, const Devices &devices) {
             if (ImGui::Checkbox("Invert force", &cfg_.ffb_invert)) cfg_.save();
             ImGui::SameLine();
             if (ImGui::Checkbox("Log force feedback", &cfg_.ffb_log)) cfg_.save();
+#ifdef __linux__ // for Linux drivers without a spring effect (the kernel's Logitech driver)
+            if (ImGui::Checkbox("Centring driver override", &cfg_.ffb_centring_override)) cfg_.save();
+            ImGui::SetItemTooltip("For a wheel that pushes on crashes but does not centre on bends: its Linux\n"
+                                  "driver has no spring effect (the log's first line says \"spring no\").\n"
+                                  "The game's centring is then worked out here from the wheel's position and\n"
+                                  "sent as a constant force. Leave it off if the wheel already centres.");
+#endif
             ImGui::TextDisabled("The arcade wheel's motor (centring, resistance, the wheel pulling), on the\n"
                                 "device steering is bound to; a gamepad rumbles when the car is pushed. Now: %s.\n"
                                 "Wheels and force feedback are untested on real hardware so far: reports welcome.\n"
