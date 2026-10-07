@@ -101,7 +101,7 @@ private:
     };
 
     // Three bounded allocations replace hundreds of tiny, 256 KiB-rounded blocks.
-    GpuMemoryArena layer_memory_{10u * 1024u * 1024u, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW};
+    GpuMemoryArena layer_memory_{12u * 1024u * 1024u, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW};
     GpuMemoryArena source_memory_{16u * 1024u * 1024u, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW};
     GpuMemoryArena palette_memory_{4u * 1024u * 1024u, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE};
     vita2d_texture *background_ = nullptr;
@@ -130,6 +130,18 @@ private:
              system24_generation_ = UINT64_MAX;
     uint8_t gamma_[256]{};
 
+    float scale_ = 544.0f / 384.0f, offset_x_ = (960.0f - 496.0f * scale_) / 2, offset_y_ = 0;
+    float sx(float x) const { return offset_x_ + x * scale_; }
+    float sy(float y) const { return offset_y_ + y * scale_; }
+    void layout(const rt::Video& video) {
+        scale_ = std::min(960.0f / video.width(), 544.0f / 384.0f);
+        offset_x_ = (960.0f - 496.0f * scale_) / 2;
+        offset_y_ = (544.0f - 384.0f * scale_) / 2;
+    }
+    void draw_layer(vita2d_texture* texture, const rt::Video& video) {
+        vita2d_draw_texture_part_scale(texture, sx(float(-video.wide_margin())), sy(0),
+            0, 0, float(video.width()), 384, scale_, scale_);
+    }
     static constexpr std::size_t kMaterialLimit = 4096;
     // Texture conversion allocates and shades on the CPU. Spread cold-cache
     // work across frames so a new scene cannot stall for 100+ ms at once.

@@ -1,4 +1,5 @@
 #pragma once
+#include "core_policy.h"
 
 #include <SDL.h>
 #include <algorithm>
@@ -32,6 +33,7 @@ public:
 
     bool open(std::unique_ptr<Engine> engine, Clock clock = nullptr) {
         close();
+        applied_core_mask_ = 0;
         if (!engine) return false;
         engine_ = std::move(engine);
         clock_ = clock;
@@ -94,6 +96,7 @@ public:
     }
 
 private:
+    int applied_core_mask_ = 0;
     static_assert(std::atomic<uint32_t>::is_always_lock_free, "native audio needs lock-free 32-bit atomics");
     SDL_AudioDeviceID device_ = 0;
     bool playing_ = false; // owner thread only
@@ -118,6 +121,7 @@ private:
     static void callback(void *context, Uint8 *buffer, int bytes) noexcept {
         if (bytes <= 0) return;
         auto &self = *static_cast<NativeAudio *>(context);
+        apply_core_policy(self.applied_core_mask_);
         std::memset(buffer, 0, size_t(bytes));
         if (self.failed_.load(std::memory_order_relaxed)) return;
         const uint64_t begin = self.clock_ ? self.clock_() : 0;

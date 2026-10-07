@@ -25,8 +25,8 @@ inline float sy(float y) { return y * kScale; }
 } // namespace
 
 GpuFastRenderer::GpuFastRenderer() {
-    background_ = make_texture(layer_memory_, rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
-    foreground_ = make_texture(layer_memory_, rt::Video::W, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
+    background_ = make_texture(layer_memory_, 896, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
+    foreground_ = make_texture(layer_memory_, 896, rt::Video::H, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8, 4);
     if (background_) vita2d_texture_set_filters(background_, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
     if (foreground_) vita2d_texture_set_filters(foreground_, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
     // Model 2's checker flag keeps only odd (native screen x XOR y) pixels.
@@ -154,19 +154,21 @@ void GpuFastRenderer::shutdown() {
 }
 
 void GpuFastRenderer::upload_layer(vita2d_texture *texture, const std::vector<uint32_t> &pixels) {
-    if (!texture || pixels.size() < size_t(rt::Video::W) * rt::Video::H) return;
+    const size_t width = pixels.size() / rt::Video::H;
+    if (!texture || width < rt::Video::W || width > 896) return;
     // libvita2d returns texture stride in BYTES. GPU04 accidentally treated
     // that value as a uint32_t element count, advancing each row four times
     // too far and eventually writing outside CDRAM. Keep the address
     // arithmetic byte-based, then cast only the selected row.
     auto *base = static_cast<uint8_t *>(vita2d_texture_get_datap(texture));
     const size_t stride_bytes = vita2d_texture_get_stride(texture);
-    if (!base || stride_bytes < size_t(rt::Video::W) * sizeof(uint32_t) ||
+    if (!base || stride_bytes < width * sizeof(uint32_t) ||
         (stride_bytes & (alignof(uint32_t) - 1)) != 0) return;
     for (int y = 0; y < rt::Video::H; ++y) {
         auto *row = reinterpret_cast<uint32_t *>(base + size_t(y) * stride_bytes);
-        const uint32_t *src = pixels.data() + size_t(y) * rt::Video::W;
-        for (int x = 0; x < rt::Video::W; ++x) row[x] = swap_rb(src[x]);
+        const uint32_t *src = pixels.data() + size_t(y) * width;
+        for (size_t x = 0; x < width; ++x) row[x] = swap_rb(src[x]);
+        if (width < 896) row[width] = row[width - 1]; // Linear-filter border padding.
     }
 }
 
@@ -185,10 +187,12 @@ void GpuFastRenderer::update_system24_textures(const rt::Video &video) {
 }
 
 bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
-    if (!video.system24_gpu_compatible()) return false;
+    if (!video.system24_gpu_compatible() &&
+        !(foreground ? video.gpu_foreground() : video.gpu_background())) return false;
     if (!foreground) {
         system24_quads_ = 0;
-        vita2d_draw_rectangle(kOffsetX, 0.0f, kSourceW * kScale, kDisplayH, swap_rb(video.system24_pen(0)));
+        vita2d_draw_rectangle(sx(-float(video.wide_margin())), sy(0),
+            video.width() * scale_, rt::Video::H * scale_, swap_rb(video.system24_pen(0)));
     }
     struct Rect { int x0, x1, y0, y1, h, v; };
     auto submit = [&](int source_layer, const std::vector<Rect> &rects) {
@@ -203,7 +207,11 @@ bool GpuFastRenderer::draw_system24(const rt::Video &video, bool foreground) {
         if (!vertices) { ++pool_drops_; return false; }
         size_t out = 0;
         auto vertex = [&](float x, float y, float u, float v) {
-            vertices[out++] = vita2d_texture_vertex{sx(x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
+            // Stretch only backdrop screen coordinates; texture coordinates and
+            // the 3D/HUD projection stay untouched.
+            const float draw_x = !foreground && video.gpu_background() && video.stretch_backdrop()
+                ? x * float(video.width()) / rt::Video::W - video.wide_margin() : x;
+            vertices[out++] = vita2d_texture_vertex{sx(draw_x), sy(y), 0.5f, u / 512.0f, v / 512.0f};
         };
         for (const Rect &r : rects) {
             const float u0 = float(r.x0 + r.h), u1 = float(r.x1 + r.h);
@@ -544,8 +552,20 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
         if (poly.window > video.gpu_windows() || poly.num_vertices < 3 || poly.num_vertices > 8) continue;
         const int renderer = (poly.texheader[0] >> 13) & 3;
         const bool solid_checker = renderer == 0 && (poly.texheader[0] & 0x8000);
-        int clip_l = std::max<int>(poly.viewport[0] + video.render_x(), 0);
-        int clip_r = std::min<int>(poly.viewport[2] + video.render_x(), rt::Video::W - 1);
+        const int margin = video.wide_margin();
+        int hud_dx = 0;
+        if (video.hud_at_edges_active() && poly.z <= rt::Raster::kHudOverlayZ) {
+            rt::GeoPoly projected = poly;
+            for (int i = 0; i < poly.num_vertices; ++i) {
+                const float z = poly.v[i].p[0] + std::numeric_limits<float>::min();
+                projected.v[i].x = float(video.crtc_x() + poly.center[0] + margin) + poly.v[i].x / z;
+                projected.v[i].y = float(384 - poly.center[1] + video.crtc_y()) - poly.v[i].y / z;
+            }
+            hud_dx = video.raster().hud_polygon_offset(projected);
+        }
+        const int wide = poly.viewport[0] <= 0 && poly.viewport[2] >= 495 ? margin : 0;
+        int clip_l = std::max<int>(poly.viewport[0] + video.render_x() - wide + hud_dx, -margin);
+        int clip_r = std::min<int>(poly.viewport[2] + video.render_x() + wide + hud_dx, rt::Video::W + margin - 1);
         int clip_t = std::max<int>((384 - poly.viewport[3]) + video.render_y(), 0);
         int clip_b = std::min<int>((384 - poly.viewport[1]) + video.render_y(), rt::Video::H - 1);
         if (clip_l > clip_r || clip_t > clip_b) continue;
@@ -573,7 +593,7 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
             if (!(pz > 0.0f) || !std::isfinite(pz)) { valid = false; break; }
             const float x = float(video.crtc_x() + poly.center[0]) + poly.v[i].x / pz;
             const float y = float((384 - poly.center[1]) + video.crtc_y()) - poly.v[i].y / pz;
-            p[i].x = sx(x); p[i].y = sy(y);
+            p[i].x = sx(x + float(hud_dx)); p[i].y = sy(y);
             p[i].u = solid_checker ? x * 0.5f : poly.v[i].p[1] / 8.0f;
             p[i].v = solid_checker ? y * 0.5f : poly.v[i].p[2] / 8.0f;
             p[i].q = 1.0f / pz;
@@ -601,6 +621,7 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
             int subdiv = (q_ratio > 3.0f && span > 320.0f) ? 8 :
                          (q_ratio > 1.75f && span > 128.0f) ? 4 :
                          (q_ratio > 1.25f && span > 48.0f) ? 2 : 1;
+            subdiv = texture_error_subdivision(p, poly.num_vertices, subdiv);
             size_t n = size_t(poly.num_vertices - 2) * 3u * size_t(subdiv * subdiv);
             if (batch != Batch::Textured || batch_material != m || batch_count + n > max_batch) flush();
             while (subdiv > 1 && vita2d_pool_free_space() < n * sizeof(vita2d_texture_vertex) + 2048u) {
@@ -677,13 +698,15 @@ void GpuFastRenderer::draw_polygons(rt::Video &video) {
 }
 
 void GpuFastRenderer::draw_exact(rt::Video &video) {
+    layout(video);
     const uint64_t begin = sceKernelGetProcessTimeWide();
     upload_layer(background_, video.screen());
-    vita2d_draw_texture_scale(background_, kOffsetX, 0.0f, kScale, kScale);
+    draw_layer(background_, video);
     last_gpu_ms_ = double(sceKernelGetProcessTimeWide() - begin) / 1000.0;
 }
 
 void GpuFastRenderer::draw(rt::Video &video) {
+    layout(video);
     const uint64_t begin = sceKernelGetProcessTimeWide();
     last_sort_us_ = last_polygon_us_ = last_tile_us_ = last_upload_us_ = 0;
     if (video.system24_gpu_compatible()) {
@@ -698,6 +721,23 @@ void GpuFastRenderer::draw(rt::Video &video) {
         last_upload_us_ = uploaded - begin;
         last_polygon_us_ = polygons - background;
         last_tile_us_ = (background - uploaded) + (foreground - polygons);
+    } else if (video.gpu_background()) {
+        update_system24_textures(video);
+        if (!video.gpu_foreground() && foreground_generation_ != video.foreground_generation()) {
+            upload_layer(foreground_, video.foreground_layer());
+            foreground_generation_ = video.foreground_generation();
+        }
+        const uint64_t uploaded = sceKernelGetProcessTimeWide();
+        draw_system24(video, false);
+        const uint64_t background = sceKernelGetProcessTimeWide();
+        draw_polygons(video);
+        const uint64_t polygons = sceKernelGetProcessTimeWide();
+        if (video.gpu_foreground()) draw_system24(video, true);
+        else draw_layer(foreground_, video);
+        const uint64_t foreground = sceKernelGetProcessTimeWide();
+        last_upload_us_ = uploaded - begin;
+        last_polygon_us_ = polygons - background;
+        last_tile_us_ = (background - uploaded) + (foreground - polygons);
     } else {
         if (background_generation_ != video.background_generation()) {
             upload_layer(background_, video.background_layer());
@@ -707,9 +747,21 @@ void GpuFastRenderer::draw(rt::Video &video) {
             upload_layer(foreground_, video.foreground_layer());
             foreground_generation_ = video.foreground_generation();
         }
-        vita2d_draw_texture_scale(background_, kOffsetX, 0.0f, kScale, kScale);
+        if (video.wide_margin() && video.background_layer().size() == size_t(rt::Video::W) * rt::Video::H) {
+            const float left = sx(-float(video.wide_margin()));
+            const float width = float(video.width()) * scale_;
+            if (video.stretch_backdrop()) {
+                vita2d_draw_texture_part_scale(background_, left, sy(0), 0, 0,
+                    float(rt::Video::W), float(rt::Video::H), width / float(rt::Video::W), scale_);
+            } else {
+                vita2d_draw_rectangle(left, sy(0), width, float(rt::Video::H) * scale_,
+                                     swap_rb(video.background_layer()[0]));
+                vita2d_draw_texture_part_scale(background_, sx(0), sy(0), 0, 0,
+                    float(rt::Video::W), float(rt::Video::H), scale_, scale_);
+            }
+        } else draw_layer(background_, video);
         draw_polygons(video);
-        vita2d_draw_texture_scale(foreground_, kOffsetX, 0.0f, kScale, kScale);
+        draw_layer(foreground_, video);
     }
     last_gpu_ms_ = double(sceKernelGetProcessTimeWide() - begin) / 1000.0;
 }

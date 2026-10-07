@@ -180,6 +180,44 @@ One frame's output is a flat list: polygon (4 verts, screen xyz, uv, colour, tex
 - Sorting: reproduce the hardware's priority/z-sort order first; a z-buffer mode is an enhancement toggle, since hardware ordering artefacts are part of the look.
 - Tilemaps (HUD, speedometer, course map, text) render as a separate layer at native 496x384 and scale with nearest or sharp-bilinear filtering.
 
+**Vita GXM presentation enhancements.** The Vita branch exposes the same
+options described below, but the wide GPU tile capability is currently disabled
+after hardware feedback reported worse speed. Widescreen uses the CPU tile
+composition fallback; original-aspect GPU tiles and GPU 3D remain enabled.
+The GPU tile implementation is retained for profiling, not claimed faster.
+
+The retained implementation supports the same aspect, scenery-distance and
+per-item HUD policies. Original
+mode uses GPU System24 composition. Wide mode now uses the same GXM tile
+compositor for its backdrop, with only background destination x coordinates
+scaled when stretch is enabled. Unstretched margins use palette pen0, like
+the original GXM clear. As in main3044f3b, foreground tiles also use GXM except
+when per-item HUD relocation needs CPU composition. Tile decoding remains CPU.
+Road subdivision additionally measures texture error using main's reciprocal
+depth interpolation, targeting0.5texel edge-midpoint error within the existing
+eight-way cap and pool limits. This remains an affine approximation, not
+main's per-fragment shader, and can add vertex work. The previous Wide2 CPU backdrop remains
+available when the explicit Vita GPU-background capability is disabled.
+Unchanged foreground pixels reuse HUD grouping/uploads. The Vita stretch option
+applies to all wide backdrops; desktop retains its exact 3D-coverage gating. The homogeneous-WVP and wide GPU tile changes were
+withdrawn after IMG_2856 showed missing textured geometry on real hardware.
+The previous affine subdivision path is restored. Road-line wobble and wide-mode
+cost remain unresolved; host matrix tests did not validate actual GXM output. Fixed896x384 layer textures
+cover up to21:9; panel fitting preserves aspect on960x544. The layer arena grows
+from10 to12MiB (32MiB total GPU arenas), without per-frame GPU allocations.
+These options are not a promise of full-speed hardware performance.
+
+**Vita GPU buffering.** Upstream's Double Buffered / Single Buffered / Every
+Third Frame labels select frame skipping, not physical buffer counts. That
+Vita integration was withdrawn after hardware game/audio stutter reports.
+The subsequent configurable physical ring has also been removed after a
+hardware report of 30 FPS. Vita now uses unmodified upstream libvita2d
+presentation and its standard three-surface display queue, with one vblank
+wait in the display callback. There is no buffer selector, ring switching,
+single-surface path or software frame skipping. Old gpu_buffers settings are
+ignored. Native audio stays device-clocked and board timing stays native;
+this rollback is not evidence of 60 FPS on hardware.
+
 **Enhancements (all off by default)**
 
 With every enhancement off the build is the game as MAME runs it; parity checks run that way. When on, an enhancement may change game logic (rules.md, changed 1 Oct 2026: previously "never change game logic", which ruled out widening the game's own culling).
@@ -263,7 +301,19 @@ This section first assumed the board plays centring, jolts, road rumble and off-
 
 **Link play**
 
-The comm board exposes shared RAM that each cabinet reads in a ring. The HLE implements that ring over UDP with lockstep per frame: each peer sends its outgoing block, waits for the others, then advances. LAN first; internet play needs rollback and is out of scope for v1.
+The Revision A comm board exposes shared RAM that each cabinet reads in a
+ring. The implementation imported from MAME's m2comm simulation uses TCP,
+not the originally planned UDP. Each cabinet listens for the preceding one
+and connects to the next; frame synchronization is optional and off by
+default. Vita uses SceNet IPv4 with bounded non-blocking transmit queues
+and the same shared CommBoard protocol. LAN first; internet traversal is
+out of scope. The 1993 set does not support this Revision A link protocol.
+
+The Vita package can contain two native executables, one per recompiled ROM
+set. The options ROM selector replaces the current executable using
+sceAppMgrLoadExec after saving and stopping audio, rather than retaining
+both games in memory. Each set has its own ROM validation, settings, and
+NVRAM directory. Neither ZIP nor any extracted ROM assets are packaged.
 
 ## Reference & validation
 

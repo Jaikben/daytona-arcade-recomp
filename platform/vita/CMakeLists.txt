@@ -28,9 +28,18 @@ option(DAYTONA_VITA_DIAGNOSTICS "GXM startup/performance file logging (faults al
 set_source_files_properties(main_gpu.cpp PROPERTIES COMPILE_DEFINITIONS
     "DAYTONA_VITA_DIAGNOSTICS=$<BOOL:${DAYTONA_VITA_DIAGNOSTICS}>")
 set(DAYTONA_GEN_ROOT "${DAYTONA_ROOT}/build/gen" CACHE PATH "Host-generated i960, TGP and 68000 C++ root")
+set(DAYTONA_VITA_ROMSET "daytona93" CACHE STRING "Native game set: daytona93 or daytona")
+set_property(CACHE DAYTONA_VITA_ROMSET PROPERTY STRINGS daytona93 daytona)
+if(NOT DAYTONA_VITA_ROMSET MATCHES "^(daytona93|daytona)$")
+    message(FATAL_ERROR "Unsupported Vita ROM set")
+endif()
+set(DAYTONA_VITA_REV_A_SELF "" CACHE FILEPATH "Optional Revision A SELF to bundle with daytona93")
+if(NOT DAYTONA_VITA_GPU_FAST AND (NOT DAYTONA_VITA_ROMSET STREQUAL "daytona93" OR DAYTONA_VITA_REV_A_SELF))
+    message(FATAL_ERROR "Revision A and dual-ROM selection require DAYTONA_VITA_GPU_FAST")
+endif()
 set(DAYTONA_VITA_TITLEID "DAYT00093" CACHE STRING "Nine-character Vita title ID")
 if(NOT DAYTONA_VITA_COMPILE_CHECK)
-    foreach(path daytona93/gen_table.cpp daytona93_tgp/tgp_gen.cpp daytona93_snd/snd_gen.cpp)
+    foreach(path ${DAYTONA_VITA_ROMSET}/gen_table.cpp ${DAYTONA_VITA_ROMSET}_tgp/tgp_gen.cpp ${DAYTONA_VITA_ROMSET}_snd/snd_gen.cpp)
         if(NOT EXISTS "${DAYTONA_GEN_ROOT}/${path}")
             message(FATAL_ERROR "Missing ${DAYTONA_GEN_ROOT}/${path}. Run scripts/recompile.py with the HOST compiler first; no game code ships in the repository.")
         endif()
@@ -66,7 +75,7 @@ target_include_directories(vita_ymfm SYSTEM PUBLIC "${YMFM_DIR}")
 target_compile_options(vita_ymfm PRIVATE -w)
 
 # The same native runtime as the desktop; no refcore or interpreter is linked.
-set(RUNTIME_FILES cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import
+set(RUNTIME_FILES enhance cpu tgp m2_tgp_board geo raster video m2_board game_loop zip rom_import
     archive m2_replay_bus lockstep snd_cpu multipcm sound_board native_sample_mixer native_sound_sequencer native_sound_engine
     comm_board)
 set(RUNTIME_SOURCES)
@@ -76,7 +85,7 @@ endforeach()
 add_library(vita_runtime STATIC ${RUNTIME_SOURCES})
 target_include_directories(vita_runtime PUBLIC "${DAYTONA_ROOT}/src")
 target_link_libraries(vita_runtime PUBLIC vita_trace vita_i960 vita_ymfm)
-target_compile_definitions(vita_runtime PUBLIC M2_ROMSET="daytona93") # the set the Vita build is made from
+target_compile_definitions(vita_runtime PUBLIC M2_ROMSET="${DAYTONA_VITA_ROMSET}")
 option(DAYTONA_VITA_RENDER_OPT "Exact tile/layer caching and optimized CPU rasterizer" ON)
 if(DAYTONA_VITA_RENDER_OPT)
     # Public because the flag affects Video/Raster class layouts.
@@ -93,11 +102,14 @@ else()
     set(VITA_SDL_TARGET SDL2::SDL2)
 endif()
 if(DAYTONA_VITA_GPU_FAST)
-    find_path(VITA2D_INCLUDE_DIR vita2d.h PATHS "${VITASDK}/arm-vita-eabi/include" NO_DEFAULT_PATH)
-    find_library(VITA2D_LIBRARY vita2d PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
-    if(NOT VITA2D_INCLUDE_DIR OR NOT VITA2D_LIBRARY)
-        message(FATAL_ERROR "GPU FAST requires libvita2d. Install it with: vdpm libvita2d")
-    endif()
+    include("${CMAKE_CURRENT_SOURCE_DIR}/pinned_vita2d.cmake")
+    set(IMGUI_DIR "${DAYTONA_ROOT}/extern/imgui")
+    add_library(vita_imgui STATIC "${IMGUI_DIR}/imgui.cpp" "${IMGUI_DIR}/imgui_draw.cpp"
+        "${IMGUI_DIR}/imgui_tables.cpp" "${IMGUI_DIR}/imgui_widgets.cpp")
+    target_include_directories(vita_imgui PUBLIC "${IMGUI_DIR}")
+    target_compile_definitions(vita_imgui PRIVATE IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS)
+    target_link_libraries(vita_runtime PUBLIC vita_imgui)
+    set(VITA_BUFFER_LICENSE FILE "${buffered_vita2d_source_SOURCE_DIR}/LICENSE" "licenses/libvita2d.txt")
 endif()
 
 if(DAYTONA_VITA_COMPILE_CHECK)
@@ -110,8 +122,8 @@ if(DAYTONA_VITA_COMPILE_CHECK)
     target_link_libraries(daytona_vita_frontend PRIVATE vita_runtime ${VITA_SDL_TARGET})
     message(STATUS "ROM-free COMPILE CHECK only: no linked game or installable VPK will be produced")
 else()
-    file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${DAYTONA_GEN_ROOT}/daytona93/*.cpp")
-    list(APPEND GEN_SOURCES "${DAYTONA_GEN_ROOT}/daytona93_tgp/tgp_gen.cpp" "${DAYTONA_GEN_ROOT}/daytona93_snd/snd_gen.cpp")
+    file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${DAYTONA_GEN_ROOT}/${DAYTONA_VITA_ROMSET}/*.cpp")
+    list(APPEND GEN_SOURCES "${DAYTONA_GEN_ROOT}/${DAYTONA_VITA_ROMSET}_tgp/tgp_gen.cpp" "${DAYTONA_GEN_ROOT}/${DAYTONA_VITA_ROMSET}_snd/snd_gen.cpp")
     if(DAYTONA_VITA_GPU_FAST)
         add_executable(daytona_vita main_gpu.cpp gpu_fast.cpp ${GEN_SOURCES})
         target_include_directories(daytona_vita PRIVATE "${VITA2D_INCLUDE_DIR}")
@@ -119,8 +131,10 @@ else()
         target_link_libraries(daytona_vita PRIVATE vita_runtime ${VITA_SDL_TARGET} ${VITA2D_LIBRARY}
             SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub ScePgf_stub ScePvf_stub
             SceCommonDialog_stub SceAppMgr_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub
+            SceNet_stub SceNetCtl_stub
+            SceTouch_stub
             freetype png jpeg z pthread m)
-        set(VITA_APP_NAME "Daytona Recomp GPU25")
+        set(VITA_APP_NAME "Daytona Recomp ImGui")
     else()
         add_executable(daytona_vita main.cpp ${GEN_SOURCES})
         target_link_libraries(daytona_vita PRIVATE vita_runtime ${VITA_SDL_TARGET} SceCtrl_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub pthread m)
@@ -129,8 +143,17 @@ else()
     target_link_options(daytona_vita PRIVATE -Wl,--gc-sections)
     set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-unused-label")
     vita_create_self(eboot.bin daytona_vita UNSAFE)
+    set(VITA_OTHER_GAME)
+    if(DAYTONA_VITA_REV_A_SELF)
+        if(NOT DAYTONA_VITA_ROMSET STREQUAL "daytona93" OR NOT EXISTS "${DAYTONA_VITA_REV_A_SELF}")
+            message(FATAL_ERROR "Bundle a built Revision A SELF only into the daytona93 launcher")
+        endif()
+        set(VITA_OTHER_GAME FILE "${DAYTONA_VITA_REV_A_SELF}" "daytona.self")
+    endif()
     vita_create_vpk(daytona_vita.vpk ${DAYTONA_VITA_TITLEID} eboot.bin
-        VERSION "01.23" NAME "${VITA_APP_NAME}"
+        VERSION "01.24" NAME "${VITA_APP_NAME}"
         FILE "${DAYTONA_ROOT}/THIRD_PARTY.md" "licenses/THIRD_PARTY.md"
-        FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md")
+        FILE "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md" "licenses/VITA.md"
+        FILE "${DAYTONA_ROOT}/extern/imgui/LICENSE.txt" "licenses/imgui.txt"
+        ${VITA_BUFFER_LICENSE} ${VITA_OTHER_GAME})
 endif()

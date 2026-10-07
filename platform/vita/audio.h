@@ -1,4 +1,5 @@
 #pragma once
+#include "core_policy.h"
 #include <SDL.h>
 #include "runtime/sound_board.h"
 #include <algorithm>
@@ -18,6 +19,7 @@ public:
     Audio &operator=(const Audio &) = delete;
     ~Audio() { close(); }
     bool open() {
+        applied_core_mask_ = 0;
         SDL_AudioSpec want{}, got{};
         want.freq = 48000; want.format = AUDIO_S16SYS;
         want.channels = 2; want.samples = 1024;
@@ -74,8 +76,10 @@ public:
         fm_ = pcm_ = nullptr; playing_ = false;
     }
 private:
+    int applied_core_mask_ = 0;
     static void callback(void *userdata, Uint8 *buffer, int bytes) {
         auto &self = *static_cast<Audio *>(userdata);
+        apply_core_policy(self.applied_core_mask_);
         std::memset(buffer, 0, size_t(bytes));
         auto *out = reinterpret_cast<int16_t *>(buffer);
         int samples = bytes / int(sizeof(int16_t));

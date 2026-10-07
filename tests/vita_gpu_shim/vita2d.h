@@ -16,6 +16,7 @@ void *vita2d_pool_memalign(unsigned, unsigned);
 void vita2d_draw_rectangle(float, float, float, float, uint32_t);
 void vita2d_draw_array_textured(const vita2d_texture *, int, const vita2d_texture_vertex *, unsigned, uint32_t);
 void vita2d_draw_array(int, const vita2d_color_vertex *, unsigned);
+void vita2d_draw_texture_part_scale(const vita2d_texture *, float, float, float, float, float, float, float, float);
 void vita2d_draw_texture_scale(const vita2d_texture *, float, float, float, float);
 void vita2d_enable_clipping();
 void vita2d_disable_clipping();

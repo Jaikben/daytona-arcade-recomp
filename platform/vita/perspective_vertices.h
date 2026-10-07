@@ -7,6 +7,35 @@ namespace vita {
 
 struct PerspectivePoint { float x, y, u, v, q; };
 
+// Main's shader interpolates (1/z,u/z,v/z), then divides per fragment.
+// The stock Vita 2D shader cannot do that division. Measure the error of
+// affine edge spans in texels instead of selecting detail from depth alone.
+// Preserve the existing eight-way cap and vertex-pool safeguards.
+inline int texture_error_subdivision(const PerspectivePoint *p, int count, int minimum) {
+    for (int n = minimum; n < 8; n *= 2) {
+        bool fits = true;
+        for (int a = 0; a < count && fits; ++a) {
+            for (int b = a + 1; b < count && fits; ++b) {
+                const float dx = p[a].x - p[b].x, dy = p[a].y - p[b].y;
+                if (dx * dx + dy * dy < 4.f || p[a].q == p[b].q) continue;
+                auto uv = [&](float t, bool v) {
+                    const float qa = (1.f - t) * p[a].q, qb = t * p[b].q;
+                    return (qa * (v ? p[a].v : p[a].u) + qb * (v ? p[b].v : p[b].u)) / (qa + qb);
+                };
+                for (int i = 0; i < n && fits; ++i) {
+                    const float t0 = float(i) / n, t1 = float(i + 1) / n;
+                    for (int v = 0; v < 2; ++v) {
+                        const float error = std::abs(uv((t0 + t1) * .5f, v) - (uv(t0, v) + uv(t1, v)) * .5f);
+                        if (!std::isfinite(error) || error > .5f) { fits = false; break; }
+                    }
+                }
+            }
+        }
+        if (fits) return n;
+    }
+    return 8;
+}
+
 // Preserve GPU18's interpolation and triangle order. A tessellated triangle
 // repeats its lattice points up to six times; calculate each point only once
 // in cached CPU memory before copying it into the GPU's vertex pool.

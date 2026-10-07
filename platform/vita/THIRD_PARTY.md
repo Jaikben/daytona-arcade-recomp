@@ -38,3 +38,50 @@ SDK import stubs. No proprietary Sony SDK, firmware binary, font, or shader
 is added. The small menu glyphs and portable SoftFloat configuration are
 project-owned code. The specialization and floating-point policy are
 unchanged from the shared build.
+
+## libvita2d (GPU-fast frontend)
+
+Upstream: https://github.com/xerpi/libvita2d (MIT).
+Source pinned at a8f15ab09d5233f0a4e4ad0e8f6ade0da888cbed.
+Archive SHA-256:97b48d7955882b283d67450936e1ca04aad1549f733141d5b0fa7953cf805bbc.
+CMake fetches this MIT source into the ignored build directory and compiles
+it locally with its existing public homebrew shader objects. The custom
+display-ring adapter has been removed; presentation uses unmodified upstream
+swap_buffers and display synchronization. No shader or matrix changes.
+The compiler includes math.h for the upstream JPEG loader's ceil declaration.
+Upstream source and license are not edited; the license is included in the VPK.
+
+The experimental exported-matrix adapter was withdrawn after real hardware
+lost textured geometry (IMG_2856). Do not assume the host matrix model proves
+the installed GXM shader/viewport behaviour. Recovery uses the original
+libvita2d draw interface without replacing its matrix. Existing shader binaries
+are linked from the public homebrew package; no proprietary compiler is used.
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Sergi Granell (xerpi), xerpi.g.12@gmail.com
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+# ImGui menu integration
+
+The GXM launcher links the same pinned Dear ImGui core recorded in the root
+THIRD_PARTY.md (MIT). Its unmodified core provides widgets/font atlas; the
+Vita input and vita2d draw adapter is project code. The VPK includes
+licenses/imgui.txt. No proprietary shader compiler or additional plugin is
+needed for the menu; it uses libvita2d's existing public homebrew shaders.
