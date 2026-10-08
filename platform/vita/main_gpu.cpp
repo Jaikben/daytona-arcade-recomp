@@ -188,6 +188,27 @@ uint64_t diagnostic_ticks_us() {
     return kProfile ? ticks_us() : 0;
 }
 
+// Clocks of a first launch (no saved settings) and of "defaults": the vitaGL build starts
+// at CPU 444 / GPU 166 MHz, the vita2d build at the stock 333 / 111. The options menu
+// changes them, and the saved choice wins on the next launches. Override at build time
+// with -DDAYTONA_VITA_DEFAULT_CPU_MHZ=... / -DDAYTONA_VITA_DEFAULT_GPU_MHZ=...
+#ifndef DAYTONA_VITA_DEFAULT_CPU_MHZ
+#if DAYTONA_VITA_GPU_GL
+#define DAYTONA_VITA_DEFAULT_CPU_MHZ 444
+#else
+#define DAYTONA_VITA_DEFAULT_CPU_MHZ 333
+#endif
+#endif
+#ifndef DAYTONA_VITA_DEFAULT_GPU_MHZ
+#if DAYTONA_VITA_GPU_GL
+#define DAYTONA_VITA_DEFAULT_GPU_MHZ 166
+#else
+#define DAYTONA_VITA_DEFAULT_GPU_MHZ 111
+#endif
+#endif
+constexpr int kDefaultCpuClock = DAYTONA_VITA_DEFAULT_CPU_MHZ;
+constexpr int kDefaultGpuClock = DAYTONA_VITA_DEFAULT_GPU_MHZ;
+
 struct VitaSettings {
     bool revision_a = std::strcmp(M2_ROMSET, "daytona") == 0;
     bool link_enabled = false, link_sync = false;
@@ -197,8 +218,8 @@ struct VitaSettings {
         return std::to_string(next_ip[0]) + "." + std::to_string(next_ip[1]) + "." +
             std::to_string(next_ip[2]) + "." + std::to_string(next_ip[3]);
     }
-    int cpu_clock = 333;
-    int gpu_clock = 111;
+    int cpu_clock = kDefaultCpuClock;
+    int gpu_clock = kDefaultGpuClock;
     int volume = 80;
     int deadzone = 12;
     int aspect = 0, draw_distance = 0, steer_curve = 0;
@@ -221,8 +242,12 @@ struct VitaSettings {
         };
         static const int cpus[] = {111, 222, 333, 444, 500};
         static const int gpus[] = {41, 77, 111, 166};
-        cpu_clock = valid(cpu_clock, cpus, 5, 333);
-        gpu_clock = valid(gpu_clock, gpus, 4, 111);
+        cpu_clock = valid(cpu_clock, cpus, 5, kDefaultCpuClock);
+        gpu_clock = valid(gpu_clock, gpus, 4, kDefaultGpuClock);
+        static_assert(kDefaultCpuClock == 111 || kDefaultCpuClock == 222 || kDefaultCpuClock == 333 ||
+                      kDefaultCpuClock == 444 || kDefaultCpuClock == 500, "CPU default must be a menu choice");
+        static_assert(kDefaultGpuClock == 41 || kDefaultGpuClock == 77 || kDefaultGpuClock == 111 ||
+                      kDefaultGpuClock == 166, "GPU default must be a menu choice");
         volume = std::clamp(volume, 0, 100);
         deadzone = std::clamp(deadzone, 0, 40);
         aspect = std::clamp(aspect, 0, 3);

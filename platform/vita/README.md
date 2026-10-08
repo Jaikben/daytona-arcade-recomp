@@ -109,7 +109,9 @@ python3 scripts/build_vita.py --gpu-fast --release --fast-inaccuracy --free-core
 
 The GXM frontend options offer CPU 500 MHz and fourth-core scheduling.
 Both require compatible firmware/plugin support; no plugins are installed
-by the game. Defaults remain CPU 333 MHz and fourth core off.
+by the game. Defaults: CPU 444 MHz / GPU 166 MHz in the vitaGL build (`--gpu-gl`),
+CPU 333 MHz / GPU 111 MHz in the vita2d build (`--gpu-fast`), fourth core off (a saved choice wins; RESET DEFAULTS
+in the options goes back to them).
 The CPU option shows actual frequency, and unsuccessful 500 MHz requests
 fall back to requesting 444 MHz. Check your overclock plugin's per-game
 profile if the actual frequency differs from the selection.
@@ -132,7 +134,9 @@ vdpm install sdl2
 
 Follow the SDK's installation documentation at https://vitasdk.org/ for a
 new SDK install. No proprietary SDK or runtime module is required by this
-frontend; it uses SDL2's normal Vita renderer, not PVR/PIB.
+frontend; it uses SDL2's normal Vita renderer, not PVR/PIB. The vitaGL build
+(`--gpu-gl`) also needs `python3 scripts/setup_vitagl.py` once: it builds a pinned
+vitaGL inside the project (see "vitaGL: pinned build and flags" below).
 
 From the repository root, prepare the host build using your own complete
 `daytona93` ROM set in `roms/daytona93.zip` (or `.7z`):
@@ -297,6 +301,7 @@ c++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined \
   tests/test_vita_controls.cpp -o build/test_vita_controls
 build/test_vita_controls
 python3 -m unittest discover -s tests -p test_build_vita.py -v
+python3 -m unittest discover -s tests -p test_setup_vitagl.py -v
 ```
 
 ROM-free ARM compile check (requires VitaSDK, SDL2, and fetched SoftFloat/ymfm):
@@ -408,8 +413,9 @@ Same launcher, options, dual-ROM switching and link play as the GXM build (the I
 menu is drawn through vitaGL, `imgui_vita.h`); widescreen stays a GXM feature for now
 (see "Multicore GPU builds" above).
 
-* Build requirements: vitaGL (built with `HAVE_SHARK=1`), vitaShaRK, mathneon, and
-  `libshacccg.suprx` installed on the console (runtime shader compiler).
+* Build requirements: vitaGL and its libraries, built pinned inside the project by
+  `python3 scripts/setup_vitagl.py` (next section), and `libshacccg.suprx` installed
+  on the console (runtime shader compiler).
 * Polygons follow the Model 2 draw priority, as in the CPU reference renderer (higher
   window first, then smaller z sort key, then newest polygon first). The Model 2 has no
   depth buffer; the GPU one only reproduces that order: each polygon gets one depth from
@@ -421,6 +427,84 @@ menu is drawn through vitaGL, `imgui_vita.h`); widescreen stays a GXM feature fo
   pixels are rejected before their shader runs. `k2DLayersByDepth = false` in
   `gpu_gl.cpp` restores the plain painter order (same image). The menu font never uses
   the depth buffer.
+
+### vitaGL: pinned build and flags
+
+vitaGL, vitaShaRK and the Vita port of math-neon are the work of **Rinnegatamante**
+(math-neon originally by Lachlan Tychsen-Smith), SceShaccCgExt of **Bythos**: thank
+you! This renderer would not exist without them.
+
+```sh
+export VITASDK=/usr/local/vitasdk
+python3 scripts/setup_vitagl.py              # once; again after a pin or flag change
+python3 scripts/build_vita.py --gpu-gl --release
+```
+
+`setup_vitagl.py` clones vitaGL and the libraries it is linked with at fixed commits
+and builds them with the VitaSDK toolchain into `extern/vitagl/` (git-ignored, like the
+rest of `extern/`). A new vitaGL commit upstream therefore never changes or breaks this
+build; moving to one means editing `PINS` in the script and testing on the console.
+
+| Library | Why | Pinned commit |
+| --- | --- | --- |
+| [vitaGL](https://github.com/Rinnegatamante/vitaGL) | the OpenGL ES layer over sceGxm | `dca4b9d143290d78ec043131a19be36c78cdc7b5` (2026-10-07) |
+| [vitaShaRK](https://github.com/Rinnegatamante/vitaShaRK) | runtime shader compiler used by vitaGL (`libshacccg.suprx`) | `df24065e65098b2d1ac533760109ad4367573f28` (2026-08-22) |
+| [math-neon](https://github.com/Rinnegatamante/math-neon) | NEON maths used by vitaGL | `0faab814782c071ff4015527f1ca955ab1ccc470` (2020-07-05) |
+| [SceShaccCgExt](https://github.com/bythos14/SceShaccCgExt) | needed by vitaShaRK | `fb0e9d338525b067f3679ab33571323336493cca` (2026-07-29) |
+
+Only the base VitaSDK is used (toolchain, stubs, taiHEN). Nothing is installed into
+`$VITASDK`, and a vitaGL already installed there is neither used nor changed: the
+script puts its own headers first (`CPATH`) and `platform/vita/CMakeLists.txt` links the
+libraries of `extern/vitagl/install` by full path. The configure step prints which
+vitaGL it uses (`GPU GL: pinned vitaGL <commit> (release: ...)`), and so does the
+summary of `build_vita.py`. Without `extern/vitagl/install` the build falls back to the
+VitaSDK's vitaGL with a warning. A rerun with the same pins, flags and toolchain does
+nothing; `--force` rebuilds, `--print-flags` shows the make flags.
+
+#### Release flags (default, `--profile release`)
+
+Chosen from what `gpu_gl.cpp` actually does: GLSL shaders only (no fixed-function
+pipeline), `GL_TRIANGLES` only, 16-bit indices, no instancing, no framebuffer objects,
+no `glTexSubImage2D` (texture memory written in place after `sceGxmFinish`), one VBO
+pointing at our own GPU memory (`vglBufferData`), all GL calls on the main thread.
+
+| Flag | Effect for this renderer |
+| --- | --- |
+| `NO_DEBUG=1` | No argument validation in every GL call (CPU time on the main core, the busiest one). The renderer checks shader compile/link status itself. |
+| `HAVE_VERTEX_LAYOUT_CACHE=1` | The attribute layout and patched vertex program are cached per (program, VAO, draw type): a draw with an unchanged layout skips `patch_vertex_program`. Our layout changes once per frame, our draws are many. |
+| `HAVE_SHADER_CACHE=1` | The compiled shaders of the 7 programs are cached in `ux0:data/shader_cache/<TITLE_ID>/` (keyed by source hash): only the first boot runs the runtime compiler. |
+| `TEXTURES_SPEEDHACK=1` | No texture use tracking in every draw. What it gives up (the copy on `glTexSubImage2D` of a texture still in use) is never needed: the renderer does not call `glTexSubImage2D`. Freed textures are always released by vitaGL's garbage collector, a few frames later. |
+| `INDICES_SPEEDHACK=1` | Skips per-stream index source setup. Only breaks instanced draws and 32-bit (`GL_UNSIGNED_INT`) indices, which are not used. |
+| `PRIMITIVES_SPEEDHACK=1` | Skips the polygon mode restore after each draw. Only breaks `GL_LINES` / `GL_POINTS`, which are not used. |
+
+
+#### Debug flags (`--profile debug`)
+
+`LOG_ERRORS=1` (GL errors through `sceClibPrintf`) and `HAVE_SHARK_LOG=1` (shader
+compiler messages), with every speed hack off: first thing to try when the vitaGL
+build shows a glitch the GXM build does not. Read the output with a log plugin
+(PrincessLog, for example). `python3 scripts/setup_vitagl.py` alone goes back to the release flags.
+
+#### Testing the script from scratch on a machine that already has vitaGL
+
+The script never reads the vitaGL of the SDK, but to prove it, run it with a copy of
+the SDK that has none, from a fresh clone of the project:
+
+```sh
+# Hard-link copy of the SDK: instant, no extra disk space (same file system).
+cp -al "$VITASDK" /tmp/vitasdk-nogl            # macOS (APFS): cp -Rc
+cd /tmp/vitasdk-nogl/arm-vita-eabi
+rm -f include/vitaGL.h include/vitashark.h include/math_neon.h include/shacccg_ext.h \
+      lib/libvitaGL.a lib/libvitashark.a lib/libmathneon.a lib/libSceShaccCgExt.a
+git clone <this repository> /tmp/daytona-clean && cd /tmp/daytona-clean
+VITASDK=/tmp/vitasdk-nogl python3 scripts/setup_vitagl.py
+VITASDK=/tmp/vitasdk-nogl python3 scripts/setup.py --no-build
+VITASDK=/tmp/vitasdk-nogl python3 scripts/build_vita.py --gpu-gl --compile-check
+rm -rf /tmp/vitasdk-nogl /tmp/daytona-clean      # the real SDK is untouched
+```
+
+`rm` on the copy only removes its own links. The configure output must say `GPU GL:
+pinned vitaGL ...`; with no vitaGL anywhere it would stop with `GPU GL: no vitaGL`.
 
 ### How the 2D layers (System 24) are drawn
 

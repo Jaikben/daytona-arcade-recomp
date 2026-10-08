@@ -66,7 +66,9 @@ extern "C" SceGxmContext *gxm_context; // libvitaGL, gxm.c
 #endif
 
 // Set to 1 ONLY if libvitaGL was built with DRAW_SPEEDHACK=1: that build ignores the
-// 'first' argument of glDrawArrays. A default vitaGL build needs 0.
+// 'first' argument of glDrawArrays. A default vitaGL build needs 0. Not supported with
+// the indexed quads (draw_quads after a draw_range would use moved attribute pointers):
+// scripts/setup_vitagl.py refuses DRAW_SPEEDHACK=1.
 #ifndef DAYTONA_GL_VGL_DRAW_SPEEDHACK
 #define DAYTONA_GL_VGL_DRAW_SPEEDHACK 0
 #endif

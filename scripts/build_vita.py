@@ -9,6 +9,7 @@ This command never executes cross-built importers, copies ROMs, or packages
 ROM data. --compile-check builds objects without ROMs and does not make a VPK.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -126,6 +127,18 @@ def vita_code(host, gen, build, mode, game):
                  "fast_gen": "i960 fast_gen.py rewrite"}[mode] + ", TGP fast mode"
 
 
+def vitagl_summary(prefix):
+    """Which vitaGL a --gpu-gl build links (platform/vita/CMakeLists.txt makes the same choice)."""
+    try:
+        stamp = json.loads((prefix / "build.json").read_text())
+    except (OSError, ValueError):
+        stamp = None
+    if not stamp or not (prefix / "lib/libvitaGL.a").is_file():
+        return "the VitaSDK's (not pinned: run python3 scripts/setup_vitagl.py)"
+    flags = " ".join(f"{k}={v}" for k, v in stamp.get("flags", {}).items())
+    return f"pinned {stamp['pins']['vitaGL'][:10]}, {stamp.get('profile')}: {flags or 'default flags'}"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--host-build-dir", type=Path, default=Path("build"))
@@ -138,7 +151,10 @@ def main(argv=None):
     ap.add_argument("--reference-renderer", action="store_true", help="disable OPT03 renderer changes for comparison")
     gpu = ap.add_mutually_exclusive_group()
     gpu.add_argument("--gpu-fast", action="store_true", help="build experimental vita2d/GXM 3D renderer (requires vdpm libvita2d)")
-    gpu.add_argument("--gpu-gl", action="store_true", help="build experimental vitaGL 3D renderer, Model 2 draw priority (requires vitaGL + vitaShaRK; libshacccg.suprx on the Vita)")
+    gpu.add_argument("--gpu-gl", action="store_true", help="build experimental vitaGL 3D renderer, Model 2 draw priority "
+                     "(vitaGL pinned by scripts/setup_vitagl.py, else the VitaSDK's; libshacccg.suprx on the Vita)")
+    ap.add_argument("--vitagl-dir", type=Path, default=Path("extern/vitagl/install"),
+                    help="--gpu-gl: vitaGL built by scripts/setup_vitagl.py (default extern/vitagl/install)")
     ap.add_argument("--free-core", action="store_true",
                     help="GPU builds: leave the main, geometry, sound and 2D threads unpinned (default: one core each); "
                          "the 4TH CORE option can then take any of them")
@@ -186,6 +202,8 @@ def main(argv=None):
     code = "host-generated (scripts/recompile.py output as is)"
     if args.code and not args.compile_check:
         gen, code = vita_code(host, gen, build, args.code, args.set)
+    vitagl_dir = (ROOT / args.vitagl_dir).resolve()
+    vitagl = vitagl_summary(vitagl_dir) if args.gpu_gl else "-"
     env = os.environ.copy()
     env["VITASDK"] = str(sdk)
     env["PATH"] = str(sdk / "bin") + os.pathsep + env.get("PATH", "")
@@ -200,10 +218,11 @@ def main(argv=None):
          f"-DDAYTONA_VITA_GPU_FAST={'ON' if args.gpu_fast else 'OFF'}",
          f"-DDAYTONA_VITA_GPU_GL={'ON' if args.gpu_gl else 'OFF'}",
          f"-DDAYTONA_VITA_FREE_CORES={'ON' if args.free_core else 'OFF'}",
-         f"-DDAYTONA_VITA_COMPILE_CHECK={'ON' if args.compile_check else 'OFF'}"], env)
+         f"-DDAYTONA_VITA_COMPILE_CHECK={'ON' if args.compile_check else 'OFF'}",
+         *([f"-DDAYTONA_VITAGL_DIR={vitagl_dir}"] if args.gpu_gl else [])], env)
     run(["cmake", "--build", build, "--parallel", args.jobs], env)
     if args.compile_check:
-        print("Compile check complete. No linked game or VPK was built.")
+        print("Compile check complete. No linked game or VPK was built." + (f"\nvitaGL: {vitagl}" if args.gpu_gl else ""))
     else:
         package = build / "daytona_vita.vpk"
         if not package.is_file():
@@ -211,7 +230,7 @@ def main(argv=None):
         mode = "GPU GL (vitaGL)" if args.gpu_gl else ("GPU FAST" if args.gpu_fast else "CPU EXACT")
         cores = ("free (--free-core)" if args.free_core else "pinned: main 0, geometry 1, sound 2") if gpu_build else "-"
         kind = "release (LTO, no logs)" if args.release else ("diagnostics (logs)" if args.diagnostics else "normal (no logs)")
-        print(f"VPK: {package}\nRenderer build: {mode}\nCores: {cores}\nBuild: {kind}\nGame code: {code}\n"
+        print(f"VPK: {package}\nRenderer build: {mode}\nvitaGL: {vitagl}\nCores: {cores}\nBuild: {kind}\nGame code: {code}\n"
               f"ROM location on Vita: ux0:data/{args.set}/{args.set}.zip")
     return 0
 

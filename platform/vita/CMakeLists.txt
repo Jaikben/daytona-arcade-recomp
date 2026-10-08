@@ -162,28 +162,50 @@ if(DAYTONA_VITA_GPU_FAST)
 endif()
 if(DAYTONA_VITA_GPU_GL)
     # vitaGL + runtime shader compiler (vitashark). Needs libshacccg.suprx on the console.
-    find_path(VITAGL_INCLUDE_DIR vitaGL.h PATHS "${VITASDK}/arm-vita-eabi/include" NO_DEFAULT_PATH)
-    # libvitaGL is mandatory. Its helper libraries changed between vitaGL versions
-    # (vitaShaRK was merged into recent vitaGL), so they are linked only when installed.
+    # Preferred: the pinned vitaGL that scripts/setup_vitagl.py builds into extern/vitagl
+    # (release flags in platform/vita/README.md). Plain variables, not find_*() cache
+    # entries: running the script after a first configure needs no fresh build directory.
+    set(DAYTONA_VITAGL_DIR "${DAYTONA_ROOT}/extern/vitagl/install" CACHE PATH
+        "vitaGL built by scripts/setup_vitagl.py; empty = the VitaSDK's own vitaGL")
     set(VITAGL_LIBRARIES)
-    find_library(VITAGL_LIB_vitaGL vitaGL PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
-    if(NOT VITAGL_LIB_vitaGL OR NOT VITAGL_INCLUDE_DIR)
-        message(FATAL_ERROR "GPU GL: libvitaGL.a / vitaGL.h not found in ${VITASDK}/arm-vita-eabi. "
-                "Clone https://github.com/Rinnegatamante/vitaGL, run 'make install' with VITASDK set, "
-                "then delete the build directory (CMake caches failed lookups).")
-    endif()
-    list(APPEND VITAGL_LIBRARIES "${VITAGL_LIB_vitaGL}")
-    foreach(lib vitashark mathneon SceShaccCgExt taihen_stub)
-        find_library(VITAGL_LIB_${lib} ${lib} PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
-        if(VITAGL_LIB_${lib})
-            list(APPEND VITAGL_LIBRARIES "${VITAGL_LIB_${lib}}")
-        else()
-            message(STATUS "GPU GL: optional lib${lib}.a not found (skipped)")
+    if(DAYTONA_VITAGL_DIR AND EXISTS "${DAYTONA_VITAGL_DIR}/lib/libvitaGL.a")
+        set(VITAGL_INCLUDE_DIR "${DAYTONA_VITAGL_DIR}/include")
+        foreach(lib vitaGL vitashark mathneon SceShaccCgExt)
+            if(NOT EXISTS "${DAYTONA_VITAGL_DIR}/lib/lib${lib}.a")
+                message(FATAL_ERROR "GPU GL: ${DAYTONA_VITAGL_DIR}/lib/lib${lib}.a is missing: "
+                        "run python3 scripts/setup_vitagl.py --force")
+            endif()
+            list(APPEND VITAGL_LIBRARIES "${DAYTONA_VITAGL_DIR}/lib/lib${lib}.a")
+        endforeach()
+        list(APPEND VITAGL_LIBRARIES taihen_stub) # SceShaccCgExt (the script checks the SDK has it)
+        include("${DAYTONA_VITAGL_DIR}/vitagl.cmake" OPTIONAL)
+        message(STATUS "GPU GL: pinned vitaGL ${DAYTONA_VITAGL_COMMIT} (${DAYTONA_VITAGL_PROFILE}: "
+                "${DAYTONA_VITAGL_FLAGS}) from ${DAYTONA_VITAGL_DIR}")
+    else()
+        find_path(VITAGL_INCLUDE_DIR vitaGL.h PATHS "${VITASDK}/arm-vita-eabi/include" NO_DEFAULT_PATH)
+        find_library(VITAGL_LIB_vitaGL vitaGL PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
+        if(NOT VITAGL_LIB_vitaGL OR NOT VITAGL_INCLUDE_DIR)
+            message(FATAL_ERROR "GPU GL: no vitaGL. Run python3 scripts/setup_vitagl.py (pinned build "
+                    "into extern/vitagl), then configure again.")
         endif()
-    endforeach()
-    # Link order matters for static archives: vitaGL first, its dependencies after.
+        message(WARNING "GPU GL: using the VitaSDK's vitaGL (${VITAGL_LIB_vitaGL}): not the pinned "
+                "version and unknown build flags. Run python3 scripts/setup_vitagl.py to build the pinned one.")
+        list(APPEND VITAGL_LIBRARIES "${VITAGL_LIB_vitaGL}")
+        # Helper libraries of an unknown vitaGL version: linked when installed.
+        foreach(lib vitashark mathneon SceShaccCgExt taihen_stub)
+            find_library(VITAGL_LIB_${lib} ${lib} PATHS "${VITASDK}/arm-vita-eabi/lib" NO_DEFAULT_PATH)
+            if(VITAGL_LIB_${lib})
+                list(APPEND VITAGL_LIBRARIES "${VITAGL_LIB_${lib}}")
+            else()
+                message(STATUS "GPU GL: optional lib${lib}.a not found (skipped)")
+            endif()
+        endforeach()
+    endif()
+    # Link order matters for static archives: vitaGL first, its dependencies after
+    # (vitashark -> SceShaccCgExt -> taihen / SceShaccCg, as in vitaGL's samples).
     set(VITAGL_LINK_LIBS ${VITAGL_LIBRARIES}
-        SceShaccCg_stub SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub SceSysmodule_stub
+        SceShaccCg_stub SceKernelDmacMgr_stub SceKernelModulemgr_stub
+        SceGxm_stub SceDisplay_stub SceSysmodule_stub SceCommonDialog_stub
         SceCtrl_stub SceAppMgr_stub SceIofilemgr_stub SceProcessmgr_stub ScePower_stub
         SceNet_stub SceNetCtl_stub SceTouch_stub
         SceLibKernel_stub pthread m)
