@@ -85,3 +85,14 @@ THIRD_PARTY.md (MIT). Its unmodified core provides widgets/font atlas; the
 Vita input and vita2d draw adapter is project code. The VPK includes
 licenses/imgui.txt. No proprietary shader compiler or additional plugin is
 needed for the menu; it uses libvita2d's existing public homebrew shaders.
+
+# vitaGL build (`--gpu-gl`)
+
+The vitaGL build links, from the user's VitaSDK installation (not fetched or
+vendored by this project): vitaGL (https://github.com/Rinnegatamante/vitaGL,
+LGPL-3.0) and, when installed, vitaShaRK (LGPL-3.0) and mathneon. Shaders are
+compiled at run time by the console's `libshacccg.suprx`, which the user
+installs; it is not distributed with the game. The same ImGui menu is drawn
+through vitaGL by project code (`imgui_vita.h`, `gl_ui_triangles` in
+`gpu_gl.cpp`). Distributing a VPK of this build statically linked to vitaGL
+carries the LGPL-3.0 obligations (allow relinking with a modified vitaGL).
