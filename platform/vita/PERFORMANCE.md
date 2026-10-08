@@ -30,9 +30,6 @@ From a console perf.log with fine-grained probes (not kept in the sources):
   `sceKernelGetProcessTimeWide` directly (0.70 us per read instead of 1.39 us through SDL
   and a 64-bit division), the same microseconds SDL returned.
 
-Not verified on the console yet: the indexed quads (image and timing) and the FM
-alignment when FM plays.
-
 
 ## Polygon recording: lookups and measurement
 
@@ -90,9 +87,7 @@ alignment when FM plays.
 two sets meant every tile and palette change uploaded twice, slower on the
 console.)
 
-The geometrizer is always pipelined on core 1 (the "1 core / exact image"
-option is gone: menu item, `geo_mode` key in `vita.cfg`, CMake
-`DAYTONA_VITA_GEO_MODE`). The 3D shown is the previous frame's, so the
+The geometrizer is always pipelined on core 1. The 3D shown is the previous frame's, so the
 renderer now shows the previous frame's 2D too: 2D and 3D are in phase again,
 the whole picture one frame (17.4 ms) late.
 
@@ -107,12 +102,6 @@ the whole picture one frame (17.4 ms) late.
   the end of `draw()`, so the board never runs while Video is read; the set
   being written was last drawn one frame earlier, and `gl_begin_frame()` has
   already waited for the GPU.
-* Expected in the race: ~2.3 ms off core 0 (16.4 -> ~15.7 ms with the frame
-  end), core 2 ~12.8 -> ~15.1 ms of its 17.4 ms.
-* perf.log: `2D: wait for the core 2 worker` (core 0, should stay near 0),
-  `2D worker (uploads + rectangles)` under `CORE 2`. Without the thread
-  (`GPU25 2D worker: thread unavailable` in vita-diag.log) the job runs on the
-  main core and is counted in the wait line.
 
 
 ## vitaGL: stutters and repeated frames

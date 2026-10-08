@@ -428,6 +428,26 @@ menu is drawn through vitaGL, `imgui_vita.h`); widescreen stays a GXM feature fo
   `gpu_gl.cpp` restores the plain painter order (same image). The menu font never uses
   the depth buffer.
 
+### Performance on a Vita (vitaGL build)
+
+Measured on a PS Vita at CPU 444 MHz / GPU 166 MHz (bus 222 MHz), default pinned
+cores, `--gpu-gl --fast-inaccuracy`, with the per-core profiler (`perf.log`, written by
+`--diagnostics` builds): 41 windows of 5 s, about 3.5 minutes of racing.
+
+| | Result |
+| --- | --- |
+| Speed | median **57.3 fps** for 57.52 on the arcade (99.6%); 40 of 41 windows at 55 fps or more, 33 at 57 or more; only the first window (start of the race) at 50.8 |
+| Polygons | about 1,200 per frame on average, up to 1,700 |
+| Core 0 (game + drawing) | 74% busy on average, 95% at worst: the limit |
+| Core 1 (geometry) | 53% on average, 71% at worst |
+| Core 2 (sound + 2D) | 78% on average, 87% at worst |
+| Sound | 8 short gaps in 3.5 minutes (start and a few heavy moments), playback speed 99-100% |
+
+So the game runs at (almost) full speed without overclocking plugins: 444 MHz is the
+Vita's highest stock CPU clock. Core 0 has little room left, so a heavy scene can still
+drop a frame. The release build (`--release`: link-time optimization, no profiling) is
+not profiled, but does the same work with less overhead.
+
 ### vitaGL: pinned build and flags
 
 vitaGL, vitaShaRK and the Vita port of math-neon are the work of **Rinnegatamante**
