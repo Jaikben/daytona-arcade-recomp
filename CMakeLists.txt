@@ -205,6 +205,11 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/extern/sdl3/CMakeLists.txt)
     endif()
 
     # Dear ImGui (launcher UI), with its SDL3 and SDL_GPU backends
+    if(NOT ANDROID AND NOT IOS)
+        add_executable(test_gpu_startup tests/test_gpu_startup.cpp)
+        target_include_directories(test_gpu_startup PRIVATE src ${CMAKE_SOURCE_DIR}/extern/sdl3/include)
+        add_test(NAME gpu_startup COMMAND test_gpu_startup)
+    endif()
     set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
     add_library(imgui STATIC
         ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
